@@ -1,0 +1,26 @@
+[project]
+name = "ouro-agent"
+version = "0.1.0"
+description = "Ouro Proof-of-Compute Oracle — autonomous HPC agent on Base"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]",
+    "uvicorn[standard]",
+    "pydantic-ai",
+    "pydantic-settings",
+    "x402[fastapi,evm,httpx]",
+    "web3>=7.0.0",
+    "eth-account",
+    "httpx",
+    "asyncpg",
+    "sqlalchemy[asyncio]>=2.0",
+    "psycopg2-binary",
+    "cdp-sdk",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

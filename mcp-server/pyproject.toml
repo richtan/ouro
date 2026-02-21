@@ -1,0 +1,25 @@
+[project]
+name = "ouro-mcp"
+version = "0.1.0"
+description = "MCP server for Ouro — run verifiable HPC jobs from any AI agent, paid via x402 USDC on Base"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.25",
+    "uvicorn>=0.30",
+    "starlette>=0.37",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+ouro-mcp = "ouro_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ouro_mcp"]

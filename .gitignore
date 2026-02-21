@@ -1,0 +1,27 @@
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/lib/
+
+# Docker
+pgdata/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
