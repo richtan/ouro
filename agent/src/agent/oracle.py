@@ -107,7 +107,14 @@ async def poll_slurm_status(ctx: RunContext[OracleDeps], slurm_job_id: int) -> s
     import asyncio
 
     for attempt in range(60):
-        status = await deps.slurm_client.get_job_status(slurm_job_id)
+        try:
+            status = await deps.slurm_client.get_job_status(slurm_job_id)
+        except Exception as e:
+            if attempt % 5 == 0:
+                deps.event_bus.emit("slurm", f"Poll error for {slurm_job_id}: {e} (retrying)")
+                logger.warning("get_job_status failed (attempt %d): %s", attempt, e)
+            await asyncio.sleep(5)
+            continue
         state = status["state"]
 
         if state == "COMPLETED":

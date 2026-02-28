@@ -68,7 +68,13 @@ All three services (agent, dashboard, mcp-server) are deployed to [Railway](http
 
 ### Deploying
 
-**Important:** This is a monorepo. Each service must be deployed from the project root using `--path-as-root` to scope the build context to the correct subdirectory. Without this flag, Railway sees the monorepo root and fails to detect the service type.
+**Recommended: Use the deploy script** (fetches Slurm controller IP from GCP and sets `SLURMREST_URL` automatically):
+
+```bash
+./deploy/deploy-agent.sh
+```
+
+Or deploy manually (you must set `SLURMREST_URL` to the controller's current external IP):
 
 ```bash
 # Deploy agent
@@ -83,6 +89,8 @@ railway up dashboard --path-as-root --detach
 railway service mcp-server
 railway up mcp-server --path-as-root --detach
 ```
+
+**Important:** This is a monorepo. Each service must be deployed from the project root using `--path-as-root` to scope the build context to the correct subdirectory.
 
 ### Checking build logs
 
@@ -119,7 +127,7 @@ The core Python/FastAPI backend. Runs the autonomous pricing loop, processes job
 | `PROOF_CONTRACT_ADDRESS` | Deployed ProofOfCompute.sol address |
 | `USDC_CONTRACT_ADDRESS` | USDC on Base (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
 | `BUILDER_CODE` | ERC-8021 builder code string |
-| `SLURMREST_URL` | Slurm REST API URL (GCP instance or mock) |
+| `SLURMREST_URL` | Slurm REST URL. Set automatically by `./deploy/deploy-agent.sh`; or set manually for local dev. |
 | `SLURMREST_JWT` | Slurm auth token |
 | `LLM_MODEL` | PydanticAI model (`openai:gpt-4o-mini`) |
 | `OPENAI_API_KEY` | OpenAI API key |

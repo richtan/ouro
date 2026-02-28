@@ -20,6 +20,46 @@ from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
 
+# Max time for oracle agent run (validate + submit + poll 5min + proof)
+ORACLE_RUN_TIMEOUT_S = 900
+
+
+async def recover_stuck_jobs(
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+) -> None:
+    """Reset orphaned jobs on startup.
+
+    - processing: reset to pending (safe retry, not yet submitted to Slurm)
+    - running: mark failed (already in Slurm, we lost the in-flight context)
+    """
+    async with session_maker() as db:
+        # Processing: safe to retry
+        proc_result = await db.execute(
+            update(ActiveJob)
+            .where(ActiveJob.status == "processing")
+            .values(status="pending")
+            .returning(ActiveJob.id)
+        )
+        recovered = proc_result.scalars().all()
+
+        # Running: mark failed (Slurm job may complete but we can't track it)
+        run_result = await db.execute(
+            update(ActiveJob)
+            .where(ActiveJob.status == "running")
+            .values(status="failed")
+            .returning(ActiveJob.id)
+        )
+        failed = run_result.scalars().all()
+
+        await db.commit()
+        if recovered:
+            event_bus.emit("system", f"Recovered {len(recovered)} stuck processing jobs (-> pending)")
+            logger.info("Recovered processing -> pending: %s", [str(r)[:8] for r in recovered])
+        if failed:
+            event_bus.emit("system", f"Marked {len(failed)} orphaned running jobs as failed")
+            logger.info("Orphaned running -> failed: %s", [str(r)[:8] for r in failed])
+
 
 async def process_pending_jobs(
     chain_client: BaseChainClient,
@@ -28,7 +68,10 @@ async def process_pending_jobs(
     event_bus: EventBus,
 ) -> None:
     """Background loop that picks up pending jobs and processes them via the oracle agent."""
+    await recover_stuck_jobs(session_maker, event_bus)
+
     while True:
+        job = None
         try:
             async with session_maker() as db:
                 result = await db.execute(
@@ -75,7 +118,10 @@ async def process_pending_jobs(
                     f"Validate, submit to Slurm, poll until complete, then submit proof on-chain."
                 )
 
-                agent_result = await oracle_agent.run(prompt, deps=deps)
+                agent_result = await asyncio.wait_for(
+                    oracle_agent.run(prompt, deps=deps),
+                    timeout=ORACLE_RUN_TIMEOUT_S,
+                )
                 usage = agent_result.usage()
 
                 llm_cost_usd = estimate_llm_cost(
@@ -143,7 +189,35 @@ async def process_pending_jobs(
                         await db2.commit()
                     event_bus.emit("job", f"Job {str(job.id)[:8]} processing ended: {job_result.status if job_result else 'no result'}")
 
+        except asyncio.TimeoutError as e:
+            event_bus.emit("agent_error", f"Job processor timeout after {ORACLE_RUN_TIMEOUT_S}s: {e}")
+            logger.error("Oracle agent run timed out for job %s", job.id if job else "?")
+            if job is not None:
+                try:
+                    async with session_maker() as err_db:
+                        await err_db.execute(
+                            update(ActiveJob)
+                            .where(ActiveJob.id == job.id)
+                            .values(status="failed")
+                        )
+                        await err_db.commit()
+                    event_bus.emit("job", f"Job {str(job.id)[:8]} failed: timeout")
+                except Exception:
+                    logger.exception("failed to mark job %s as failed (timeout)", job.id)
+            await asyncio.sleep(10)
         except Exception as e:
             event_bus.emit("agent_error", f"Job processor error (recovering): {e}")
             logger.exception("job processor error")
+            if job is not None:
+                try:
+                    async with session_maker() as err_db:
+                        await err_db.execute(
+                            update(ActiveJob)
+                            .where(ActiveJob.id == job.id)
+                            .values(status="failed")
+                        )
+                        await err_db.commit()
+                    event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {e}")
+                except Exception:
+                    logger.exception("failed to mark job %s as failed", job.id)
             await asyncio.sleep(10)

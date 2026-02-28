@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     LLM_PRICE_INPUT_PER_M: float = 0.15
     LLM_PRICE_OUTPUT_PER_M: float = 0.60
 
-    # Slurm
+    # Slurm (SLURMREST_URL set automatically by ./deploy/deploy-agent.sh)
     SLURMREST_URL: str = "http://localhost:6820"
     SLURMREST_JWT: str = ""
 
