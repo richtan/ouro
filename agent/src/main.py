@@ -83,6 +83,11 @@ def _init_x402_server():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from src.db.migrate import run_migrations
+    from src.db.session import engine
+
+    await run_migrations(engine)
+
     event_bus = EventBus()
     chain_client = BaseChainClient()
     slurm_client = SlurmClient()

@@ -164,7 +164,15 @@ export default function JobsPanel() {
   const allJobs: AnyJob[] = [
     ...(jobs.active ?? []).map((j) => ({ ...j, _type: "active" as const })),
     ...(jobs.historical ?? []).map((j) => ({ ...j, _type: "historical" as const })),
-  ];
+  ].sort((a, b) => {
+    const tsA = a._type === "historical"
+      ? new Date((a as HistoricalJob & { _type: "historical" }).completed_at).getTime()
+      : new Date((a as ActiveJob & { _type: "active" }).submitted_at).getTime();
+    const tsB = b._type === "historical"
+      ? new Date((b as HistoricalJob & { _type: "historical" }).completed_at).getTime()
+      : new Date((b as ActiveJob & { _type: "active" }).submitted_at).getTime();
+    return tsB - tsA;
+  });
 
   const completed = (jobs.historical ?? []).length;
   const active = (jobs.active ?? []).length;

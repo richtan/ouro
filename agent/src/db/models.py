@@ -60,6 +60,20 @@ class HistoricalData(Base):
     )
 
 
+class PaymentSession(Base):
+    __tablename__ = "payment_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    status = Column(Text, nullable=False, server_default="pending")
+    script = Column(Text, nullable=False)
+    nodes = Column(Integer, nullable=False)
+    time_limit_min = Column(Integer, nullable=False)
+    price = Column(Text, nullable=False)
+    agent_url = Column(Text)
+    job_id = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
 class AgentCost(Base):
     __tablename__ = "agent_costs"
 

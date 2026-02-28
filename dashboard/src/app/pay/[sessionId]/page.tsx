@@ -8,8 +8,6 @@ import { x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
-const MCP_URL = process.env.NEXT_PUBLIC_MCP_URL ?? "";
-
 interface Session {
   id: string;
   status: string;
@@ -36,7 +34,7 @@ export default function PayPage() {
 
   useEffect(() => {
     if (!sessionId) return;
-    fetch(`${MCP_URL}/api/sessions/${sessionId}`)
+    fetch(`/api/proxy/sessions/${sessionId}`)
       .then((r) => {
         if (!r.ok) throw new Error("Session not found or expired");
         return r.json();
@@ -93,7 +91,7 @@ export default function PayPage() {
       const data = await res.json();
       setJobId(data.job_id);
 
-      await fetch(`${MCP_URL}/api/sessions/${sessionId}/complete`, {
+      await fetch(`/api/proxy/sessions/${sessionId}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: data.job_id }),

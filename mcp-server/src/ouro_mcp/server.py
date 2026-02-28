@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import os
 import sys
-import time
-import uuid
 
 import httpx
 import uvicorn
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
-from starlette.routing import Route
 
 # ---------------------------------------------------------------------------
 # Config
@@ -66,76 +62,40 @@ async def _fetch_job(job_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Payment sessions (in-memory, keyed by session_id)
+# Payment sessions (stored in agent DB via API; survives restarts and replicas)
 # ---------------------------------------------------------------------------
-
-_sessions: dict[str, dict] = {}
-
-SESSION_TTL = 600  # 10 minutes
-
-
-def _create_session(
-    script: str, nodes: int, time_limit_min: int, price: str
-) -> dict:
-    _gc_sessions()
-    session_id = str(uuid.uuid4())
-    session = {
-        "id": session_id,
-        "status": "pending",
-        "script": script,
-        "nodes": nodes,
-        "time_limit_min": time_limit_min,
-        "price": price,
-        "agent_url": _get_api_url(),
-        "job_id": None,
-        "created_at": time.time(),
-    }
-    _sessions[session_id] = session
-    return session
-
-
-def _gc_sessions():
-    now = time.time()
-    expired = [
-        sid for sid, s in _sessions.items()
-        if now - s["created_at"] > SESSION_TTL
-    ]
-    for sid in expired:
-        del _sessions[sid]
 
 
 def _payment_url(session_id: str) -> str:
     return f"{_get_dashboard_url()}/pay/{session_id}"
 
 
-# ---------------------------------------------------------------------------
-# Starlette HTTP handlers for session API
-# ---------------------------------------------------------------------------
+async def _create_session_via_api(
+    script: str, nodes: int, time_limit_min: int, price: str
+) -> dict:
+    """Create a payment session via the agent API (persisted in DB)."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{_get_api_url()}/api/sessions",
+            json={
+                "script": script,
+                "nodes": nodes,
+                "time_limit_min": time_limit_min,
+                "price": price,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
-async def get_session_handler(request):
-    session_id = request.path_params["session_id"]
-    session = _sessions.get(session_id)
-    if not session:
-        return JSONResponse({"error": "not_found"}, status_code=404)
-    return JSONResponse(session)
-
-
-async def complete_session_handler(request):
-    session_id = request.path_params["session_id"]
-    session = _sessions.get(session_id)
-    if not session:
-        return JSONResponse({"error": "not_found"}, status_code=404)
-    body = await request.json()
-    session["job_id"] = body.get("job_id")
-    session["status"] = "paid"
-    return JSONResponse({"status": "ok"})
-
-
-_session_routes = [
-    Route("/api/sessions/{session_id}", get_session_handler),
-    Route("/api/sessions/{session_id}/complete", complete_session_handler, methods=["POST"]),
-]
+async def _get_session_from_api(session_id: str) -> dict | None:
+    """Fetch a payment session from the agent API."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(f"{_get_api_url()}/api/sessions/{session_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +126,9 @@ async def get_job_status(job_id: str) -> dict:
     Args:
         job_id: The job ID or session ID to check
     """
-    session = _sessions.get(job_id)
+    session = await _get_session_from_api(job_id)
     if session:
-        if session["status"] == "pending":
+        if session.get("status") == "pending":
             return {
                 "status": "awaiting_payment",
                 "payment_url": _payment_url(session["id"]),
@@ -202,7 +162,7 @@ async def run_compute_job(
         time_limit_min: Maximum runtime in minutes (default 1)
     """
     quote = await _get_quote(nodes, time_limit_min)
-    session = _create_session(script, nodes, time_limit_min, quote["price"])
+    session = await _create_session_via_api(script, nodes, time_limit_min, quote["price"])
     url = _payment_url(session["id"])
 
     return {
@@ -241,8 +201,6 @@ async def get_price_quote(
 
 def main():
     port = int(os.environ.get("PORT", "8080"))
-
-    mcp._additional_http_routes.extend(_session_routes)
 
     app = mcp.http_app(
         middleware=[

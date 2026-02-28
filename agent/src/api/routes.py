@@ -20,6 +20,7 @@ from src.db.models import (
     AgentCost,
     AttributionLog,
     HistoricalData,
+    PaymentSession,
     WalletSnapshot,
 )
 from src.db.session import get_db
@@ -470,3 +471,79 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
         }
 
     raise HTTPException(404, f"Job {job_id} not found")
+
+
+# ---------------------------------------------------------------------------
+# Payment sessions (for MCP pay flow; stored in DB so they survive restarts)
+# ---------------------------------------------------------------------------
+
+SESSION_TTL_SECONDS = 600  # 10 minutes
+
+
+@router.post("/api/sessions")
+async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
+    """Create a payment session. Called by MCP server."""
+    body = await request.json()
+    script = body.get("script", "")
+    nodes = int(body.get("nodes", 1))
+    time_limit_min = int(body.get("time_limit_min", 1))
+    price = body.get("price", "unknown")
+    session = PaymentSession(
+        status="pending",
+        script=script,
+        nodes=nodes,
+        time_limit_min=time_limit_min,
+        price=price,
+        agent_url=settings.PUBLIC_API_URL or "",
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return {
+        "id": str(session.id),
+        "status": session.status,
+        "script": session.script,
+        "nodes": session.nodes,
+        "time_limit_min": session.time_limit_min,
+        "price": session.price,
+        "agent_url": session.agent_url,
+        "job_id": str(session.job_id) if session.job_id else None,
+    }
+
+
+@router.get("/api/sessions/{session_id}")
+async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Get a payment session. Called by pay page."""
+    from datetime import datetime, timezone
+
+    session = await db.get(PaymentSession, session_id)
+    if not session:
+        raise HTTPException(404, "Session not found or expired")
+    if (datetime.now(timezone.utc) - session.created_at).total_seconds() > SESSION_TTL_SECONDS:
+        raise HTTPException(404, "Session expired")
+    return {
+        "id": str(session.id),
+        "status": session.status,
+        "script": session.script,
+        "nodes": session.nodes,
+        "time_limit_min": session.time_limit_min,
+        "price": session.price,
+        "agent_url": session.agent_url or "",
+        "job_id": str(session.job_id) if session.job_id else None,
+    }
+
+
+@router.post("/api/sessions/{session_id}/complete")
+async def complete_session(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Mark session as paid with job_id. Called by pay page after successful submit."""
+    body = await request.json()
+    session = await db.get(PaymentSession, session_id)
+    if not session:
+        raise HTTPException(404, "Session not found or expired")
+    job_id = body.get("job_id")
+    if not job_id:
+        raise HTTPException(400, "job_id required")
+    session.status = "paid"
+    session.job_id = uuid.UUID(job_id)
+    await db.commit()
+    return {"status": "ok"}

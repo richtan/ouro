@@ -66,30 +66,24 @@ export default function ClusterStatus() {
 
       <div className="space-y-2 max-h-40 overflow-y-auto">
         <div className="stat-label mb-1">Recent Jobs</div>
-        {jobs.active.map((j) => (
-          <div
-            key={j.id}
-            className="flex items-center justify-between text-xs bg-black/20 rounded px-2.5 py-1.5 border border-ouro-border/30"
-          >
-            <span className="font-mono text-ouro-accent">{j.id.slice(0, 8)}</span>
-            <span className="text-ouro-amber uppercase text-[10px] tracking-wider">
-              {j.status}
-            </span>
-            <span className="font-mono text-ouro-muted">${j.price_usdc.toFixed(4)}</span>
-          </div>
-        ))}
-        {jobs.historical.slice(0, 5).map((j) => (
-          <div
-            key={j.id}
-            className="flex items-center justify-between text-xs bg-black/20 rounded px-2.5 py-1.5 border border-ouro-border/30"
-          >
-            <span className="font-mono text-ouro-muted">{j.id.slice(0, 8)}</span>
-            <span className="text-ouro-green uppercase text-[10px] tracking-wider">
-              {j.status}
-            </span>
-            <span className="font-mono text-ouro-muted">${j.price_usdc.toFixed(4)}</span>
-          </div>
-        ))}
+        {[
+          ...jobs.active.map((j) => ({ ...j, _ts: j.submitted_at, _active: true })),
+          ...jobs.historical.map((j) => ({ ...j, _ts: j.completed_at, _active: false })),
+        ]
+          .sort((a, b) => new Date(b._ts).getTime() - new Date(a._ts).getTime())
+          .slice(0, 8)
+          .map((j) => (
+            <div
+              key={j.id}
+              className="flex items-center justify-between text-xs bg-black/20 rounded px-2.5 py-1.5 border border-ouro-border/30"
+            >
+              <span className={`font-mono ${j._active ? "text-ouro-accent" : "text-ouro-muted"}`}>{j.id.slice(0, 8)}</span>
+              <span className={`uppercase text-[10px] tracking-wider ${j._active ? "text-ouro-amber" : "text-ouro-green"}`}>
+                {j.status}
+              </span>
+              <span className="font-mono text-ouro-muted">${j.price_usdc.toFixed(4)}</span>
+            </div>
+          ))}
       </div>
     </div>
   );
