@@ -26,7 +26,7 @@ export default function Home() {
         <WalletBalance />
       </div>
 
-      {/* Revenue Model — prominent positioning for judges */}
+      {/* Revenue Model */}
       <div className="mb-6">
         <RevenueModel />
       </div>
@@ -37,7 +37,7 @@ export default function Home() {
         <SustainabilityGauge />
       </div>
 
-      {/* Jobs Panel — full width, prominent */}
+      {/* Jobs Panel */}
       <div className="mb-6">
         <JobsPanel />
       </div>
@@ -55,7 +55,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="text-center py-6 border-t border-ouro-border">
         <p className="text-xs text-ouro-muted font-body">
-          Built for ETHDenver 2026 &middot; Base Self-Sustaining Agents Bounty
+          Autonomous HPC compute oracle on Base
           &middot; ERC-8021 + ERC-8004 + x402
         </p>
       </footer>

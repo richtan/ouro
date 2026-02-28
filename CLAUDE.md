@@ -1,8 +1,6 @@
 # Ouro — Proof-of-Compute Oracle
 
-A self-sustaining autonomous agent on Base that sells HPC compute via x402, posts on-chain proofs with ERC-8021 Builder Codes, registers its identity via ERC-8004, and exposes a public dashboard proving profitability.
-
-Built for the ETHDenver 2026 Base Self-Sustaining Agents Bounty.
+A self-sustaining autonomous agent on Base that sells HPC compute via x402, posts on-chain proofs with ERC-8021 Builder Codes, registers its identity via ERC-8004, and exposes a public dashboard with real-time P&L.
 
 ## Architecture Overview
 
@@ -496,11 +494,11 @@ No automated test suite currently. Manual verification:
 
 ## Companion Documentation
 
-- **`README.md`** — User/judge-facing overview: live URLs, architecture summary, environment variable tables for all services, deployment instructions, MCP config snippet, Slurm cluster overview, and smart contract deployment.
+- **`README.md`** — Project overview: live URLs, architecture summary, environment variable tables for all services, deployment instructions, MCP config snippet, Slurm cluster overview, and smart contract deployment.
 - **`mcp-server/README.md`** — MCP-specific quick start for Cursor/Claude Desktop, tool reference (run_compute_job, submit_compute_job, get_job_status, get_price_quote), self-hosting instructions, and the browser payment workflow.
 - **`.env.example`** — All environment variables with comments explaining each group. Copy to `.env` for local dev.
 - **`db/01-init.sql`** — Full PostgreSQL schema: all CREATE TABLE statements, indexes, and the monthly partition generator for historical_data.
-- **`db/02-seed.sql`** — Demo seed data for judging readiness: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.
+- **`db/02-seed.sql`** — Sample seed data: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.
 
 ## Workflow Preferences
 

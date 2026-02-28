@@ -1,4 +1,4 @@
--- Pre-seeded demo data for judge readiness
+-- Pre-seeded sample data
 -- Inserts realistic historical jobs, costs, snapshots, and attribution logs
 
 INSERT INTO historical_data (id, slurm_job_id, payload, status, x402_tx_hash, price_usdc, gas_paid_usd, output_hash, proof_tx_hash, builder_reward_usd, compute_duration_s, llm_cost_usd, submitted_at, completed_at)
