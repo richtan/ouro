@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
@@ -39,22 +40,12 @@ class JobResult(BaseModel):
     proof_tx: str | None = None
 
 
-oracle_agent = Agent(
-    settings.LLM_MODEL,
-    deps_type=OracleDeps,
-    output_type=JobResult,
-    system_prompt=(
-        "You are Ouro, a Proof-of-Compute Oracle. You receive compute requests, "
-        "submit them to the HPC cluster, monitor execution, and post verifiable "
-        "proofs on-chain. You MUST use the tools in order: validate -> submit_to_slurm "
-        "-> poll_status -> submit_proof. Report results precisely."
-    ),
-)
+# ---------------------------------------------------------------------------
+# Core implementation functions (used by both fast path and LLM agent)
+# ---------------------------------------------------------------------------
 
 
-@oracle_agent.tool
-async def validate_request(ctx: RunContext[OracleDeps]) -> str:
-    deps = ctx.deps
+async def validate_request_impl(deps: OracleDeps) -> str:
     deps.event_bus.emit("agent", f"Validating request for job {deps.job_id}")
 
     if not deps.script or not deps.script.strip():
@@ -67,9 +58,7 @@ async def validate_request(ctx: RunContext[OracleDeps]) -> str:
     return f"VALID: script={len(deps.script)} chars, nodes={deps.nodes}, time={deps.time_limit_min}min"
 
 
-@oracle_agent.tool
-async def submit_to_slurm(ctx: RunContext[OracleDeps]) -> str:
-    deps = ctx.deps
+async def submit_to_slurm_impl(deps: OracleDeps) -> str:
     deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm")
 
     try:
@@ -101,11 +90,7 @@ async def submit_to_slurm(ctx: RunContext[OracleDeps]) -> str:
         return f"ERROR: {e}"
 
 
-@oracle_agent.tool
-async def poll_slurm_status(ctx: RunContext[OracleDeps], slurm_job_id: int) -> str:
-    deps = ctx.deps
-    import asyncio
-
+async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
     for attempt in range(60):
         try:
             status = await deps.slurm_client.get_job_status(slurm_job_id)
@@ -135,9 +120,7 @@ async def poll_slurm_status(ctx: RunContext[OracleDeps], slurm_job_id: int) -> s
     return "TIMEOUT: polling exceeded 5 minutes"
 
 
-@oracle_agent.tool
-async def submit_onchain_proof(ctx: RunContext[OracleDeps], output_data: str) -> str:
-    deps = ctx.deps
+async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
     deps.event_bus.emit("chain", f"Computing output hash for job {deps.job_id}")
 
     output_hash = hashlib.sha256(output_data.encode()).digest()
@@ -167,3 +150,75 @@ async def submit_onchain_proof(ctx: RunContext[OracleDeps], output_data: str) ->
     except Exception as e:
         deps.event_bus.emit("chain_error", f"Proof submission failed: {e}")
         return f"ERROR: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic fast path — no LLM, direct tool execution
+# ---------------------------------------------------------------------------
+
+
+async def process_job_fast(deps: OracleDeps) -> JobResult:
+    """Execute the standard validate -> submit -> poll -> prove pipeline without an LLM."""
+    validation = await validate_request_impl(deps)
+    if validation.startswith("INVALID"):
+        return JobResult(job_id=deps.job_id, status="failed")
+
+    submission = await submit_to_slurm_impl(deps)
+    if submission.startswith("ERROR"):
+        return JobResult(job_id=deps.job_id, status="failed")
+
+    slurm_job_id = int(submission.split("slurm_job_id=")[1])
+
+    poll_result = await poll_slurm_status_impl(deps, slurm_job_id)
+    if not poll_result.startswith("COMPLETED"):
+        return JobResult(job_id=deps.job_id, status="failed")
+
+    proof_result = await submit_onchain_proof_impl(deps, deps.captured_output)
+    if proof_result.startswith("ERROR"):
+        return JobResult(job_id=deps.job_id, status="completed_no_proof")
+
+    tx_hash = proof_result.split("tx_hash=")[1].split(",")[0]
+    output_hash = proof_result.split("output_hash=")[1]
+    return JobResult(
+        job_id=deps.job_id,
+        status="completed",
+        output_hash=output_hash,
+        proof_tx=tx_hash,
+    )
+
+
+# ---------------------------------------------------------------------------
+# LLM agent (fallback for complex error recovery)
+# ---------------------------------------------------------------------------
+
+oracle_agent = Agent(
+    settings.LLM_MODEL,
+    deps_type=OracleDeps,
+    output_type=JobResult,
+    system_prompt=(
+        "You are Ouro, a Proof-of-Compute Oracle. You receive compute requests, "
+        "submit them to the HPC cluster, monitor execution, and post verifiable "
+        "proofs on-chain. You MUST use the tools in order: validate -> submit_to_slurm "
+        "-> poll_status -> submit_proof. Report results precisely."
+    ),
+)
+
+
+@oracle_agent.tool
+async def validate_request(ctx: RunContext[OracleDeps]) -> str:
+    return await validate_request_impl(ctx.deps)
+
+
+@oracle_agent.tool
+async def submit_to_slurm(ctx: RunContext[OracleDeps]) -> str:
+    return await submit_to_slurm_impl(ctx.deps)
+
+
+@oracle_agent.tool
+async def poll_slurm_status(ctx: RunContext[OracleDeps], slurm_job_id: int) -> str:
+    return await poll_slurm_status_impl(ctx.deps, slurm_job_id)
+
+
+@oracle_agent.tool
+async def submit_onchain_proof(ctx: RunContext[OracleDeps], output_data: str) -> str:
+    return await submit_onchain_proof_impl(ctx.deps, output_data)

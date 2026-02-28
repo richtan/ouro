@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider, http, cookieStorage, createStorage, type State } from "wagmi";
 import { base } from "wagmi/chains";
 import { RainbowKitProvider, darkTheme, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import {
+  metaMaskWallet,
+  coinbaseWallet,
+  walletConnectWallet,
+} from "@rainbow-me/rainbowkit/wallets";
 import "@rainbow-me/rainbowkit/styles.css";
 
 export const config = getDefaultConfig({
@@ -15,6 +20,12 @@ export const config = getDefaultConfig({
   },
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
+  wallets: [
+    {
+      groupName: "Recommended",
+      wallets: [metaMaskWallet, coinbaseWallet, walletConnectWallet],
+    },
+  ],
 });
 
 const queryClient = new QueryClient();

@@ -55,8 +55,8 @@ Ouros/
 │       ├── main.py         # FastAPI app, lifespan, x402 init
 │       ├── config.py       # pydantic-settings (all env vars)
 │       ├── agent/
-│       │   ├── oracle.py   # PydanticAI agent with tools (validate, submit, poll, proof)
-│       │   ├── processor.py # Background job loop, recovery, timeout handling
+│       │   ├── oracle.py   # PydanticAI agent + _impl functions + process_job_fast (deterministic fast path)
+│       │   ├── processor.py # Background job loop with fast path, retry logic, credit issuance
 │       │   ├── loop.py     # Autonomous monitoring loop (wallet, pricing, heartbeat)
 │       │   └── event_bus.py # Pub/sub for SSE events
 │       ├── api/
@@ -68,8 +68,8 @@ Ouros/
 │       │   ├── erc8004.py  # Agent identity registration
 │       │   └── abi.py      # Minimal ABI definitions
 │       ├── db/
-│       │   ├── models.py   # SQLAlchemy models
-│       │   ├── operations.py # complete_job, log_cost, log_attribution
+│       │   ├── models.py   # SQLAlchemy models (ActiveJob, HistoricalData, Credit, AuditLog, etc.)
+│       │   ├── operations.py # complete_job, log_cost, log_attribution, issue_credit, log_audit
 │       │   └── session.py  # Async engine + session maker
 │       └── slurm/
 │           └── client.py   # HTTP client for Slurm REST proxy
@@ -116,7 +116,8 @@ Ouros/
 │   ├── 01-init.sql         # Full schema (tables, indexes, partitions)
 │   └── 02-seed.sql
 ├── deploy/
-│   ├── deploy-agent.sh     # Fetches GCP IP, sets SLURMREST_URL, deploys to Railway
+│   ├── deploy-all.sh       # Deploys all services (or specific ones) to Railway in parallel
+│   ├── deploy-agent.sh     # Fetches GCP IP, sets SLURMREST_URL, deploys agent only
 │   ├── setup-slurm-cluster.sh # Full GCP cluster provisioning (13 phases)
 │   └── slurm/
 │       ├── slurm.conf      # Slurm config (e2-small controller, e2-medium workers)
@@ -125,7 +126,12 @@ Ouros/
 ├── mcp-server/
 │   ├── Dockerfile
 │   ├── pyproject.toml
-│   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote
+│   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote, get_api_endpoint
+├── ouro-sdk/               # Python SDK for programmatic access
+│   ├── pyproject.toml
+│   └── src/ouro_sdk/
+│       ├── client.py       # OuroClient: run, submit, wait, quote, capabilities
+│       └── models.py       # JobResult, Quote dataclasses
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
 ├── .env.example
 └── .gitignore
@@ -136,7 +142,7 @@ Ouros/
 - **x402** — HTTP 402 payment protocol. Agent returns 402 with PAYMENT-REQUIRED header; client signs USDC authorization. Facilitated by Coinbase CDP on mainnet, x402.org on testnet.
 - **ERC-8021** — Builder Code attribution appended to every on-chain transaction calldata. Format: `codesJoined + length(1 byte) + schemaId(0x00) + marker(16 bytes)`. See `agent/src/chain/erc8021.py`.
 - **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent registers itself on startup.
-- **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof.
+- **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
 - **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Apptainer container isolation.
 - **Apptainer** — Container isolation for user scripts on Slurm workers. Base image is ubuntu:22.04 stored at `/ouro-jobs/images/base.sif`.
 
@@ -166,14 +172,18 @@ Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server res
 
 See `db/01-init.sql` for full schema. Key tables:
 
-- **active_jobs** — Jobs currently in the pipeline (pending → processing → running → completed/failed)
+- **active_jobs** — Jobs currently in the pipeline (pending → processing → running → completed/failed). Includes `retry_count` for automatic retry on transient failures (max 2).
 - **historical_data** — Completed jobs archive (partitioned by month via `completed_at`)
 - **agent_costs** — Cost ledger (gas, llm_inference entries)
 - **wallet_snapshots** — Periodic ETH/USDC balance records
 - **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min)
 - **attribution_log** — ERC-8021 builder code records per transaction
+- **credits** — USDC credits issued to wallets when jobs fail after payment (auto-redeemable)
+- **audit_log** — Structured audit trail for all financial events (payment_received, job_completed, credit_issued, errors)
 
 Job status lifecycle: `pending` → `processing` → `running` → `completed` (moved to historical) or `failed`.
+
+On transient failure, jobs with retry_count < 2 are reset to `pending` for automatic retry. After max retries (or permanent failure), the job is marked `failed` and a credit equal to the payment amount is issued to the submitter's wallet.
 
 On startup, the processor runs `recover_stuck_jobs()`: resets `processing` → `pending` and `running` → `failed`.
 
@@ -251,16 +261,15 @@ docker compose up --build
 All three services deploy to Railway as separate services in a single project. Each has its own Dockerfile.
 
 ```bash
-# Recommended: auto-sets SLURMREST_URL from GCP controller IP
+# Deploy all services (fetches Slurm IP from GCP, deploys in parallel)
+./deploy/deploy-all.sh
+
+# Deploy specific services only
+./deploy/deploy-all.sh agent mcp
+
+# Deploy agent only (with Slurm IP refresh)
 ./deploy/deploy-agent.sh
-
-# Manual deployment (must set SLURMREST_URL yourself)
-railway up agent --path-as-root --detach
-railway up dashboard --path-as-root --detach
-railway up mcp-server --path-as-root --detach
 ```
-
-Monorepo: use `--path-as-root` to scope build context to the subdirectory.
 
 Check logs:
 ```bash
@@ -352,6 +361,10 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 | `POST` | `/api/sessions` | None | Create payment session (called by MCP server). Body: `{script, nodes, time_limit_min, price}`. |
 | `GET` | `/api/sessions/{session_id}` | None | Get payment session details. 10-minute TTL; returns 404 if expired. |
 | `POST` | `/api/sessions/{session_id}/complete` | None | Mark session as paid. Body: `{job_id}`. Called by pay page after successful x402 payment. |
+| `GET` | `/health` | None | Liveness probe. Returns `{"status": "ok"}`. |
+| `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
+| `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
+| `GET` | `/api/audit` | None | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
 
 ### Slurm proxy endpoints (defined in `deploy/slurm/slurm_proxy.py`, runs on controller:6820)
 
@@ -438,15 +451,15 @@ MCP tools:
 - `run_compute_job(script, nodes, time_limit_min)` → Returns payment URL + session_id
 - `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
 - `get_price_quote(nodes, time_limit_min)` → Returns price without submitting
+- `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access
 
 ## Common Operations
 
 ### Redeploying after code changes
 ```bash
-# All three services (if all changed):
-./deploy/deploy-agent.sh                    # Agent (also refreshes SLURMREST_URL)
-railway up dashboard --path-as-root --detach
-railway up mcp-server --path-as-root --detach
+./deploy/deploy-all.sh                      # All services (fetches Slurm IP, deploys in parallel)
+./deploy/deploy-all.sh agent mcp            # Specific services only
+./deploy/deploy-agent.sh                    # Agent only (also refreshes SLURMREST_URL)
 ```
 
 ### Running the Slurm setup script after VM resize

@@ -105,12 +105,12 @@ async def _get_session_from_api(session_id: str) -> dict | None:
 mcp = FastMCP(
     "Ouro Compute",
     instructions=(
-        "Ouro is a Proof-of-Compute Oracle that runs verifiable HPC jobs "
-        "on a real Slurm cluster. Payment is in USDC via the x402 protocol "
-        "and results include on-chain proofs on Base.\n\n"
+        "Ouro runs HPC compute jobs on a real Slurm cluster, paid in USDC via x402 on Base.\n\n"
         "Workflow: call run_compute_job -> show the payment_url to the user -> "
         "user pays in browser -> call get_job_status with the session_id to get results.\n\n"
-        "Use get_price_quote to check pricing before committing."
+        "Use get_price_quote to check pricing before committing.\n\n"
+        "The agent API is also x402-compatible for programmatic access — "
+        "call get_api_endpoint to get the direct URL and body schema."
     ),
 )
 
@@ -192,6 +192,34 @@ async def get_price_quote(
         time_limit_min: Maximum runtime in minutes (default 1)
     """
     return await _get_quote(nodes, time_limit_min)
+
+
+@mcp.tool()
+async def get_api_endpoint() -> dict:
+    """Get the direct API endpoint for programmatic compute submission.
+
+    Returns the URL, method, expected body schema, and an example.
+    The endpoint uses the x402 protocol: POST without payment returns 402
+    with price details; POST with a valid payment-signature header creates the job.
+    """
+    return {
+        "url": f"{_get_api_url()}/api/compute/submit",
+        "method": "POST",
+        "payment_protocol": "x402",
+        "network": "eip155:8453",
+        "currency": "USDC",
+        "body_schema": {
+            "script": "string (required) - shell script to execute",
+            "nodes": "int (default 1) - number of compute nodes",
+            "time_limit_min": "int (default 1) - max runtime in minutes",
+            "submitter_address": "string (optional) - your wallet address for job tracking",
+        },
+        "example_body": {
+            "script": "echo hello world",
+            "nodes": 1,
+            "time_limit_min": 1,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -28,5 +28,8 @@ async def run_migrations(engine) -> None:
         await conn.execute(text(
             "ALTER TABLE historical_data ADD COLUMN IF NOT EXISTS submitter_address TEXT"
         ))
+        await conn.execute(text(
+            "ALTER TABLE active_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0"
+        ))
 
     logger.info("Auto-migration complete.")

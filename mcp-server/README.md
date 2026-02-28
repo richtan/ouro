@@ -33,10 +33,12 @@ Restart Cursor. Ask the agent to run a compute job. It returns a one-time paymen
 
 | Tool | Description |
 |---|---|
-| **run_compute_job** | Submit + wait. Returns payment link, then blocks until result. |
-| **submit_compute_job** | Fire-and-forget. Returns payment link + session_id. |
-| **get_job_status** | Poll a job or session by ID. |
+| **run_compute_job** | Submit a job. Returns payment link + session_id. User pays in browser. |
+| **get_job_status** | Poll a job or session by ID. Returns output + proof when complete. |
 | **get_price_quote** | Check pricing without paying. |
+| **get_api_endpoint** | Get the direct API URL and body schema for programmatic access. |
+
+The agent API is x402-compatible — any HTTP client that handles the x402 402→sign→retry flow can submit and pay for jobs programmatically without the MCP server. Use `get_api_endpoint` to discover the URL and expected request format.
 
 ## Self-Hosted
 

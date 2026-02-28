@@ -35,6 +35,7 @@ Ouros/
 ├── contracts/      # Foundry Solidity project
 ├── db/             # SQL schema + seed data
 ├── mcp-server/     # Standalone MCP server for AI agent compute
+├── ouro-sdk/       # Python SDK for programmatic access
 └── deploy/         # Slurm cluster setup scripts
 ```
 
@@ -68,26 +69,17 @@ All three services (agent, dashboard, mcp-server) are deployed to [Railway](http
 
 ### Deploying
 
-**Recommended: Use the deploy script** (fetches Slurm controller IP from GCP and sets `SLURMREST_URL` automatically):
+**Deploy all services:**
+
+```bash
+./deploy/deploy-all.sh                # All three (agent, mcp-server, dashboard)
+./deploy/deploy-all.sh agent mcp      # Specific services only
+```
+
+**Or deploy agent only** (fetches Slurm controller IP from GCP automatically):
 
 ```bash
 ./deploy/deploy-agent.sh
-```
-
-Or deploy manually (you must set `SLURMREST_URL` to the controller's current external IP):
-
-```bash
-# Deploy agent
-railway service agent
-railway up agent --path-as-root --detach
-
-# Deploy dashboard
-railway service dashboard
-railway up dashboard --path-as-root --detach
-
-# Deploy MCP server
-railway service mcp-server
-railway up mcp-server --path-as-root --detach
 ```
 
 **Important:** This is a monorepo. Each service must be deployed from the project root using `--path-as-root` to scope the build context to the correct subdirectory.
@@ -176,6 +168,32 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 Then ask your AI agent: *"Run `echo hello world` on the Ouro cluster"*
 
 The agent will return a one-time payment link. Open it in your browser, connect your wallet, pay USDC on Base, and the job executes on the Slurm cluster. No private keys leave your browser.
+
+The agent API is x402-compatible — any HTTP client that handles the x402 402→sign→retry flow can submit and pay for jobs programmatically without the MCP server.
+
+---
+
+## Python SDK
+
+For programmatic access from Python scripts:
+
+```bash
+pip install ouro-sdk
+```
+
+```python
+from ouro_sdk import OuroClient
+
+async with OuroClient() as ouro:
+    quote = await ouro.quote(nodes=1, time_limit_min=1)
+    print(f"Price: {quote.price}")
+
+    job_id = await ouro.submit("echo hello world")
+    result = await ouro.wait(job_id)
+    print(result.status, result.output)
+```
+
+See [`ouro-sdk/README.md`](ouro-sdk/README.md) for full API docs.
 
 ---
 

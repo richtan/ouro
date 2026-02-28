@@ -29,6 +29,7 @@ class ActiveJob(Base):
     slurm_job_id = Column(Integer)
     payload = Column(JSONB, nullable=False)
     status = Column(Text, nullable=False, server_default="pending")
+    retry_count = Column(Integer, nullable=False, server_default="0")
     x402_tx_hash = Column(Text)
     price_usdc = Column(Numeric(18, 6), nullable=False)
     client_builder_code = Column(Text)
@@ -102,4 +103,27 @@ class AttributionLog(Base):
     codes = Column(ARRAY(Text), nullable=False)
     is_multi = Column(Boolean, Computed("array_length(codes, 1) > 1", persisted=True))
     gas_used = Column(Numeric(30, 0))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class Credit(Base):
+    __tablename__ = "credits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    wallet_address = Column(Text, nullable=False, index=True)
+    amount_usdc = Column(Numeric(18, 6), nullable=False)
+    reason = Column(Text)
+    redeemed = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_type = Column(Text, nullable=False, index=True)
+    job_id = Column(UUID(as_uuid=True))
+    wallet_address = Column(Text)
+    amount_usdc = Column(Numeric(18, 6))
+    detail = Column(JSONB)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

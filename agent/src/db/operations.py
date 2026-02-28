@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from sqlalchemy import insert
+import uuid as _uuid
+
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import ActiveJob, AgentCost, AttributionLog, HistoricalData
+from src.db.models import (
+    ActiveJob,
+    AgentCost,
+    AttributionLog,
+    AuditLog,
+    Credit,
+    HistoricalData,
+)
 
 
 async def complete_job(
@@ -61,5 +70,73 @@ async def log_attribution(
     gas_used: int | None = None,
 ) -> None:
     entry = AttributionLog(tx_hash=tx_hash, codes=codes, gas_used=gas_used)
+    db.add(entry)
+    await db.commit()
+
+
+async def issue_credit(
+    db: AsyncSession,
+    wallet_address: str,
+    amount_usdc: float,
+    reason: str,
+) -> None:
+    """Issue a USDC credit to a wallet (e.g. after a failed job)."""
+    credit = Credit(
+        wallet_address=wallet_address.lower(),
+        amount_usdc=amount_usdc,
+        reason=reason,
+    )
+    db.add(credit)
+    await db.commit()
+
+
+async def get_available_credit(db: AsyncSession, wallet_address: str) -> float:
+    """Sum of unredeemed credits for a wallet."""
+    result = await db.execute(
+        select(func.coalesce(func.sum(Credit.amount_usdc), 0)).where(
+            Credit.wallet_address == wallet_address.lower(),
+            Credit.redeemed.is_(False),
+        )
+    )
+    return float(result.scalar_one())
+
+
+async def redeem_credits(
+    db: AsyncSession, wallet_address: str, amount_usdc: float
+) -> None:
+    """Mark credits as redeemed up to the given amount (oldest first)."""
+    remaining = amount_usdc
+    result = await db.execute(
+        select(Credit)
+        .where(
+            Credit.wallet_address == wallet_address.lower(),
+            Credit.redeemed.is_(False),
+        )
+        .order_by(Credit.created_at)
+    )
+    for credit in result.scalars():
+        if remaining <= 0:
+            break
+        credit.redeemed = True
+        remaining -= float(credit.amount_usdc)
+    await db.commit()
+
+
+async def log_audit(
+    db: AsyncSession,
+    event_type: str,
+    job_id: _uuid.UUID | str | None = None,
+    wallet_address: str | None = None,
+    amount_usdc: float | None = None,
+    detail: dict | None = None,
+) -> None:
+    """Write a structured audit log entry."""
+    entry = AuditLog(
+        event_type=event_type,
+        job_id=_uuid.UUID(str(job_id)) if job_id else None,
+        wallet_address=wallet_address,
+        amount_usdc=amount_usdc,
+        detail=detail,
+    )
     db.add(entry)
     await db.commit()

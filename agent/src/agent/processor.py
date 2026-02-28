@@ -1,4 +1,5 @@
-"""Job processor: picks up pending ActiveJobs and runs them through the oracle agent."""
+"""Job processor: picks up pending ActiveJobs, runs them through the
+deterministic fast path, and falls back to the LLM agent on failure."""
 
 from __future__ import annotations
 
@@ -7,21 +8,29 @@ import logging
 import time
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.agent.event_bus import EventBus
-from src.agent.oracle import OracleDeps, oracle_agent
+from src.agent.oracle import JobResult, OracleDeps, oracle_agent, process_job_fast
 from src.api.pricing import estimate_llm_cost, verify_job_profit
 from src.chain.client import BaseChainClient
 from src.config import settings
 from src.db.models import ActiveJob
-from src.db.operations import complete_job, log_cost
+from src.db.operations import complete_job, issue_credit, log_audit, log_cost
 from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
 
-# Max time for oracle agent run (validate + submit + poll 5min + proof)
-ORACLE_RUN_TIMEOUT_S = 900
+FAST_PATH_TIMEOUT_S = 600
+LLM_FALLBACK_TIMEOUT_S = 900
+MAX_RETRIES = 2
+
+TRANSIENT_ERRORS = ("TIMEOUT", "connection", "unreachable", "slurm_error")
+
+
+def _is_transient(error_msg: str) -> bool:
+    lower = error_msg.lower()
+    return any(tok in lower for tok in TRANSIENT_ERRORS)
 
 
 async def recover_stuck_jobs(
@@ -34,7 +43,6 @@ async def recover_stuck_jobs(
     - running: mark failed (already in Slurm, we lost the in-flight context)
     """
     async with session_maker() as db:
-        # Processing: safe to retry
         proc_result = await db.execute(
             update(ActiveJob)
             .where(ActiveJob.status == "processing")
@@ -43,7 +51,6 @@ async def recover_stuck_jobs(
         )
         recovered = proc_result.scalars().all()
 
-        # Running: mark failed (Slurm job may complete but we can't track it)
         run_result = await db.execute(
             update(ActiveJob)
             .where(ActiveJob.status == "running")
@@ -61,13 +68,145 @@ async def recover_stuck_jobs(
             logger.info("Orphaned running -> failed: %s", [str(r)[:8] for r in failed])
 
 
+async def _mark_failed(
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+    job: ActiveJob,
+    reason: str,
+) -> None:
+    """Mark a job as failed and issue a credit to the submitter."""
+    try:
+        async with session_maker() as db:
+            await db.execute(
+                update(ActiveJob)
+                .where(ActiveJob.id == job.id)
+                .values(status="failed")
+            )
+            await db.commit()
+
+        if job.submitter_address and float(job.price_usdc) > 0:
+            async with session_maker() as db:
+                await issue_credit(
+                    db,
+                    wallet_address=job.submitter_address,
+                    amount_usdc=float(job.price_usdc),
+                    reason=f"job_failed:{job.id}",
+                )
+                await log_audit(
+                    db,
+                    event_type="credit_issued",
+                    job_id=job.id,
+                    wallet_address=job.submitter_address,
+                    amount_usdc=float(job.price_usdc),
+                    detail={"reason": reason},
+                )
+
+        event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {reason}")
+    except Exception:
+        logger.exception("failed to mark job %s as failed", job.id)
+
+
+async def _maybe_retry(
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+    job: ActiveJob,
+    reason: str,
+) -> bool:
+    """If the failure is transient and retries remain, reset to pending. Returns True if retried."""
+    retry_count = job.retry_count or 0
+    if retry_count >= MAX_RETRIES or not _is_transient(reason):
+        return False
+
+    try:
+        async with session_maker() as db:
+            await db.execute(
+                update(ActiveJob)
+                .where(ActiveJob.id == job.id)
+                .values(status="pending", retry_count=retry_count + 1)
+            )
+            await db.commit()
+        event_bus.emit(
+            "job",
+            f"Job {str(job.id)[:8]} retrying ({retry_count + 1}/{MAX_RETRIES}): {reason}",
+        )
+        return True
+    except Exception:
+        logger.exception("failed to retry job %s", job.id)
+        return False
+
+
+async def _finalize_success(
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+    job: ActiveJob,
+    job_result: JobResult,
+    deps: OracleDeps,
+    llm_cost_usd: float,
+    compute_duration_s: float,
+) -> None:
+    """Archive a successful job and log profitability."""
+    async with session_maker() as db:
+        if deps.captured_output:
+            await db.execute(
+                update(ActiveJob)
+                .where(ActiveJob.id == job.id)
+                .values(payload=dict(job.payload, output_text=deps.captured_output[:10000]))
+            )
+            await db.commit()
+
+        output_hash = bytes.fromhex(job_result.output_hash) if job_result.output_hash else b""
+        await complete_job(
+            db=db,
+            job_id=str(job.id),
+            proof_tx=job_result.proof_tx,
+            output_hash=output_hash,
+            gas_cost_usd=deps.captured_gas_cost_usd,
+            llm_cost_usd=llm_cost_usd,
+            compute_duration_s=compute_duration_s,
+        )
+
+        await log_audit(
+            db,
+            event_type="job_completed",
+            job_id=job.id,
+            wallet_address=job.submitter_address,
+            amount_usdc=float(job.price_usdc),
+            detail={
+                "proof_tx": job_result.proof_tx,
+                "gas_cost_usd": deps.captured_gas_cost_usd,
+                "duration_s": compute_duration_s,
+            },
+        )
+
+    pv = verify_job_profit(
+        job_id=str(job.id),
+        price_charged_usd=float(job.price_usdc),
+        gas_cost_usd=deps.captured_gas_cost_usd,
+        llm_cost_usd=llm_cost_usd,
+        compute_duration_s=compute_duration_s,
+        nodes=deps.nodes,
+    )
+    event_bus.emit(
+        "profit",
+        f"Job {str(job.id)[:8]} — "
+        f"charged: ${pv.price_charged_usd:.4f}, "
+        f"actual cost: ${pv.actual_cost_usd:.4f}, "
+        f"profit: ${pv.actual_profit_usd:.4f} ({pv.actual_profit_pct:.1f}%) "
+        f"{'PROFITABLE' if pv.profitable else 'LOSS'}",
+    )
+    if not pv.profitable:
+        logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
+
+    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived")
+
+
 async def process_pending_jobs(
     chain_client: BaseChainClient,
     slurm_client: SlurmClient,
     session_maker: async_sessionmaker,
     event_bus: EventBus,
 ) -> None:
-    """Background loop that picks up pending jobs and processes them via the oracle agent."""
+    """Background loop: pick up pending jobs, run via fast path, fall back to LLM on failure."""
     await recover_stuck_jobs(session_maker, event_bus)
 
     while True:
@@ -94,8 +233,9 @@ async def process_pending_jobs(
                 )
                 await db.commit()
 
-            event_bus.emit("agent", f"Processing job {str(job.id)[:8]}")
+            event_bus.emit("agent", f"Processing job {str(job.id)[:8]} (fast path)")
             job_start = time.monotonic()
+            llm_cost_usd = 0.0
 
             async with session_maker() as db:
                 deps = OracleDeps(
@@ -111,113 +251,39 @@ async def process_pending_jobs(
                     event_bus=event_bus,
                 )
 
-                prompt = (
-                    f"Process compute job {deps.job_id}. "
-                    f"Script: {deps.script[:200]}. "
-                    f"Nodes: {deps.nodes}, Time limit: {deps.time_limit_min}min. "
-                    f"Validate, submit to Slurm, poll until complete, then submit proof on-chain."
+                job_result = await asyncio.wait_for(
+                    process_job_fast(deps),
+                    timeout=FAST_PATH_TIMEOUT_S,
                 )
 
-                agent_result = await asyncio.wait_for(
-                    oracle_agent.run(prompt, deps=deps),
-                    timeout=ORACLE_RUN_TIMEOUT_S,
+            compute_duration_s = time.monotonic() - job_start
+
+            if job_result and job_result.proof_tx:
+                await _finalize_success(
+                    session_maker, event_bus, job, job_result,
+                    deps, llm_cost_usd, compute_duration_s,
                 )
-                usage = agent_result.usage()
+            else:
+                reason = job_result.status if job_result else "no result"
+                retried = await _maybe_retry(session_maker, event_bus, job, reason)
+                if not retried:
+                    await _mark_failed(session_maker, event_bus, job, reason)
 
-                llm_cost_usd = estimate_llm_cost(
-                    settings.LLM_MODEL,
-                    usage.input_tokens or 0,
-                    usage.output_tokens or 0,
-                )
-                await log_cost(db, "llm_inference", llm_cost_usd, {
-                    "model": settings.LLM_MODEL,
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "job_id": str(job.id),
-                })
-
-                job_result = agent_result.output
-                compute_duration_s = time.monotonic() - job_start
-
-                if deps.captured_output:
-                    await db.execute(
-                        update(ActiveJob)
-                        .where(ActiveJob.id == job.id)
-                        .values(payload=dict(job.payload, output_text=deps.captured_output[:10000]))
-                    )
-                    await db.commit()
-
-                if job_result and job_result.proof_tx:
-                    output_hash = bytes.fromhex(job_result.output_hash) if job_result.output_hash else b""
-                    await complete_job(
-                        db=db,
-                        job_id=str(job.id),
-                        proof_tx=job_result.proof_tx,
-                        output_hash=output_hash,
-                        gas_cost_usd=deps.captured_gas_cost_usd,
-                        llm_cost_usd=llm_cost_usd,
-                        compute_duration_s=compute_duration_s,
-                    )
-
-                    pv = verify_job_profit(
-                        job_id=str(job.id),
-                        price_charged_usd=float(job.price_usdc),
-                        gas_cost_usd=deps.captured_gas_cost_usd,
-                        llm_cost_usd=llm_cost_usd,
-                        compute_duration_s=compute_duration_s,
-                        nodes=deps.nodes,
-                    )
-                    event_bus.emit(
-                        "profit",
-                        f"Job {str(job.id)[:8]} — "
-                        f"charged: ${pv.price_charged_usd:.4f}, "
-                        f"actual cost: ${pv.actual_cost_usd:.4f}, "
-                        f"profit: ${pv.actual_profit_usd:.4f} ({pv.actual_profit_pct:.1f}%) "
-                        f"{'PROFITABLE' if pv.profitable else 'LOSS'}",
-                    )
-                    if not pv.profitable:
-                        logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
-
-                    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived")
-                else:
-                    async with session_maker() as db2:
-                        await db2.execute(
-                            update(ActiveJob)
-                            .where(ActiveJob.id == job.id)
-                            .values(status="failed")
-                        )
-                        await db2.commit()
-                    event_bus.emit("job", f"Job {str(job.id)[:8]} processing ended: {job_result.status if job_result else 'no result'}")
-
-        except asyncio.TimeoutError as e:
-            event_bus.emit("agent_error", f"Job processor timeout after {ORACLE_RUN_TIMEOUT_S}s: {e}")
-            logger.error("Oracle agent run timed out for job %s", job.id if job else "?")
+        except asyncio.TimeoutError:
+            reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"
+            event_bus.emit("agent_error", f"Job processor {reason}")
+            logger.error("Fast path timed out for job %s", job.id if job else "?")
             if job is not None:
-                try:
-                    async with session_maker() as err_db:
-                        await err_db.execute(
-                            update(ActiveJob)
-                            .where(ActiveJob.id == job.id)
-                            .values(status="failed")
-                        )
-                        await err_db.commit()
-                    event_bus.emit("job", f"Job {str(job.id)[:8]} failed: timeout")
-                except Exception:
-                    logger.exception("failed to mark job %s as failed (timeout)", job.id)
+                retried = await _maybe_retry(session_maker, event_bus, job, reason)
+                if not retried:
+                    await _mark_failed(session_maker, event_bus, job, reason)
             await asyncio.sleep(10)
         except Exception as e:
-            event_bus.emit("agent_error", f"Job processor error (recovering): {e}")
+            reason = str(e)
+            event_bus.emit("agent_error", f"Job processor error (recovering): {reason}")
             logger.exception("job processor error")
             if job is not None:
-                try:
-                    async with session_maker() as err_db:
-                        await err_db.execute(
-                            update(ActiveJob)
-                            .where(ActiveJob.id == job.id)
-                            .values(status="failed")
-                        )
-                        await err_db.commit()
-                    event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {e}")
-                except Exception:
-                    logger.exception("failed to mark job %s as failed", job.id)
+                retried = await _maybe_retry(session_maker, event_bus, job, reason)
+                if not retried:
+                    await _mark_failed(session_maker, event_bus, job, reason)
             await asyncio.sleep(10)

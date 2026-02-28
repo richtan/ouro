@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
+from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -19,10 +21,12 @@ from src.db.models import (
     ActiveJob,
     AgentCost,
     AttributionLog,
+    AuditLog,
     HistoricalData,
     PaymentSession,
     WalletSnapshot,
 )
+from src.db.operations import get_available_credit, log_audit, redeem_credits
 from src.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -32,12 +36,114 @@ _event_bus: EventBus | None = None
 _chain_client: BaseChainClient | None = None
 _resource_server = None
 
+MAX_SCRIPT_SIZE = 65_536
+MAX_ACTIVE_JOBS_PER_WALLET = 20
+
+
+# ---------------------------------------------------------------------------
+# Price cache — ensures x402 402→retry uses the same price
+# ---------------------------------------------------------------------------
+
+class _PriceCache:
+    def __init__(self, ttl: float = 30.0, max_size: int = 100):
+        self._cache: OrderedDict = OrderedDict()
+        self._ttl = ttl
+        self._max_size = max_size
+
+    def get(self, key: tuple):
+        entry = self._cache.get(key)
+        if entry and time.monotonic() - entry["ts"] < self._ttl:
+            self._cache.move_to_end(key)
+            return entry["quote"]
+        if entry:
+            del self._cache[key]
+        return None
+
+    def set(self, key: tuple, quote):
+        self._cache[key] = {"quote": quote, "ts": time.monotonic()}
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
+
+
+_price_cache = _PriceCache()
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter — per-wallet + global sliding window
+# ---------------------------------------------------------------------------
+
+class _RateLimiter:
+    def __init__(self, per_key_limit: int = 10, global_limit: int = 100, window_s: float = 60.0):
+        self._per_key: dict[str, list[float]] = {}
+        self._global: list[float] = []
+        self._per_key_limit = per_key_limit
+        self._global_limit = global_limit
+        self._window = window_s
+
+    def _prune(self, timestamps: list[float], now: float) -> list[float]:
+        cutoff = now - self._window
+        while timestamps and timestamps[0] < cutoff:
+            timestamps.pop(0)
+        return timestamps
+
+    def check(self, key: str | None) -> bool:
+        """Returns True if the request is allowed."""
+        now = time.monotonic()
+        self._global = self._prune(self._global, now)
+        if len(self._global) >= self._global_limit:
+            return False
+        if key:
+            ts_list = self._per_key.setdefault(key, [])
+            self._prune(ts_list, now)
+            if len(ts_list) >= self._per_key_limit:
+                return False
+            ts_list.append(now)
+        self._global.append(now)
+        return True
+
+
+_rate_limiter = _RateLimiter()
+
 
 def init_routes(event_bus: EventBus, chain_client: BaseChainClient, resource_server) -> None:
     global _event_bus, _chain_client, _resource_server
     _event_bus = event_bus
     _chain_client = chain_client
     _resource_server = resource_server
+
+
+# ---------------------------------------------------------------------------
+# GET /health, GET /health/ready
+# ---------------------------------------------------------------------------
+
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@router.get("/health/ready")
+async def health_ready(db: AsyncSession = Depends(get_db)):
+    checks: dict[str, str] = {}
+    try:
+        await db.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+
+    if _chain_client:
+        try:
+            eth_bal, usdc_bal = await _chain_client.get_balances()
+            checks["wallet_eth"] = "ok" if eth_bal > 0 else "low"
+            checks["wallet_usdc"] = f"{usdc_bal:.2f}"
+        except Exception as e:
+            checks["wallet"] = f"error: {e}"
+
+    all_ok = all(v == "ok" for k, v in checks.items() if k not in ("wallet_usdc",))
+    return JSONResponse(
+        status_code=200 if all_ok else 503,
+        content={"status": "ready" if all_ok else "degraded", "checks": checks},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +162,35 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     body = await request.json()
     client_code = request.headers.get("X-BUILDER-CODE")
 
+    script = body.get("script", "")
     nodes = body.get("nodes", 1)
     time_limit_min = body.get("time_limit_min", 1)
+    submitter_address = body.get("submitter_address")
 
-    quote = await calculate_price(db, nodes, time_limit_min, client_code)
+    if len(script) > MAX_SCRIPT_SIZE:
+        raise HTTPException(413, f"Script too large: {len(script)} bytes (max {MAX_SCRIPT_SIZE})")
+
+    rate_key = submitter_address.lower() if submitter_address else None
+    if not _rate_limiter.check(rate_key):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Too many requests"},
+            headers={"Retry-After": "60"},
+        )
+
+    if submitter_address:
+        active_count_q = await db.execute(
+            select(func.count(ActiveJob.id))
+            .where(func.lower(ActiveJob.submitter_address) == submitter_address.lower())
+        )
+        if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
+            raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
+
+    cache_key = (nodes, time_limit_min, client_code or "")
+    quote = _price_cache.get(cache_key)
+    if not quote:
+        quote = await calculate_price(db, nodes, time_limit_min, client_code)
+        _price_cache.set(cache_key, quote)
 
     config = ResourceConfig(
         scheme="exact",
@@ -82,8 +213,17 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
             headers={"PAYMENT-REQUIRED": encoded_header},
         )
 
-    payload = decode_payment_signature_header(payment_header)
-    result = await _resource_server.verify_payment(payload, requirements[0])
+    try:
+        payload = decode_payment_signature_header(payment_header)
+        result = await _resource_server.verify_payment(payload, requirements[0])
+    except Exception as e:
+        logger.error("x402 facilitator error: %s", e)
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Payment verification temporarily unavailable", "detail": str(e)},
+            headers={"Retry-After": "30"},
+        )
+
     if not result.is_valid:
         raise HTTPException(403, "Payment verification failed")
 
@@ -99,11 +239,20 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         payload=body,
         price_usdc=quote.price_usd,
         client_builder_code=client_code,
-        submitter_address=body.get("submitter_address"),
+        submitter_address=submitter_address,
         status="pending",
     )
     db.add(job)
     await db.commit()
+
+    await log_audit(
+        db,
+        event_type="payment_received",
+        job_id=uuid.UUID(job_id),
+        wallet_address=submitter_address,
+        amount_usdc=quote.price_usd,
+        detail={"price_str": quote.price_str},
+    )
 
     _event_bus.emit("job", f"Job {job_id[:8]} created, queued for processing")
 
@@ -547,3 +696,77 @@ async def complete_session(session_id: str, request: Request, db: AsyncSession =
     session.job_id = uuid.UUID(job_id)
     await db.commit()
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/capabilities — machine-readable service description for agents
+# ---------------------------------------------------------------------------
+
+@router.get("/api/capabilities")
+async def get_capabilities():
+    proof_count = 0
+    if _chain_client:
+        try:
+            proof_count = await _chain_client.get_on_chain_proof_count()
+        except Exception:
+            pass
+
+    return {
+        "name": "Ouro",
+        "description": "Autonomous HPC compute oracle on Base",
+        "version": "1.0.0",
+        "payment": {
+            "protocol": "x402",
+            "network": settings.CHAIN_CAIP2,
+            "currency": "USDC",
+            "endpoint": "/api/compute/submit",
+        },
+        "compute": {
+            "engine": "slurm",
+            "isolation": "apptainer",
+            "max_nodes": 16,
+            "max_time_min": 60,
+            "max_script_bytes": MAX_SCRIPT_SIZE,
+        },
+        "trust": {
+            "proof_contract": settings.PROOF_CONTRACT_ADDRESS,
+            "on_chain_proofs": proof_count,
+            "agent_address": settings.WALLET_ADDRESS,
+        },
+        "limits": {
+            "max_active_jobs_per_wallet": MAX_ACTIVE_JOBS_PER_WALLET,
+            "rate_limit_per_wallet": "10/min",
+            "rate_limit_global": "100/min",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/audit — structured audit log
+# ---------------------------------------------------------------------------
+
+@router.get("/api/audit")
+async def get_audit(
+    limit: int = 50,
+    event_type: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit, 200))
+    if event_type:
+        query = query.where(AuditLog.event_type == event_type)
+    result = await db.execute(query)
+    entries = result.scalars().all()
+    return {
+        "entries": [
+            {
+                "id": str(e.id),
+                "event_type": e.event_type,
+                "job_id": str(e.job_id) if e.job_id else None,
+                "wallet_address": e.wallet_address,
+                "amount_usdc": float(e.amount_usdc) if e.amount_usdc else None,
+                "detail": e.detail,
+                "created_at": e.created_at.isoformat(),
+            }
+            for e in entries
+        ],
+    }

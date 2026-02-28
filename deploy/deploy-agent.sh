@@ -32,6 +32,6 @@ echo "Setting SLURMREST_URL in Railway (agent service)..."
 railway variable set "SLURMREST_URL=$SLURM_URL" -s agent
 
 echo "Deploying agent..."
-railway up agent --path-as-root --detach
+railway up agent --path-as-root --detach -s agent
 
 echo "Done. Agent will use $SLURM_URL for Slurm."
