@@ -40,9 +40,9 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 
 ### Live URLs
 
-- Dashboard: `https://dashboard-production-80cd.up.railway.app`
-- Agent API: `https://agent-production-fdde.up.railway.app`
-- MCP Server: `https://mcp-server-production-3752.up.railway.app/mcp`
+- Dashboard: `https://ourocompute.com`
+- Agent API: `https://api.ourocompute.com`
+- MCP Server: `https://mcp.ourocompute.com/mcp`
 
 ## Project Structure
 
@@ -247,8 +247,8 @@ PORT=3000
 
 ### MCP Server (Railway service: `mcp-server`)
 ```
-OURO_API_URL=https://agent-production-fdde.up.railway.app  # Public agent URL
-DASHBOARD_URL=https://dashboard-production-80cd.up.railway.app
+OURO_API_URL=https://api.ourocompute.com  # Public agent URL
+DASHBOARD_URL=https://ourocompute.com
 PORT=8080
 ```
 
@@ -467,7 +467,7 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 {
   "mcpServers": {
     "ouro-compute": {
-      "url": "https://mcp-server-production-3752.up.railway.app/mcp"
+      "url": "https://mcp.ourocompute.com/mcp"
     }
   }
 }

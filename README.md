@@ -6,9 +6,9 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 
 | Service | URL |
 |---|---|
-| Dashboard | https://dashboard-production-80cd.up.railway.app |
-| Agent API | https://agent-production-fdde.up.railway.app |
-| MCP Server | https://mcp-server-production-3752.up.railway.app/mcp |
+| Dashboard | https://ourocompute.com |
+| Agent API | https://api.ourocompute.com |
+| MCP Server | https://mcp.ourocompute.com/mcp |
 
 ## Architecture
 
@@ -146,7 +146,7 @@ Standalone MCP server. No secrets needed — it proxies to the agent and payment
 
 | Variable | Description |
 |---|---|
-| `OURO_API_URL` | Public agent URL (`https://agent-production-fdde.up.railway.app`) |
+| `OURO_API_URL` | Public agent URL (`https://api.ourocompute.com`) |
 | `PUBLIC_URL` | Public URL of this MCP server (for generating payment links) |
 
 ---
@@ -159,7 +159,7 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 {
   "mcpServers": {
     "ouro-compute": {
-      "url": "https://mcp-server-production-3752.up.railway.app/mcp"
+      "url": "https://mcp.ourocompute.com/mcp"
     }
   }
 }

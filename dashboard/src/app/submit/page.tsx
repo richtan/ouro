@@ -110,8 +110,8 @@ export default function SubmitPage() {
         throw new Error(body.detail || body.error || `HTTP ${res.status}`);
       }
 
-      await res.json();
-      router.push("/history");
+      const data = await res.json();
+      router.push(`/history?expand=${data.job_id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Submission failed");
       setStatus("error");

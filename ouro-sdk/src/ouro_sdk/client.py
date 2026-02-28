@@ -13,7 +13,7 @@ import httpx
 
 from ouro_sdk.models import JobResult, Quote
 
-DEFAULT_API_URL = "https://agent-production-3b3a.up.railway.app"
+DEFAULT_API_URL = "https://api.ourocompute.com"
 
 
 class OuroClient:

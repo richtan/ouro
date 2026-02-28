@@ -27,7 +27,7 @@ def _get_api_url() -> str:
 def _get_dashboard_url() -> str:
     return os.environ.get(
         "DASHBOARD_URL",
-        "https://dashboard-production-80cd.up.railway.app",
+        "https://ourocompute.com",
     )
 
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
@@ -49,8 +50,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function JobCard({ job }: { job: AnyJob }) {
-  const [open, setOpen] = useState(false);
+function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
+  const [open, setOpen] = useState(job.id === expandId);
   const isHist = job._type === "historical";
   const hist = isHist ? (job as HistoricalJob & { _type: "historical" }) : null;
   const ts = isHist
@@ -152,6 +153,8 @@ function JobCard({ job }: { job: AnyJob }) {
 }
 
 export default function HistoryPage() {
+  const searchParams = useSearchParams();
+  const expandId = searchParams.get("expand");
   const { address, isConnected } = useAccount();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -225,7 +228,7 @@ export default function HistoryPage() {
             </span>
           </div>
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} />
+            <JobCard key={job.id} job={job} expandId={expandId} />
           ))}
         </div>
       )}

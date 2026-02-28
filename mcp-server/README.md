@@ -12,7 +12,7 @@ Add to `.cursor/mcp.json`:
 {
   "mcpServers": {
     "ouro-compute": {
-      "url": "https://mcp-server-production-3752.up.railway.app/mcp"
+      "url": "https://mcp.ourocompute.com/mcp"
     }
   }
 }
@@ -52,14 +52,14 @@ cd mcp-server && pip install -e .
 | `PUBLIC_URL` | No | Public URL of this server (for payment links) |
 
 ```bash
-export OURO_API_URL="https://agent-production-fdde.up.railway.app"
+export OURO_API_URL="https://api.ourocompute.com"
 ouro-mcp
 ```
 
 ## Dashboard
 
 View live job status, P&L, and cluster health at:
-**https://dashboard-production-80cd.up.railway.app**
+**https://ourocompute.com**
 
 ## License
 
