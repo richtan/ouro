@@ -79,34 +79,42 @@ Ouros/
 │   └── src/
 │       ├── app/
 │       │   ├── layout.tsx      # Root layout (Web3Provider with cookie hydration)
-│       │   ├── page.tsx        # Main dashboard
+│       │   ├── page.tsx        # Public dashboard (aggregate stats only)
+│       │   ├── admin/page.tsx  # Admin page (wallet-gated, signature auth, JWT cookie)
 │       │   ├── submit/page.tsx # Job submission page
 │       │   ├── history/page.tsx # User job history (wallet-scoped)
 │       │   ├── pay/[sessionId]/page.tsx # MCP payment page
 │       │   └── api/
-│       │       ├── proxy/submit/route.ts    # Proxies to agent /api/compute/submit
-│       │       ├── proxy/jobs/route.ts      # Proxies to agent /api/jobs/user
+│       │       ├── admin/login/route.ts    # Verify wallet signature, set JWT cookie
+│       │       ├── admin/logout/route.ts   # Clear JWT cookie
+│       │       ├── admin/check/route.ts    # Verify JWT cookie validity
+│       │       ├── audit/route.ts          # Proxies to agent /api/audit (JWT-gated)
+│       │       ├── proxy/submit/route.ts   # Proxies to agent /api/compute/submit
+│       │       ├── proxy/jobs/route.ts     # Proxies to agent /api/jobs/user (admin key, no JWT)
 │       │       ├── proxy/sessions/[sessionId]/route.ts          # GET session
-│       │       └── proxy/sessions/[sessionId]/complete/route.ts # POST complete
-│       │       ├── jobs/route.ts       # Proxies to agent /api/jobs
-│       │       ├── stats/route.ts      # Proxies to agent /api/stats
-│       │       ├── wallet/route.ts     # Proxies to agent /api/wallet
+│       │       ├── proxy/sessions/[sessionId]/complete/route.ts # POST complete
+│       │       ├── jobs/route.ts       # Proxies to agent /api/jobs (JWT-gated)
+│       │       ├── stats/route.ts      # Proxies to agent /api/stats (public)
+│       │       ├── wallet/route.ts     # Proxies to agent /api/wallet (public)
 │       │       ├── attribution/route.ts
-│       │       └── stream/route.ts     # SSE proxy
+│       │       └── stream/route.ts     # SSE proxy (JWT-gated)
 │       ├── components/
 │       │   ├── Web3Provider.tsx    # wagmi/RainbowKit config (cookieStorage for persistence)
-│       │   ├── NavBar.tsx
-│       │   ├── JobsPanel.tsx       # All jobs table (sorted by time desc)
+│       │   ├── NavBar.tsx          # Conditional "Admin" link for operator wallet
+│       │   ├── JobsPanel.tsx       # All jobs table (admin-only, sorted by time desc)
+│       │   ├── PublicJobStats.tsx   # Aggregate job stats (public dashboard)
+│       │   ├── AuditPanel.tsx      # Audit log table (admin-only)
 │       │   ├── WalletBalance.tsx
 │       │   ├── FinancialPnL.tsx
 │       │   ├── SustainabilityGauge.tsx
 │       │   ├── RevenueModel.tsx
-│       │   ├── TerminalFeed.tsx    # SSE event stream
+│       │   ├── TerminalFeed.tsx    # SSE event stream (admin-only)
 │       │   ├── AttributionPanel.tsx
 │       │   ├── ClusterStatus.tsx
 │       │   └── OutputDisplay.tsx
 │       └── lib/
-│           └── api.ts          # Client-side fetch helpers
+│           ├── api.ts          # Client-side fetch helpers
+│           └── admin-auth.ts   # JWT sign/verify helpers, cookie name constant
 ├── contracts/              # Foundry Solidity project
 │   ├── foundry.toml
 │   ├── src/ProofOfCompute.sol
@@ -224,6 +232,7 @@ CDP_API_KEY_ID, CDP_API_KEY_SECRET
 X402_FACILITATOR_URL=https://x402.org/facilitator
 PRICE_MARGIN_MULTIPLIER=1.5
 PUBLIC_API_URL, PUBLIC_DASHBOARD_URL
+ADMIN_API_KEY                    # Shared secret for admin endpoint access (empty = skip in dev)
 PORT=8000
 ```
 
@@ -231,6 +240,8 @@ PORT=8000
 ```
 AGENT_URL=http://agent.railway.internal:8000   # Internal Railway networking
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID            # For RainbowKit
+ADMIN_API_KEY                    # Same value as agent (server-side only, never reaches browser)
+NEXT_PUBLIC_ADMIN_ADDRESS        # Operator wallet address for admin UI gating
 PORT=3000
 ```
 
@@ -350,12 +361,12 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}`. Optional header: `X-BUILDER-CODE`. |
-| `GET` | `/api/stream` | None | SSE event stream (live terminal feed). Returns `text/event-stream`. |
+| `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
-| `GET` | `/api/jobs` | None | Recent active (20) + historical (50) jobs. |
-| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output, proof hash. Works for both active and historical. |
-| `GET` | `/api/jobs/user?address=0x...` | None | Jobs for a specific submitter wallet (50 active, 100 historical). |
+| `GET` | `/api/jobs` | Admin key | Recent active (20) + historical (50) jobs. |
+| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output, proof hash. UUID serves as capability token. |
+| `GET` | `/api/jobs/user?address=0x...` | Admin key | Jobs for a specific submitter wallet (50 active, 100 historical). |
 | `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
 | `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
 | `POST` | `/api/sessions` | None | Create payment session (called by MCP server). Body: `{script, nodes, time_limit_min, price}`. |
@@ -364,7 +375,9 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 | `GET` | `/health` | None | Liveness probe. Returns `{"status": "ok"}`. |
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
-| `GET` | `/api/audit` | None | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
+| `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
+
+Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
 
 ### Slurm proxy endpoints (defined in `deploy/slurm/slurm_proxy.py`, runs on controller:6820)
 
@@ -380,22 +393,35 @@ Also supports v0.0.37 paths for backward compatibility.
 
 ### Dashboard proxy routes (in `dashboard/src/app/api/`)
 
-These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Railway internal networking):
+These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Railway internal networking). Admin-protected routes verify a JWT cookie (obtained via wallet signature on `/admin` page) before forwarding the `X-Admin-Key` header.
 
-| Dashboard Route | Proxies To | Notes |
-|-----------------|-----------|-------|
-| `GET /api/stats` | `AGENT_URL/api/stats` | |
-| `GET /api/wallet` | `AGENT_URL/api/wallet` | |
-| `GET /api/jobs` | `AGENT_URL/api/jobs` | |
-| `GET /api/attribution` | `AGENT_URL/api/attribution` | |
-| `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | Forwards query params |
-| `GET /api/stream` | `AGENT_URL/api/stream` | SSE passthrough (streams ReadableStream) |
-| `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | Forwards `payment-signature` and `X-BUILDER-CODE` headers |
-| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | User-scoped job history |
-| `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | Payment session lookup |
+| Dashboard Route | Proxies To | Auth | Notes |
+|-----------------|-----------|------|-------|
+| `GET /api/stats` | `AGENT_URL/api/stats` | None | Public |
+| `GET /api/wallet` | `AGENT_URL/api/wallet` | None | Public |
+| `GET /api/jobs` | `AGENT_URL/api/jobs` | JWT cookie | Admin-only; forwards `X-Admin-Key` |
+| `GET /api/audit` | `AGENT_URL/api/audit` | JWT cookie | Admin-only; forwards `X-Admin-Key` |
+| `GET /api/attribution` | `AGENT_URL/api/attribution` | None | Public |
+| `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
+| `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
+| `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
+| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
+| `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | None | Payment session lookup |
 | `POST /api/proxy/sessions/{id}/complete` | `AGENT_URL/api/sessions/{id}/complete` | Mark session paid |
 
 ## Dashboard Internals
+
+### Security Architecture
+
+The dashboard splits into public and admin views:
+
+- **Public dashboard** (`/`) — Aggregate stats only (WalletBalance, RevenueModel, FinancialPnL, SustainabilityGauge, PublicJobStats, AttributionPanel). No individual job scripts, outputs, or internal logs.
+- **Admin page** (`/admin`) — Full JobsPanel, TerminalFeed, AuditPanel. Requires: (1) connecting the operator wallet matching `NEXT_PUBLIC_ADMIN_ADDRESS`, (2) signing a timestamped message to prove ownership, (3) server-verified JWT cookie (HttpOnly, Secure in prod, SameSite=Strict, 24h expiry).
+- **My Jobs** (`/history`) — Wallet-scoped. The proxy forwards `X-Admin-Key` unconditionally since data is inherently filtered by address.
+
+Auth flow: wallet signature → `POST /api/admin/login` verifies via viem's `verifyMessage` + checks address match → signs JWT with `jose` using `ADMIN_API_KEY` as secret → sets HttpOnly cookie. Admin proxy routes verify the cookie before forwarding `X-Admin-Key` to the agent.
+
+Key files: `dashboard/src/lib/admin-auth.ts` (JWT helpers), `dashboard/src/app/api/admin/` (login/logout/check routes).
 
 ### Wallet Persistence
 

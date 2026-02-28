@@ -11,6 +11,7 @@ __pycache__/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 
 # Foundry
 contracts/out/

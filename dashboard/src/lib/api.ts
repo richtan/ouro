@@ -27,3 +27,14 @@ export async function decodeBuilderCodes(calldata: string) {
   );
   return res.json();
 }
+
+export async function fetchAudit(limit?: number, eventType?: string) {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  if (eventType) params.set("event_type", eventType);
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/api/audit${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+  });
+  return res.json();
+}

@@ -13,11 +13,16 @@ export async function GET(request: NextRequest) {
     if (!address) {
       return NextResponse.json({ error: "address parameter required" }, { status: 400 });
     }
+    const headers: Record<string, string> = {};
+    if (process.env.ADMIN_API_KEY) {
+      headers["x-admin-key"] = process.env.ADMIN_API_KEY;
+    }
     const res = await fetch(
-      `${agentUrl}/api/jobs/user?address=${encodeURIComponent(address)}`
+      `${agentUrl}/api/jobs/user?address=${encodeURIComponent(address)}`,
+      { headers },
     );
     const data = await res.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { status: res.status });
   } catch {
     return NextResponse.json({ error: "Failed to fetch user jobs" }, { status: 502 });
   }

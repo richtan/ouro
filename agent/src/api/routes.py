@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import time
@@ -104,6 +105,14 @@ class _RateLimiter:
 
 
 _rate_limiter = _RateLimiter()
+
+
+async def require_admin_key(request: Request):
+    if not settings.ADMIN_API_KEY:
+        return
+    key = request.headers.get("x-admin-key", "")
+    if not hmac.compare_digest(key, settings.ADMIN_API_KEY):
+        raise HTTPException(403, "Invalid admin key")
 
 
 def init_routes(event_bus: EventBus, chain_client: BaseChainClient, resource_server) -> None:
@@ -272,7 +281,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/stream")
-async def event_stream(request: Request):
+async def event_stream(request: Request, _=Depends(require_admin_key)):
     async def generate():
         async for event in _event_bus.subscribe():
             yield f"data: {event.model_dump_json()}\n\n"
@@ -395,7 +404,7 @@ async def get_wallet(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/jobs")
-async def get_jobs(db: AsyncSession = Depends(get_db)):
+async def get_jobs(db: AsyncSession = Depends(get_db), _=Depends(require_admin_key)):
     active_q = await db.execute(
         select(ActiveJob).order_by(ActiveJob.submitted_at.desc()).limit(20)
     )
@@ -501,7 +510,7 @@ async def decode_attribution(tx_hash: str):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/jobs/user")
-async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db)):
+async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depends(require_admin_key)):
     addr = address.lower()
 
     active_q = await db.execute(
@@ -750,6 +759,7 @@ async def get_audit(
     limit: int = 50,
     event_type: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin_key),
 ):
     query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit, 200))
     if event_type:

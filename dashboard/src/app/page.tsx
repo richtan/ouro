@@ -1,8 +1,7 @@
 import WalletBalance from "@/components/WalletBalance";
 import FinancialPnL from "@/components/FinancialPnL";
 import SustainabilityGauge from "@/components/SustainabilityGauge";
-import TerminalFeed from "@/components/TerminalFeed";
-import JobsPanel from "@/components/JobsPanel";
+import PublicJobStats from "@/components/PublicJobStats";
 import AttributionPanel from "@/components/AttributionPanel";
 import RevenueModel from "@/components/RevenueModel";
 
@@ -37,14 +36,9 @@ export default function Home() {
         <SustainabilityGauge />
       </div>
 
-      {/* Jobs Panel */}
+      {/* Public Job Stats — aggregate only */}
       <div className="mb-6">
-        <JobsPanel />
-      </div>
-
-      {/* Terminal Feed — full width */}
-      <div className="mb-6">
-        <TerminalFeed />
+        <PublicJobStats />
       </div>
 
       {/* Attribution Panel — full width */}

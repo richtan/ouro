@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     MIN_PROFIT_PCT: float = 0.20
     INFRA_COST_PER_NODE_MINUTE: float = 0.0006
 
+    # Admin
+    ADMIN_API_KEY: str = ""
+
     # Public URLs
     PUBLIC_DASHBOARD_URL: str = ""
     PUBLIC_API_URL: str = ""

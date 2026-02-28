@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAccount } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
-const NAV_ITEMS = [
+const ADMIN_ADDRESS =
+  process.env.NEXT_PUBLIC_ADMIN_ADDRESS?.toLowerCase() ?? "";
+
+const BASE_NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/submit", label: "Submit Job" },
   { href: "/history", label: "My Jobs" },
@@ -12,6 +16,13 @@ const NAV_ITEMS = [
 
 export default function NavBar() {
   const pathname = usePathname();
+  const { address } = useAccount();
+
+  const isAdmin = address?.toLowerCase() === ADMIN_ADDRESS && ADMIN_ADDRESS !== "";
+
+  const navItems = isAdmin
+    ? [...BASE_NAV, { href: "/admin", label: "Admin" }]
+    : BASE_NAV;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-ouro-border bg-ouro-bg/80 backdrop-blur-md">
@@ -21,7 +32,7 @@ export default function NavBar() {
             OURO
           </Link>
           <div className="flex items-center gap-1">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = pathname === item.href;
               return (
                 <Link

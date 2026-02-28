@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   ADMIN_COOKIE_NAME,
   isAdminAuthEnabled,
@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const agentUrl = process.env.AGENT_URL;
   if (!agentUrl) {
     return NextResponse.json(
@@ -26,16 +26,23 @@ export async function GET() {
   }
 
   try {
+    const url = new URL(`${agentUrl}/api/audit`);
+    const limit = request.nextUrl.searchParams.get("limit");
+    const eventType = request.nextUrl.searchParams.get("event_type");
+    if (limit) url.searchParams.set("limit", limit);
+    if (eventType) url.searchParams.set("event_type", eventType);
+
     const headers: Record<string, string> = {};
     if (process.env.ADMIN_API_KEY) {
       headers["x-admin-key"] = process.env.ADMIN_API_KEY;
     }
-    const res = await fetch(`${agentUrl}/api/jobs`, { headers });
+
+    const res = await fetch(url.toString(), { headers });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {
     return NextResponse.json(
-      { error: "Failed to fetch jobs from agent" },
+      { error: "Failed to fetch audit log" },
       { status: 502 },
     );
   }
