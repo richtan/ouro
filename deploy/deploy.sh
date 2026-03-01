@@ -7,8 +7,8 @@
 # Only SLURMREST_URL is set here because it's dynamically fetched from GCP.
 #
 # Usage:
-#   ./deploy/deploy-all.sh              # Deploy all services
-#   ./deploy/deploy-all.sh agent mcp    # Deploy only agent and mcp-server
+#   ./deploy/deploy.sh              # Deploy all services
+#   ./deploy/deploy.sh agent mcp    # Deploy only agent and mcp-server
 #
 # Prerequisites: gcloud configured, railway CLI logged in and linked.
 set -euo pipefail
@@ -50,7 +50,9 @@ for svc in "${SERVICES[@]}"; do
       --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null) || true
 
     if [ -z "$CONTROLLER_IP" ]; then
-      echo "WARNING: Could not get IP for $CONTROLLER. Deploying agent without updating SLURMREST_URL."
+      echo "ERROR: Could not get IP for $CONTROLLER. Is the instance running?"
+      echo "  gcloud compute instances list --project=$PROJECT --filter=name=$CONTROLLER"
+      exit 1
     else
       SLURM_URL="http://${CONTROLLER_IP}:6820"
       echo "  Controller: $CONTROLLER_IP -> $SLURM_URL"

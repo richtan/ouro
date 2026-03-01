@@ -62,8 +62,6 @@ def wrap_in_apptainer(user_script: str, job_name: str) -> str:
         logger.warning("Apptainer or base image not available, running without isolation")
         return user_script
 
-    escaped = user_script.replace("'", "'\\''")
-
     return f"""#!/bin/bash
 mkdir -p {SCRIPTS_DIR}
 SCRIPT_FILE={SCRIPTS_DIR}/{job_name}-$SLURM_JOB_ID.sh
@@ -231,7 +229,6 @@ async def get_job_output(
 
     for base_dir in [OUTPUT_DIR, "/tmp"]:
         stdout_path = f"{base_dir}/slurm-{job_id}.out"
-        stderr_path = f"{base_dir}/slurm-{job_id}.err"
         try:
             with open(stdout_path) as f:
                 stdout = f.read()

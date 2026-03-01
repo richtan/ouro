@@ -265,18 +265,12 @@ All three services (agent, dashboard, mcp-server) deploy to [Railway](https://ra
 **Deploy all services:**
 
 ```bash
-./deploy/deploy-all.sh                  # All three services
-./deploy/deploy-all.sh agent mcp        # Specific services only
-./deploy/deploy-all.sh dashboard        # Dashboard only
+./deploy/deploy.sh                  # All three services
+./deploy/deploy.sh agent mcp        # Specific services only
+./deploy/deploy.sh dashboard        # Dashboard only
 ```
 
 The deploy script automatically fetches the Slurm controller IP from GCP and updates `SLURMREST_URL` on Railway when deploying the agent.
-
-**Deploy agent only** (with Slurm URL auto-injection):
-
-```bash
-./deploy/deploy-agent.sh
-```
 
 **Requirements for deploy scripts:** `gcloud` CLI configured with access to the GCP project, `railway` CLI logged in and linked to the project.
 
@@ -369,13 +363,13 @@ This script:
 
 ### Configuration
 
-Defaults are hardcoded in the script. The deploy scripts (`deploy-all.sh`, `deploy-agent.sh`) support overriding via environment variables:
+The deploy scripts (`deploy.sh`, `setup-slurm-cluster.sh`) support overriding via environment variables:
 
 | Variable | Default | Overridable in |
 |---|---|---|
-| `GCP_PROJECT` | `ouro-hpc-2026` | deploy-all.sh, deploy-agent.sh |
-| `GCP_ZONE` | `us-central1-a` | deploy-all.sh, deploy-agent.sh |
-| `SLURM_CONTROLLER` | `ouro-slurm` | deploy-all.sh, deploy-agent.sh |
+| `GCP_PROJECT` | `ouro-hpc-2026` | deploy.sh, setup-slurm-cluster.sh |
+| `GCP_ZONE` | `us-central1-a` | deploy.sh, setup-slurm-cluster.sh |
+| `SLURM_CONTROLLER` | `ouro-slurm` | deploy.sh, setup-slurm-cluster.sh |
 
 Slurm config files are in `deploy/slurm/`:
 - `slurm.conf` — cluster configuration (CPU, memory, partitions)
@@ -384,7 +378,7 @@ Slurm config files are in `deploy/slurm/`:
 
 ### Connecting the agent
 
-The deploy scripts handle this automatically. When you run `./deploy/deploy-all.sh` or `./deploy/deploy-agent.sh`, they fetch the controller's external IP from GCP and set `SLURMREST_URL` on Railway.
+The deploy script handles this automatically. When you run `./deploy/deploy.sh`, it fetches the controller's external IP from GCP and sets `SLURMREST_URL` on Railway.
 
 For local dev, set `SLURMREST_URL` in your `.env` manually:
 

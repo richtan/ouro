@@ -124,8 +124,7 @@ Ouros/
 │   ├── 01-init.sql         # Full schema (tables, indexes, partitions)
 │   └── 02-seed.sql
 ├── deploy/
-│   ├── deploy-all.sh       # Deploys all services (or specific ones) to Railway in parallel
-│   ├── deploy-agent.sh     # Fetches GCP IP, sets SLURMREST_URL, deploys agent only
+│   ├── deploy.sh            # Deploys all services (or specific ones) to Railway in parallel
 │   ├── setup-slurm-cluster.sh # Full GCP cluster provisioning (13 phases)
 │   └── slurm/
 │       ├── slurm.conf      # Slurm config (e2-small controller, e2-medium workers)
@@ -235,7 +234,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
-SLURMREST_URL        # Set automatically by deploy/deploy-agent.sh
+SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
 LLM_MODEL=openai:gpt-4o-mini
 OPENAI_API_KEY
@@ -291,13 +290,10 @@ All three services deploy to Railway as separate services in a single project. E
 
 ```bash
 # Deploy all services (fetches Slurm IP from GCP, deploys in parallel)
-./deploy/deploy-all.sh
+./deploy/deploy.sh
 
 # Deploy specific services only
-./deploy/deploy-all.sh agent mcp
-
-# Deploy agent only (with Slurm IP refresh)
-./deploy/deploy-agent.sh
+./deploy/deploy.sh agent mcp
 ```
 
 Check logs:
@@ -501,9 +497,8 @@ MCP tools:
 
 ### Redeploying after code changes
 ```bash
-./deploy/deploy-all.sh                      # All services (fetches Slurm IP, deploys in parallel)
-./deploy/deploy-all.sh agent mcp            # Specific services only
-./deploy/deploy-agent.sh                    # Agent only (also refreshes SLURMREST_URL)
+./deploy/deploy.sh                      # All services (fetches Slurm IP, deploys in parallel)
+./deploy/deploy.sh agent mcp            # Specific services only
 ```
 
 ### Running the Slurm setup script after VM resize
@@ -541,7 +536,7 @@ No automated test suite currently. Manual verification:
 
 ## Known Issues & Lessons
 
-- **SLURMREST_URL must be the external IP** of the GCP controller. It changes when instances restart. `deploy/deploy-agent.sh` handles this automatically.
+- **SLURMREST_URL must be the external IP** of the GCP controller. It changes when instances restart. `deploy/deploy.sh` handles this automatically.
 - **Payment sessions were previously in-memory** in the MCP server, causing "Session Not Found" errors after restarts. Now stored in PostgreSQL via the agent API.
 - **Slurm nodes drain** if `slurm.conf` specifies more CPUs/memory than the actual hardware. The setup script's Phase 12 handles undraining, and `slurm.conf` must match the instance specs.
 - **Wallet disconnects on reload** were caused by using localStorage with SSR. Fixed by using `cookieStorage` + `cookieToInitialState` hydration in the layout.

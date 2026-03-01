@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="ouro-hpc-2026"
-ZONE="us-central1-a"
-CONTROLLER="ouro-slurm"
+PROJECT="${GCP_PROJECT:-ouro-hpc-2026}"
+ZONE="${GCP_ZONE:-us-central1-a}"
+CONTROLLER="${SLURM_CONTROLLER:-ouro-slurm}"
 WORKERS=("ouro-worker-1" "ouro-worker-2")
 # Controller (ouro-slurm) should be e2-small; provision separately.
 MACHINE_TYPE="e2-medium"
@@ -232,19 +232,20 @@ for node in "${ALL_NODES[@]}"; do
 done
 
 # Copy JWT key to workers
+JWT_TMP=$(mktemp)
+gcloud compute ssh "$CONTROLLER" --project="$PROJECT" --zone="$ZONE" \
+    --command="sudo cat /etc/slurm/jwt_hs256.key" 2>/dev/null > "$JWT_TMP"
+
 for w in "${WORKERS[@]}"; do
-    JWT_TMP=$(mktemp)
-    gcloud compute ssh "$CONTROLLER" --project="$PROJECT" --zone="$ZONE" \
-        --command="sudo cat /etc/slurm/jwt_hs256.key" 2>/dev/null > "$JWT_TMP"
     scp_to "$JWT_TMP" "$w" "/tmp/jwt_hs256.key"
     ssh_cmd "$w" "
         sudo cp /tmp/jwt_hs256.key /etc/slurm/jwt_hs256.key
         sudo chown slurm:slurm /etc/slurm/jwt_hs256.key
         sudo chmod 600 /etc/slurm/jwt_hs256.key
     "
-    rm -f "$JWT_TMP"
     echo "  $w JWT key distributed"
 done
+rm -f "$JWT_TMP"
 
 # ------------------------------------------------------------------
 # Phase 8: Create Slurm spool directories on workers
