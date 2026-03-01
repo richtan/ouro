@@ -212,6 +212,16 @@ Cost floor = `max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/no
 
 Builder code holders get 10% discount (but never below cost floor).
 
+## Secrets Management (Doppler)
+
+Secrets are managed via [Doppler](https://doppler.com) as the single source of truth. Doppler project: `ouro`, configs: `dev`, `staging`, `prod`.
+
+- **Local dev**: `doppler run -- docker compose up --build` (or fall back to `.env` file)
+- **Production**: Doppler → Railway integration auto-syncs secrets to all three services
+- **`SLURMREST_URL`** is NOT in Doppler — it's dynamically fetched from GCP by `deploy-all.sh`
+
+Config file: `doppler.yaml` at repo root (sets default project/config for CLI).
+
 ## Environment Variables
 
 ### Agent (Railway service: `agent`)
@@ -255,9 +265,12 @@ PORT=8080
 ## Local Development
 
 ```bash
+# Option A: With Doppler (recommended)
+doppler run -- docker compose up --build
+
+# Option B: Without Doppler (fallback)
 cp .env.example .env
 # Fill in keys (WALLET_PRIVATE_KEY, OPENAI_API_KEY, etc.)
-# SLURMREST_URL can point to a local mock or GCP cluster
 docker compose up --build
 ```
 

@@ -28,7 +28,7 @@ services:
     depends_on: [agent]
     environment:
       AGENT_URL: http://agent:8000
-    ports: ["3000:3000"]
+    ports: ["${DASHBOARD_PORT:-3000}:3000"]
 
 volumes:
   pgdata:

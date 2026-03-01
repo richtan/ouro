@@ -3,6 +3,9 @@
 # Fetches Slurm controller IP from GCP, sets SLURMREST_URL, then deploys
 # agent, mcp-server, and dashboard in parallel.
 #
+# Secrets: Managed by Doppler → Railway integration (auto-synced).
+# Only SLURMREST_URL is set here because it's dynamically fetched from GCP.
+#
 # Usage:
 #   ./deploy/deploy-all.sh              # Deploy all services
 #   ./deploy/deploy-all.sh agent mcp    # Deploy only agent and mcp-server

@@ -51,6 +51,7 @@ Ouros/
 | [Foundry](https://getfoundry.sh/) | Latest | Contract deployment |
 | [Railway CLI](https://docs.railway.com/guides/cli) | Latest | Production deployment |
 | [gcloud CLI](https://cloud.google.com/sdk/docs/install) | Latest | Slurm cluster management + production deploy |
+| [Doppler CLI](https://docs.doppler.com/docs/install-cli) | Latest | Secrets management (optional, falls back to `.env`) |
 
 ---
 
@@ -59,6 +60,17 @@ Ouros/
 ### Option A: Docker Compose (full stack, recommended)
 
 This starts PostgreSQL, the agent, and the dashboard together. The database schema is auto-created from `db/01-init.sql` and `db/02-seed.sql`.
+
+**With Doppler** (recommended — secrets injected automatically):
+
+```bash
+brew install dopplerhq/cli/doppler
+doppler login
+doppler setup    # Selects project "ouro", config "dev" (from doppler.yaml)
+doppler run -- docker compose up --build
+```
+
+**Without Doppler** (fallback — uses `.env` file):
 
 ```bash
 # 1. Copy the example env file
@@ -131,7 +143,9 @@ AGENT_URL=https://api.ourocompute.com npm run dev
 ```bash
 cd agent
 pip install -e .
-# Set all required env vars (DB_HOST, OPENAI_API_KEY, WALLET_*, etc.)
+# With Doppler:
+doppler run -- uvicorn src.main:app --host 0.0.0.0 --port 8000
+# Without Doppler: set all required env vars (DB_HOST, OPENAI_API_KEY, WALLET_*, etc.)
 uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -221,10 +235,16 @@ All three services (agent, dashboard, mcp-server) deploy to [Railway](https://ra
    - Add a **PostgreSQL** plugin (Railway provisions it automatically)
    - Railway provides `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` for the PostgreSQL plugin — set these on the `agent` service
 
-4. **Set environment variables** for each service using the tables above. On Railway:
+4. **Set environment variables** — use one of:
+
+   **Option A: Doppler (recommended)** — In the Doppler dashboard, go to **Integrations → Railway**, connect the Railway project, and map the `prod` config to the `agent`, `dashboard`, and `mcp-server` services. Secrets auto-sync on every change.
+
+   **Option B: Manual** — Set variables directly in Railway for each service:
    - `agent`: All agent env vars. Set `AGENT_URL` internally via `http://agent.railway.internal:8000` on the dashboard.
    - `dashboard`: `AGENT_URL=http://agent.railway.internal:8000`, `ADMIN_API_KEY`, `NEXT_PUBLIC_ADMIN_ADDRESS`
    - `mcp-server`: `OURO_API_URL=https://api.ourocompute.com`
+
+   Note: `SLURMREST_URL` is always set by the deploy script (not Doppler) since it's dynamically fetched from GCP.
 
 5. **Custom domains** (optional): In Railway Settings > Networking > Custom Domain for each service. Add CNAME records at your DNS provider pointing to the Railway-provided targets.
 
