@@ -88,6 +88,23 @@ docker compose up --build
 DASHBOARD_PORT=3001 docker compose up --build
 ```
 
+#### Hot reload vs production build
+
+By default, `docker compose up` merges `docker-compose.override.yml` which enables **hot reload** for both services:
+
+- **Dashboard**: Runs `next dev` with source files volume-mounted — edits to `dashboard/src/` trigger instant Fast Refresh
+- **Agent**: Runs uvicorn with `--reload` and `agent/src/` volume-mounted — Python changes auto-restart the server
+
+To run the **production build** locally (full `next build` + standalone server), skip the override:
+
+```bash
+# With Doppler:
+doppler run -- docker compose -f docker-compose.yml up --build
+
+# Without Doppler:
+docker compose -f docker-compose.yml up --build
+```
+
 Once running:
 
 | Service | URL |

@@ -1,0 +1,25 @@
+# Dev overrides — hot reload for dashboard and agent.
+# Docker Compose merges this automatically with docker-compose.yml.
+
+services:
+  dashboard:
+    build:
+      context: ./dashboard
+      target: deps
+    command: npx next dev
+    working_dir: /app
+    volumes:
+      - ./dashboard/src:/app/src
+      - ./dashboard/public:/app/public
+      - ./dashboard/tailwind.config.ts:/app/tailwind.config.ts
+      - ./dashboard/postcss.config.mjs:/app/postcss.config.mjs
+      - ./dashboard/next.config.ts:/app/next.config.ts
+      - ./dashboard/tsconfig.json:/app/tsconfig.json
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+
+  agent:
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./agent/src:/app/src

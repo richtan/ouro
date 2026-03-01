@@ -215,7 +215,8 @@ Builder code holders get 10% discount (but never below cost floor).
 
 Secrets are managed via [Doppler](https://doppler.com) as the single source of truth. Doppler project: `ouro`, configs: `dev` (local), `prd` (production, shared across all Railway services).
 
-- **Local dev**: `doppler run -- docker compose up --build` (or fall back to `.env` file)
+- **Local dev (hot reload)**: `doppler run -- docker compose up --build` (or fall back to `.env` file). Uses `docker-compose.override.yml` automatically — runs `next dev` with volume-mounted source for instant Fast Refresh, and uvicorn `--reload` for the agent.
+- **Local dev (production build)**: `doppler run -- docker compose -f docker-compose.yml up --build` (explicitly skips the override file)
 - **Port override**: `DASHBOARD_PORT=3001 doppler run -- docker compose up --build` (if 3000 is in use)
 - **Production**: Doppler → Railway integration auto-syncs `prd` config to all three services
 - **`SLURMREST_URL`** and **`PORT`** are NOT in Doppler — `SLURMREST_URL` is dynamically fetched from GCP by `deploy.sh`; `PORT` is set per-service in Railway
