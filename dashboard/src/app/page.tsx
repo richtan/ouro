@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchStats } from "@/lib/api";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+
 
 interface LiveStats {
   completed_jobs: number;
@@ -34,6 +34,37 @@ function GithubIcon() {
 /* ------------------------------------------------------------------ */
 /*  Terminal — the centerpiece                                         */
 /* ------------------------------------------------------------------ */
+
+const MCP_JSON = `{
+  "mcpServers": {
+    "ouro-compute": {
+      "url": "https://mcp.ourocompute.com/mcp"
+    }
+  }
+}`;
+
+const MCP_TOOLS = [
+  {
+    name: "run_compute_job",
+    description: "Submit a script and get a payment link",
+    params: ["script", "nodes", "time_limit_min"],
+  },
+  {
+    name: "get_job_status",
+    description: "Poll for results and on-chain proof",
+    params: ["job_id"],
+  },
+  {
+    name: "get_price_quote",
+    description: "Check pricing before committing",
+    params: ["nodes", "time_limit_min"],
+  },
+  {
+    name: "get_api_endpoint",
+    description: "Get the direct x402 API endpoint",
+    params: [],
+  },
+];
 
 const TERM_LINES: { text: string; color: string; delay: number }[] = [
   { text: "> train my MNIST model, 50 epochs", color: "text-o-text", delay: 0 },
@@ -97,17 +128,17 @@ export default function LandingPage() {
     <>
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-o-border bg-o-bg/80 backdrop-blur-md">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 flex items-center justify-between h-14">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 lg:px-12 flex items-center justify-between h-14">
           <Link
             href="/"
             className="font-display text-base sm:text-lg font-bold text-o-blueText tracking-tight"
           >
             OURO
           </Link>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4">
             <Link
               href="/dashboard"
-              className="hidden sm:inline-block text-sm font-medium text-o-textSecondary hover:text-o-text transition-colors"
+              className="text-sm font-medium text-o-textSecondary hover:text-o-text transition-colors py-2"
             >
               Dashboard
             </Link>
@@ -115,57 +146,55 @@ export default function LandingPage() {
               href="https://github.com/richtan/ouro"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-o-muted hover:text-o-text transition-colors flex items-center"
+              className="p-2 text-o-muted hover:text-o-text transition-colors flex items-center"
               aria-label="GitHub"
             >
               <GithubIcon />
             </a>
-            <ConnectButton
-              chainStatus="icon"
-              accountStatus="address"
-              showBalance={false}
-            />
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 md:px-8">
+      <main className="max-w-7xl mx-auto px-4 md:px-8 lg:px-12">
         {/* Hero */}
-        <section className="pt-24 pb-6 md:pt-32 md:pb-8 animate-fade-in">
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
-            Compute that
-            <br />
-            runs itself.
-          </h1>
-          <p className="mt-5 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
-            An autonomous agent on Base that prices HPC jobs, takes USDC,
-            and posts SHA-256 proofs on-chain. No accounts. Just{" "}
-            <code className="font-mono text-o-text/80">curl</code>.
-          </p>
-          <div className="flex flex-wrap items-center gap-3 mt-8">
-            <Link
-              href="/submit"
-              className="px-6 py-3 bg-o-blue text-white font-display font-semibold text-sm rounded-lg hover:bg-o-blueHover transition-colors"
-            >
-              Submit a Job
-            </Link>
-            <Link
-              href="/dashboard"
-              className="px-6 py-3 border border-o-border text-o-textSecondary font-display font-medium text-sm rounded-lg hover:border-o-borderHover hover:text-o-text transition-colors"
-            >
-              Dashboard
-            </Link>
+        <section className="pt-24 pb-10 md:pt-32 md:pb-14 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center animate-fade-in">
+          {/* Left: text */}
+          <div>
+            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
+              Compute that
+              <br />
+              runs itself.
+            </h1>
+            <p className="mt-5 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
+              An autonomous agent on Base that prices HPC jobs, takes USDC,
+              and posts SHA-256 proofs on-chain. No accounts. Just{" "}
+              <code className="font-mono text-o-text/80">curl</code>.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 mt-8">
+              <Link
+                href="/submit"
+                className="px-6 py-3 bg-o-blue text-white font-display font-semibold text-sm rounded-lg hover:bg-o-blueHover transition-colors"
+              >
+                Submit a Job
+              </Link>
+              <Link
+                href="/dashboard"
+                className="px-6 py-3 border border-o-border text-o-textSecondary font-display font-medium text-sm rounded-lg hover:border-o-borderHover hover:text-o-text transition-colors"
+              >
+                Dashboard
+              </Link>
+            </div>
           </div>
-        </section>
 
-        {/* Terminal */}
-        <section className="pb-10 md:pb-14">
-          <Terminal />
+          {/* Right: terminal */}
+          <div className="mt-10 lg:mt-0">
+            <Terminal />
+          </div>
         </section>
 
         {/* Stats */}
         <section className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
-          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 lg:justify-center lg:gap-x-16">
             <Stat label="jobs completed" value={stats ? stats.completed_jobs : "—"} />
             <Stat label="active now" value={stats ? stats.active_jobs : "—"} />
             <Stat
@@ -179,58 +208,41 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Agent section */}
-        <section className="pb-10 md:pb-14">
-          <div className="text-xs text-o-muted uppercase tracking-wider mb-2">
-            For agents
+        {/* MCP section */}
+        <section className="border-t border-o-border pt-10 pb-12 md:pt-14 md:pb-16 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
+          <div>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text leading-tight">
+              Built for agents.
+            </h2>
+            <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed">
+              Add one URL to your MCP config. Any AI tool&mdash;Cursor, Claude
+              Desktop, your own agent&mdash;can price, submit, and verify
+              compute jobs.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
+              {MCP_TOOLS.map((tool) => (
+                <div
+                  key={tool.name}
+                  className="bg-o-surface border border-o-border rounded-lg px-3.5 py-3 hover:border-o-borderHover transition-colors"
+                >
+                  <span className="font-mono text-xs text-o-text">{tool.name}</span>
+                  <p className="text-xs text-o-muted mt-1">{tool.description}</p>
+                  {tool.params.length > 0 && (
+                    <p className="text-xs text-o-muted/70 mt-1.5 font-mono">
+                      {tool.params.join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-          <h2 className="font-display text-lg font-semibold text-o-text mb-3">
-            Other agents can buy compute too.
-          </h2>
-          <p className="text-sm text-o-textSecondary leading-relaxed max-w-2xl">
-            Ouro exposes an MCP server. AI agents discover pricing, submit
-            jobs, and verify proofs&nbsp;&mdash; no human in the loop.
-          </p>
+
+          <div className="mt-8 lg:mt-0">
+            <McpCodeCard />
+          </div>
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-o-border">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 py-6 flex items-center justify-between">
-          <span className="font-display text-sm font-bold text-o-blueText tracking-tight">
-            OURO
-          </span>
-          <div className="flex items-center gap-4 text-xs text-o-muted">
-            <a
-              href="https://github.com/richtan/ouro"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-o-text transition-colors"
-            >
-              GitHub
-            </a>
-            <span className="text-o-border">·</span>
-            <a
-              href="https://basescan.org/address/0x1451b27680f54F5FF608ebf5B171Ce480FbAe7e5"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-o-text transition-colors"
-            >
-              Contract
-            </a>
-            <span className="text-o-border">·</span>
-            <a
-              href="https://x402.org"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-o-text transition-colors"
-            >
-              x402
-            </a>
-          </div>
-          <span className="text-xs text-o-muted">Built on Base</span>
-        </div>
-      </footer>
     </>
   );
 }
@@ -238,6 +250,60 @@ export default function LandingPage() {
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
+
+function McpCodeCard() {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(MCP_JSON);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-o-border">
+        <div className="flex gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+        </div>
+        <span className="text-xs text-o-muted ml-1 select-none">mcp.json</span>
+        <button
+          onClick={handleCopy}
+          className="ml-auto text-o-muted hover:text-o-text transition-colors"
+          aria-label="Copy to clipboard"
+        >
+          {copied ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+          )}
+        </button>
+      </div>
+      <pre className="px-5 py-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
+        <span className="text-o-muted">{"{"}</span>{"\n"}
+        <span className="text-o-muted">{"  "}&quot;mcpServers&quot;: {"{"}</span>{"\n"}
+        <span className="text-o-muted">{"    "}&quot;</span>
+        <span className="text-o-textSecondary">ouro-compute</span>
+        <span className="text-o-muted">&quot;: {"{"}</span>{"\n"}
+        <span className="text-o-muted">{"      "}&quot;</span>
+        <span className="text-o-textSecondary">url</span>
+        <span className="text-o-muted">&quot;: &quot;</span>
+        <span className="text-o-blueText">https://mcp.ourocompute.com/mcp</span>
+        <span className="text-o-muted">&quot;</span>{"\n"}
+        <span className="text-o-muted">{"    }"}</span>{"\n"}
+        <span className="text-o-muted">{"  }"}</span>{"\n"}
+        <span className="text-o-muted">{"}"}</span>
+      </pre>
+    </div>
+  );
+}
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (

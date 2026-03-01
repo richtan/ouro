@@ -6,6 +6,7 @@ import { cookieToInitialState } from "wagmi";
 import "./globals.css";
 import Web3Provider, { config } from "@/components/Web3Provider";
 import NavBar from "@/components/NavBar";
+import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
   title: "Ouro Compute",
@@ -35,6 +36,7 @@ export default async function RootLayout({
         <Web3Provider initialState={initialState}>
           <NavBar />
           {children}
+          <Footer />
         </Web3Provider>
       </body>
     </html>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount } from "wagmi";
@@ -17,6 +18,11 @@ const BASE_NAV = [
 export default function NavBar() {
   const pathname = usePathname();
   const { address } = useAccount();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   if (pathname === "/") return null;
 
@@ -37,14 +43,14 @@ export default function NavBar() {
           >
             OURO
           </Link>
-          <div className="flex items-center gap-0.5">
+          <div className="hidden sm:flex items-center gap-1">
             {navItems.map((item) => {
               const active = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[11px] sm:text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
+                  className={`inline-flex items-center px-3 py-2 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
                     active
                       ? "bg-o-blue/10 text-o-blueText"
                       : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
@@ -61,7 +67,7 @@ export default function NavBar() {
             href="https://github.com/richtan/ouro"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-o-muted hover:text-o-text transition-colors"
+            className="p-2 text-o-muted hover:text-o-text transition-colors"
             aria-label="GitHub"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -73,8 +79,51 @@ export default function NavBar() {
             accountStatus="address"
             showBalance={false}
           />
+          <button
+            type="button"
+            className="sm:hidden p-2 text-o-muted hover:text-o-text transition-colors"
+            onClick={() => setMobileOpen((o) => !o)}
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+          >
+            {mobileOpen ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
+
+      {mobileOpen && (
+        <div className="sm:hidden border-t border-o-border bg-o-bg/95 backdrop-blur-md">
+          <div className="flex flex-col px-4 py-2">
+            {navItems.map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`inline-flex items-center min-h-[44px] px-3 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
+                    active
+                      ? "bg-o-blue/10 text-o-blueText"
+                      : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

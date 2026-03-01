@@ -39,11 +39,6 @@ export default function DashboardPage() {
         <AttributionPanel />
       </div>
 
-      <footer className="text-center py-6 border-t border-o-border">
-        <p className="text-xs text-o-muted font-body">
-          Autonomous HPC compute on Base &middot; ERC-8021 + ERC-8004 + x402
-        </p>
-      </footer>
     </main>
   );
 }
