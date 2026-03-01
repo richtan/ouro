@@ -68,6 +68,9 @@ brew install dopplerhq/cli/doppler
 doppler login
 doppler setup    # Selects project "ouro", config "dev" (from doppler.yaml)
 doppler run -- docker compose up --build
+
+# If port 3000 is already in use:
+DASHBOARD_PORT=3001 doppler run -- docker compose up --build
 ```
 
 **Without Doppler** (fallback — uses `.env` file):
@@ -80,6 +83,9 @@ cp .env.example .env
 
 # 3. Start everything
 docker compose up --build
+
+# If port 3000 is already in use:
+DASHBOARD_PORT=3001 docker compose up --build
 ```
 
 Once running:
@@ -189,7 +195,7 @@ OURO_API_URL=https://api.ourocompute.com ouro-mcp
 | `ADMIN_API_KEY` | No | — | Shared secret for admin endpoints (empty = no auth) |
 | `PUBLIC_API_URL` | No | — | Public URL of the agent (for payment link generation) |
 | `PUBLIC_DASHBOARD_URL` | No | — | Public URL of the dashboard |
-| `PORT` | No | `8000` | Listening port |
+| `PORT` | No | `8000` | Listening port (per-service in Railway; not in Doppler) |
 
 ### Dashboard service
 
@@ -198,7 +204,7 @@ OURO_API_URL=https://api.ourocompute.com ouro-mcp
 | `AGENT_URL` | Yes | — | Agent URL. Docker Compose: `http://agent:8000`. Railway: `http://agent.railway.internal:8000` |
 | `ADMIN_API_KEY` | No | — | Must match the agent's `ADMIN_API_KEY` for admin features |
 | `NEXT_PUBLIC_ADMIN_ADDRESS` | No | — | Wallet address that sees the Admin nav link and can authenticate |
-| `PORT` | No | `3000` | Listening port |
+| `PORT` | No | `3000` | Listening port (per-service in Railway; not in Doppler) |
 
 ### MCP server service
 
@@ -207,7 +213,7 @@ OURO_API_URL=https://api.ourocompute.com ouro-mcp
 | `OURO_API_URL` | No | `https://api.ourocompute.com` | Agent API URL |
 | `DASHBOARD_URL` | No | `https://ourocompute.com` | Dashboard URL (for payment links) |
 | `PUBLIC_URL` | No | — | Public URL of this MCP server |
-| `PORT` | No | `8080` | Listening port |
+| `PORT` | No | `8080` | Listening port (per-service in Railway; not in Doppler) |
 
 ---
 
@@ -237,7 +243,7 @@ All three services (agent, dashboard, mcp-server) deploy to [Railway](https://ra
 
 4. **Set environment variables** — use one of:
 
-   **Option A: Doppler (recommended)** — In the Doppler dashboard, go to **Integrations → Railway**, connect the Railway project, and map the `prod` config to the `agent`, `dashboard`, and `mcp-server` services. Secrets auto-sync on every change.
+   **Option A: Doppler (recommended)** — In the Doppler dashboard, go to **Integrations → Railway**, connect the Railway project, and map the `prd` config to the `agent`, `dashboard`, and `mcp-server` services. Secrets auto-sync on every change.
 
    **Option B: Manual** — Set variables directly in Railway for each service:
    - `agent`: All agent env vars. Set `AGENT_URL` internally via `http://agent.railway.internal:8000` on the dashboard.

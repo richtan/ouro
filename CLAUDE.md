@@ -214,11 +214,12 @@ Builder code holders get 10% discount (but never below cost floor).
 
 ## Secrets Management (Doppler)
 
-Secrets are managed via [Doppler](https://doppler.com) as the single source of truth. Doppler project: `ouro`, configs: `dev`, `staging`, `prod`.
+Secrets are managed via [Doppler](https://doppler.com) as the single source of truth. Doppler project: `ouro`, configs: `dev` (local), `prd` (production, shared across all Railway services).
 
 - **Local dev**: `doppler run -- docker compose up --build` (or fall back to `.env` file)
-- **Production**: Doppler → Railway integration auto-syncs secrets to all three services
-- **`SLURMREST_URL`** is NOT in Doppler — it's dynamically fetched from GCP by `deploy-all.sh`
+- **Port override**: `DASHBOARD_PORT=3001 doppler run -- docker compose up --build` (if 3000 is in use)
+- **Production**: Doppler → Railway integration auto-syncs `prd` config to all three services
+- **`SLURMREST_URL`** and **`PORT`** are NOT in Doppler — `SLURMREST_URL` is dynamically fetched from GCP by `deploy.sh`; `PORT` is set per-service in Railway
 
 Config file: `doppler.yaml` at repo root (sets default project/config for CLI).
 
@@ -243,7 +244,7 @@ X402_FACILITATOR_URL=https://x402.org/facilitator
 PRICE_MARGIN_MULTIPLIER=1.5
 PUBLIC_API_URL, PUBLIC_DASHBOARD_URL
 ADMIN_API_KEY                    # Shared secret for admin endpoint access (empty = skip in dev)
-PORT=8000
+PORT=8000                        # Per-service in Railway, not in Doppler
 ```
 
 ### Dashboard (Railway service: `dashboard`)
@@ -252,21 +253,25 @@ AGENT_URL=http://agent.railway.internal:8000   # Internal Railway networking
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID            # For RainbowKit
 ADMIN_API_KEY                    # Same value as agent (server-side only, never reaches browser)
 NEXT_PUBLIC_ADMIN_ADDRESS        # Operator wallet address for admin UI gating
-PORT=3000
+PORT=3000                        # Per-service in Railway, not in Doppler
 ```
 
 ### MCP Server (Railway service: `mcp-server`)
 ```
 OURO_API_URL=https://api.ourocompute.com  # Public agent URL
 DASHBOARD_URL=https://ourocompute.com
-PORT=8080
+PORT=8080                        # Per-service in Railway, not in Doppler
 ```
 
 ## Local Development
 
 ```bash
 # Option A: With Doppler (recommended)
+doppler login && doppler setup   # First time only
 doppler run -- docker compose up --build
+
+# If port 3000 is in use:
+DASHBOARD_PORT=3001 doppler run -- docker compose up --build
 
 # Option B: Without Doppler (fallback)
 cp .env.example .env
@@ -274,7 +279,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- Dashboard: http://localhost:3000
+- Dashboard: http://localhost:3000 (or 3001 if overridden)
 - Agent API: http://localhost:8000
 - Postgres: localhost:5432
 
@@ -543,6 +548,7 @@ No automated test suite currently. Manual verification:
 - **Jobs stuck in "processing"** after agent restart are recovered by `recover_stuck_jobs()` on startup.
 - **Oracle agent timeout**: Wrapped in `asyncio.wait_for(..., timeout=900)` to prevent infinite hangs.
 - **Slurm poll errors**: `poll_slurm_status` wraps `get_job_status()` in try/except so transient network errors don't crash the run.
+- **Dashboard Docker build needs native toolchain**: `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
 
 ## Companion Documentation
 
