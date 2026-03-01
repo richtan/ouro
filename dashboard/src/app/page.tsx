@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchStats } from "@/lib/api";
+import { useInView } from "@/hooks/useInView";
 
 
 interface LiveStats {
@@ -123,6 +124,8 @@ function Terminal() {
 
 export default function LandingPage() {
   const stats = useStats();
+  const [statsRef, statsVisible] = useInView();
+  const [mcpRef, mcpVisible] = useInView();
 
   return (
     <>
@@ -157,9 +160,9 @@ export default function LandingPage() {
 
       <main className="max-w-7xl mx-auto px-4 md:px-8 lg:px-12">
         {/* Hero */}
-        <section className="pt-24 pb-10 md:pt-32 md:pb-14 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center animate-fade-in">
+        <section className="pt-24 pb-10 md:pt-32 md:pb-14 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
           {/* Left: text */}
-          <div>
+          <div className="animate-fade-in-up">
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
               Compute that
               <br />
@@ -187,43 +190,45 @@ export default function LandingPage() {
           </div>
 
           {/* Right: terminal */}
-          <div className="mt-10 lg:mt-0">
+          <div className="mt-10 lg:mt-0 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
             <Terminal />
           </div>
         </section>
 
         {/* Stats */}
-        <section className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
+        <section ref={statsRef} className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
           <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 lg:justify-center lg:gap-x-16">
-            <Stat label="jobs completed" value={stats ? stats.completed_jobs : "—"} />
-            <Stat label="active now" value={stats ? stats.active_jobs : "—"} />
-            <Stat
-              label="earned"
-              value={stats ? `$${stats.total_revenue_usdc.toFixed(2)}` : "—"}
-            />
-            <Stat
-              label="on-chain proofs"
-              value={stats ? stats.on_chain_proof_count : "—"}
-            />
+            {[
+              { label: "jobs completed", value: stats ? stats.completed_jobs : "—" },
+              { label: "active now", value: stats ? stats.active_jobs : "—" },
+              { label: "earned", value: stats ? `$${stats.total_revenue_usdc.toFixed(2)}` : "—" },
+              { label: "on-chain proofs", value: stats ? stats.on_chain_proof_count : "—" },
+            ].map((s, i) => (
+              <div key={s.label} className={`reveal${statsVisible ? " visible" : ""} reveal-delay-${i + 1}`}>
+                <Stat label={s.label} value={s.value} />
+              </div>
+            ))}
           </div>
         </section>
 
         {/* MCP section */}
-        <section className="border-t border-o-border pt-10 pb-12 md:pt-14 md:pb-16 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
+        <section ref={mcpRef} className="border-t border-o-border pt-10 pb-12 md:pt-14 md:pb-16 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
           <div>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text leading-tight">
-              Built for agents.
-            </h2>
-            <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed">
-              Add one URL to your MCP config. Any AI tool&mdash;Cursor, Claude
-              Desktop, your own agent&mdash;can price, submit, and verify
-              compute jobs.
-            </p>
+            <div className={`reveal${mcpVisible ? " visible" : ""}`}>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text leading-tight">
+                Built for agents.
+              </h2>
+              <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed">
+                Add one URL to your MCP config. Any AI tool&mdash;Cursor, Claude
+                Desktop, your own agent&mdash;can price, submit, and verify
+                compute jobs.
+              </p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
-              {MCP_TOOLS.map((tool) => (
+              {MCP_TOOLS.map((tool, i) => (
                 <div
                   key={tool.name}
-                  className="bg-o-surface border border-o-border rounded-lg px-3.5 py-3 hover:border-o-borderHover transition-colors"
+                  className={`reveal${mcpVisible ? " visible" : ""} reveal-delay-${i + 1} bg-o-surface border border-o-border rounded-lg px-3.5 py-3 hover:border-o-borderHover transition-colors`}
                 >
                   <span className="font-mono text-xs text-o-text">{tool.name}</span>
                   <p className="text-xs text-o-muted mt-1">{tool.description}</p>
@@ -237,7 +242,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="mt-8 lg:mt-0">
+          <div className={`mt-8 lg:mt-0 reveal${mcpVisible ? " visible" : ""} reveal-delay-2`}>
             <McpCodeCard />
           </div>
         </section>
