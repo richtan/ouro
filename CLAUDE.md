@@ -561,4 +561,5 @@ No automated test suite currently. Manual verification:
 - Verify changes work before marking complete
 - Keep changes minimal and focused
 - Find root causes, no temporary fixes
-- Update this file when significant architectural changes are made
+- Before making any dashboard changes, read `dashboard/DESIGN.md` first to align with the overall theme, design tokens, and visual patterns
+- After making changes, update `CLAUDE.md`, `dashboard/DESIGN.md`, and `README.md` if the changes affect architecture, design, APIs, or project structure
