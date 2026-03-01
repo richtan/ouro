@@ -69,13 +69,14 @@ Muted semantic backgrounds use opacity: `bg-o-green/10`, `bg-o-red/10`, `bg-o-am
 
 ### Font Stack
 
-Fonts are loaded via `next/font/google` in `layout.tsx` and exposed as CSS variables.
+Fonts are loaded via the `geist` npm package in `layout.tsx` and exposed as CSS variables.
 
-| CSS Variable | Font | Weights | Tailwind Class | Purpose |
-|---|---|---|---|---|
-| `--font-display` | Inter Tight | 500, 600, 700 | `font-display` | Headings, stat values, page titles |
-| `--font-body` | Inter | 400, 500 | `font-body` | Body text, descriptions, labels |
-| `--font-mono` | Roboto Mono | 400, 500 | `font-mono` | Job IDs, wallet addresses, prices, terminal output, code |
+| CSS Variable | Font | Tailwind Class | Purpose |
+|---|---|---|---|
+| `--font-geist-sans` | Geist Sans | `font-sans`, `font-display`, `font-body` | All text: headings, body, labels, nav links |
+| `--font-geist-mono` | Geist Mono | `font-mono` | Job IDs, wallet addresses, prices, terminal output, code |
+
+Geist is Vercel's modern sans-serif typeface. It provides a clean, geometric feel with excellent readability at all sizes. `font-display` and `font-body` are aliases for `font-sans` (all resolve to Geist Sans).
 
 ### Sizing Hierarchy
 

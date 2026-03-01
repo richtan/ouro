@@ -42,7 +42,7 @@ export default function NavBar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[11px] sm:text-xs font-mono uppercase tracking-wider transition-colors ${
+                  className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[11px] sm:text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
                     active
                       ? "bg-o-blue/10 text-o-blueText"
                       : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"

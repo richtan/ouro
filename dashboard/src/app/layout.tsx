@@ -1,31 +1,11 @@
 import type { Metadata } from "next";
-import { Inter, Inter_Tight, Roboto_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import { headers } from "next/headers";
 import { cookieToInitialState } from "wagmi";
 import "./globals.css";
 import Web3Provider, { config } from "@/components/Web3Provider";
 import NavBar from "@/components/NavBar";
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-body",
-  display: "swap",
-});
-
-const interTight = Inter_Tight({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const robotoMono = Roboto_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Ouro Compute",
@@ -45,13 +25,13 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${inter.variable} ${interTight.variable} ${robotoMono.variable}`}
+      className={`dark ${GeistSans.variable} ${GeistMono.variable}`}
     >
       <head>
         <meta name="base:app_id" content="6997ee68820ae5633e55081a" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </head>
-      <body className="min-h-screen antialiased font-body">
+      <body className="min-h-screen antialiased font-sans">
         <Web3Provider initialState={initialState}>
           <NavBar />
           {children}
