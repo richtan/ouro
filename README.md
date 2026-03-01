@@ -1,4 +1,4 @@
-# Ouro — Proof-of-Compute Oracle
+# Ouro Compute
 
 A self-sustaining autonomous agent on Base that sells HPC compute via x402, posts on-chain proofs with ERC-8021 Builder Codes, registers its identity via ERC-8004, and exposes a public dashboard with real-time P&L.
 
@@ -13,10 +13,10 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 ## Architecture
 
 - **Agent** (Python/FastAPI) — PydanticAI oracle that processes compute requests, manages Slurm jobs, posts on-chain proofs, and runs an autonomous pricing/monitoring loop.
-- **Dashboard** (Next.js) — Public, no-auth interface showing wallet balance, P&L, live terminal feed, cluster status, and builder code attribution analytics.
+- **Dashboard** (Next.js) — Public interface showing wallet balance, P&L, live terminal feed, cluster status, and builder code attribution analytics. Admin section gated by wallet signature.
 - **MCP Server** (Python/FastMCP) — Standalone MCP server that lets any AI agent (Cursor, Claude Desktop) submit compute jobs with browser-based USDC payments.
 - **Contracts** (Foundry/Solidity) — `ProofOfCompute.sol` for on-chain proof attestation on Base.
-- **Database** (PostgreSQL) — Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log.
+- **Database** (PostgreSQL) — Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, audit log.
 
 ## Key Technologies
 
@@ -33,61 +33,231 @@ Ouros/
 ├── agent/          # Python FastAPI backend
 ├── dashboard/      # Next.js App Router frontend
 ├── contracts/      # Foundry Solidity project
-├── db/             # SQL schema + seed data
+├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── mcp-server/     # Standalone MCP server for AI agent compute
 ├── ouro-sdk/       # Python SDK for programmatic access
-└── deploy/         # Slurm cluster setup scripts
+└── deploy/         # Railway deploy scripts + Slurm cluster setup
 ```
+
+---
+
+## Prerequisites
+
+| Tool | Version | Required for |
+|---|---|---|
+| [Docker](https://docs.docker.com/get-docker/) + Docker Compose | Latest | Full-stack local dev |
+| [Node.js](https://nodejs.org/) | 20+ | Dashboard (if running without Docker) |
+| [Python](https://www.python.org/) | 3.11+ | Agent / MCP server (if running without Docker) |
+| [Foundry](https://getfoundry.sh/) | Latest | Contract deployment |
+| [Railway CLI](https://docs.railway.com/guides/cli) | Latest | Production deployment |
+| [gcloud CLI](https://cloud.google.com/sdk/docs/install) | Latest | Slurm cluster management + production deploy |
 
 ---
 
 ## Local Development
 
+### Option A: Docker Compose (full stack, recommended)
+
+This starts PostgreSQL, the agent, and the dashboard together. The database schema is auto-created from `db/01-init.sql` and `db/02-seed.sql`.
+
 ```bash
+# 1. Copy the example env file
 cp .env.example .env
-# Fill in your keys (see Environment Variables below)
+
+# 2. Fill in the required values (see below)
+
+# 3. Start everything
 docker compose up --build
 ```
 
-- Dashboard: http://localhost:3000
-- Agent API: http://localhost:8000
-- Postgres: localhost:5432
+Once running:
 
-This starts PostgreSQL, the agent, and the dashboard. Set `SLURMREST_URL` in `.env` to point at your Slurm cluster.
+| Service | URL |
+|---|---|
+| Dashboard | http://localhost:3000 |
+| Agent API | http://localhost:8000 |
+| PostgreSQL | localhost:5432 (user: `ouro`, db: `ouro`) |
+
+#### Required `.env` values
+
+These **must** be set for the agent to start:
+
+```bash
+OPENAI_API_KEY=sk-...          # OpenAI API key (for PydanticAI oracle)
+WALLET_PRIVATE_KEY=0x...       # Agent wallet private key (holds ETH for gas)
+WALLET_ADDRESS=0x...           # Corresponding wallet address
+```
+
+These are needed for **jobs to actually execute** on a Slurm cluster:
+
+```bash
+SLURMREST_URL=http://<controller-ip>:6820   # Slurm REST API endpoint
+SLURMREST_JWT=...                            # Slurm auth token
+```
+
+Without `SLURMREST_URL` and `SLURMREST_JWT`, the agent and dashboard still start, but submitted jobs will fail at the processing stage.
+
+These are needed for **x402 payments** to work:
+
+```bash
+CDP_API_KEY_ID=...             # Coinbase Developer Platform API key ID
+CDP_API_KEY_SECRET=...         # Coinbase Developer Platform API secret
+```
+
+Everything else in `.env.example` has working defaults for local dev. `ADMIN_API_KEY` can be left empty to disable auth checks (all admin endpoints open in dev).
+
+### Option B: Individual services (without Docker)
+
+Use this when you only need to work on one service, or need faster iteration than Docker rebuilds.
+
+**Dashboard only:**
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Set `AGENT_URL` to point to a running agent (local or remote):
+
+```bash
+AGENT_URL=http://localhost:8000 npm run dev
+# or point to production:
+AGENT_URL=https://api.ourocompute.com npm run dev
+```
+
+**Agent only** (requires PostgreSQL running separately):
+
+```bash
+cd agent
+pip install -e .
+# Set all required env vars (DB_HOST, OPENAI_API_KEY, WALLET_*, etc.)
+uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+**MCP server only:**
+
+```bash
+cd mcp-server
+pip install -e .
+OURO_API_URL=https://api.ourocompute.com ouro-mcp
+```
 
 ---
 
-## Deployment (Railway)
+## Environment Variables
 
-All three services (agent, dashboard, mcp-server) are deployed to [Railway](https://railway.app) as separate services within a single project. Each service has its own Dockerfile.
+### Agent service
 
-### Prerequisites
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DB_HOST` | Yes | `postgres` | PostgreSQL host |
+| `DB_PORT` | No | `5432` | PostgreSQL port |
+| `DB_NAME` | No | `ouro` | Database name |
+| `DB_USER` | No | `ouro` | Database user |
+| `DB_PASSWORD` | Yes | — | Database password |
+| `OPENAI_API_KEY` | Yes | — | OpenAI API key for PydanticAI |
+| `LLM_MODEL` | No | `openai:gpt-4o-mini` | LLM model identifier |
+| `WALLET_PRIVATE_KEY` | Yes | — | Agent wallet private key |
+| `WALLET_ADDRESS` | Yes | — | Agent wallet address |
+| `BASE_RPC_URL` | No | `https://mainnet.base.org` | Base RPC endpoint |
+| `CHAIN_ID` | No | `8453` | Chain ID (8453=mainnet, 84532=Sepolia) |
+| `CHAIN_CAIP2` | No | `eip155:8453` | CAIP-2 identifier |
+| `PROOF_CONTRACT_ADDRESS` | Yes | — | Deployed ProofOfCompute.sol address |
+| `USDC_CONTRACT_ADDRESS` | No | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | USDC on Base |
+| `BUILDER_CODE` | No | — | ERC-8021 builder code (set to `ouro` in .env.example) |
+| `SLURMREST_URL` | Yes* | — | Slurm REST API URL (*agent starts without it, but jobs won't run) |
+| `SLURMREST_JWT` | Yes* | — | Slurm auth token |
+| `CDP_API_KEY_ID` | Yes* | — | Coinbase CDP key ID (*needed for x402 payments) |
+| `CDP_API_KEY_SECRET` | Yes* | — | Coinbase CDP key secret |
+| `X402_FACILITATOR_URL` | No | `https://x402.org/facilitator` | x402 facilitator |
+| `PRICE_MARGIN_MULTIPLIER` | No | `1.5` | Profit margin (1.5 = 50% margin) |
+| `ADMIN_API_KEY` | No | — | Shared secret for admin endpoints (empty = no auth) |
+| `PUBLIC_API_URL` | No | — | Public URL of the agent (for payment link generation) |
+| `PUBLIC_DASHBOARD_URL` | No | — | Public URL of the dashboard |
+| `PORT` | No | `8000` | Listening port |
 
-- [Railway CLI](https://docs.railway.com/guides/cli) installed (`brew install railway`)
-- Logged in: `railway login`
-- Project linked: `railway link` (select the `ouro` project)
+### Dashboard service
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `AGENT_URL` | Yes | — | Agent URL. Docker Compose: `http://agent:8000`. Railway: `http://agent.railway.internal:8000` |
+| `ADMIN_API_KEY` | No | — | Must match the agent's `ADMIN_API_KEY` for admin features |
+| `NEXT_PUBLIC_ADMIN_ADDRESS` | No | — | Wallet address that sees the Admin nav link and can authenticate |
+| `PORT` | No | `3000` | Listening port |
+
+### MCP server service
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OURO_API_URL` | No | `https://api.ourocompute.com` | Agent API URL |
+| `DASHBOARD_URL` | No | `https://ourocompute.com` | Dashboard URL (for payment links) |
+| `PUBLIC_URL` | No | — | Public URL of this MCP server |
+| `PORT` | No | `8080` | Listening port |
+
+---
+
+## Production Deployment (Railway)
+
+All three services (agent, dashboard, mcp-server) deploy to [Railway](https://railway.app) as separate services within a single project. Each has its own Dockerfile.
+
+### First-time setup
+
+1. **Install Railway CLI:**
+
+   ```bash
+   brew install railway
+   railway login
+   ```
+
+2. **Create the project** (or use the Railway web dashboard):
+
+   ```bash
+   railway init
+   ```
+
+3. **Add services** in the Railway dashboard:
+   - Create three services: `agent`, `dashboard`, `mcp-server`
+   - Add a **PostgreSQL** plugin (Railway provisions it automatically)
+   - Railway provides `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` for the PostgreSQL plugin — set these on the `agent` service
+
+4. **Set environment variables** for each service using the tables above. On Railway:
+   - `agent`: All agent env vars. Set `AGENT_URL` internally via `http://agent.railway.internal:8000` on the dashboard.
+   - `dashboard`: `AGENT_URL=http://agent.railway.internal:8000`, `ADMIN_API_KEY`, `NEXT_PUBLIC_ADMIN_ADDRESS`
+   - `mcp-server`: `OURO_API_URL=https://api.ourocompute.com`
+
+5. **Custom domains** (optional): In Railway Settings > Networking > Custom Domain for each service. Add CNAME records at your DNS provider pointing to the Railway-provided targets.
+
+6. **Link the project locally:**
+
+   ```bash
+   railway link    # Select the project
+   ```
 
 ### Deploying
 
 **Deploy all services:**
 
 ```bash
-./deploy/deploy-all.sh                # All three (agent, mcp-server, dashboard)
-./deploy/deploy-all.sh agent mcp      # Specific services only
+./deploy/deploy-all.sh                  # All three services
+./deploy/deploy-all.sh agent mcp        # Specific services only
+./deploy/deploy-all.sh dashboard        # Dashboard only
 ```
 
-**Or deploy agent only** (fetches Slurm controller IP from GCP automatically):
+The deploy script automatically fetches the Slurm controller IP from GCP and updates `SLURMREST_URL` on Railway when deploying the agent.
+
+**Deploy agent only** (with Slurm URL auto-injection):
 
 ```bash
 ./deploy/deploy-agent.sh
 ```
 
-**Important:** This is a monorepo. Each service must be deployed from the project root using `--path-as-root` to scope the build context to the correct subdirectory.
+**Requirements for deploy scripts:** `gcloud` CLI configured with access to the GCP project, `railway` CLI logged in and linked to the project.
 
-### Checking build logs
+### Checking logs
 
 ```bash
-# Build logs for the latest deployment (even if failed)
+# Build logs (even if deployment failed)
 railway logs --build --latest -s agent -n 100
 railway logs --build --latest -s dashboard -n 100
 railway logs --build --latest -s mcp-server -n 100
@@ -97,57 +267,6 @@ railway logs -s agent
 railway logs -s dashboard
 railway logs -s mcp-server
 ```
-
-### Railway Services & Environment Variables
-
-#### agent
-
-The core Python/FastAPI backend. Runs the autonomous pricing loop, processes jobs, posts on-chain proofs.
-
-| Variable | Description |
-|---|---|
-| `DB_HOST` | PostgreSQL host (Railway provides this) |
-| `DB_PORT` | PostgreSQL port (`5432`) |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database user |
-| `DB_PASSWORD` | Database password |
-| `BASE_RPC_URL` | Base RPC endpoint (`https://mainnet.base.org`) |
-| `CHAIN_ID` | Chain ID (`8453` for mainnet, `84532` for Sepolia) |
-| `CHAIN_CAIP2` | CAIP-2 identifier (`eip155:8453`) |
-| `WALLET_PRIVATE_KEY` | Agent wallet private key (holds ETH for gas) |
-| `WALLET_ADDRESS` | Agent wallet address |
-| `PROOF_CONTRACT_ADDRESS` | Deployed ProofOfCompute.sol address |
-| `USDC_CONTRACT_ADDRESS` | USDC on Base (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
-| `BUILDER_CODE` | ERC-8021 builder code string |
-| `SLURMREST_URL` | Slurm REST URL. Set automatically by `./deploy/deploy-agent.sh`; or set manually for local dev. |
-| `SLURMREST_JWT` | Slurm auth token |
-| `LLM_MODEL` | PydanticAI model (`openai:gpt-4o-mini`) |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `CDP_API_KEY_ID` | Coinbase Developer Platform API key ID |
-| `CDP_API_KEY_SECRET` | Coinbase Developer Platform API secret |
-| `X402_FACILITATOR_URL` | x402 facilitator (`https://x402.org/facilitator`) |
-| `PRICE_MARGIN_MULTIPLIER` | Profit margin multiplier (`1.5` = 50% margin) |
-| `PUBLIC_API_URL` | Public URL of the agent |
-| `PUBLIC_DASHBOARD_URL` | Public URL of the dashboard |
-| `PORT` | Listening port (`8000`) |
-
-#### dashboard
-
-Next.js App Router frontend. Proxies API calls to the agent via internal Railway networking.
-
-| Variable | Description |
-|---|---|
-| `AGENT_URL` | Internal agent URL (`http://agent.railway.internal:8000`) |
-| `PORT` | Listening port (`3000`) |
-
-#### mcp-server
-
-Standalone MCP server. No secrets needed — it proxies to the agent and payment happens in the user's browser.
-
-| Variable | Description |
-|---|---|
-| `OURO_API_URL` | Public agent URL (`https://api.ourocompute.com`) |
-| `PUBLIC_URL` | Public URL of this MCP server (for generating payment links) |
 
 ---
 
@@ -169,7 +288,7 @@ Then ask your AI agent: *"Run `echo hello world` on the Ouro cluster"*
 
 The agent will return a one-time payment link. Open it in your browser, connect your wallet, pay USDC on Base, and the job executes on the Slurm cluster. No private keys leave your browser.
 
-The agent API is x402-compatible — any HTTP client that handles the x402 402→sign→retry flow can submit and pay for jobs programmatically without the MCP server.
+The agent API is x402-compatible — any HTTP client that handles the 402→sign→retry flow can submit and pay for jobs programmatically without the MCP server.
 
 ---
 
@@ -178,7 +297,7 @@ The agent API is x402-compatible — any HTTP client that handles the x402 402�
 For programmatic access from Python scripts:
 
 ```bash
-pip install ouro-sdk
+pip install ./ouro-sdk
 ```
 
 ```python
@@ -199,17 +318,61 @@ See [`ouro-sdk/README.md`](ouro-sdk/README.md) for full API docs.
 
 ## Slurm Cluster (GCP)
 
-The production Slurm cluster runs on GCP Compute Engine. Setup script is at `deploy/setup-slurm-cluster.sh`.
+The production Slurm cluster runs on GCP Compute Engine with one controller node and two worker nodes.
 
-The agent connects to the Slurm controller's REST API (`slurmrestd`) via the `SLURMREST_URL` environment variable. Jobs are isolated using Apptainer containers on the worker nodes.
+### Prerequisites
 
-For local development, `docker compose` starts the agent and dashboard; `SLURMREST_URL` in `.env` must point to a running Slurm cluster.
+- GCP project with billing enabled
+- `gcloud` CLI installed and authenticated (`gcloud auth login`)
+- SSH keys configured for GCP Compute Engine
+
+### Setup
+
+The setup script creates and configures the cluster:
+
+```bash
+./deploy/setup-slurm-cluster.sh
+```
+
+This script:
+1. Creates GCP Compute Engine instances (controller: `e2-small`, workers: `e2-medium`)
+2. Installs Slurm on all nodes
+3. Deploys a custom REST proxy (`slurm_proxy.py`, slurmrestd-compatible) on the controller
+4. Installs Apptainer on workers for job isolation
+5. Starts all Slurm services
+
+### Configuration
+
+Defaults are hardcoded in the script. The deploy scripts (`deploy-all.sh`, `deploy-agent.sh`) support overriding via environment variables:
+
+| Variable | Default | Overridable in |
+|---|---|---|
+| `GCP_PROJECT` | `ouro-hpc-2026` | deploy-all.sh, deploy-agent.sh |
+| `GCP_ZONE` | `us-central1-a` | deploy-all.sh, deploy-agent.sh |
+| `SLURM_CONTROLLER` | `ouro-slurm` | deploy-all.sh, deploy-agent.sh |
+
+Slurm config files are in `deploy/slurm/`:
+- `slurm.conf` — cluster configuration (CPU, memory, partitions)
+- `cgroup.conf` — resource isolation
+- `slurm_proxy.py` — REST proxy for slurmrestd
+
+### Connecting the agent
+
+The deploy scripts handle this automatically. When you run `./deploy/deploy-all.sh` or `./deploy/deploy-agent.sh`, they fetch the controller's external IP from GCP and set `SLURMREST_URL` on Railway.
+
+For local dev, set `SLURMREST_URL` in your `.env` manually:
+
+```bash
+SLURMREST_URL=http://<controller-external-ip>:6820
+```
+
+Without a Slurm cluster, the agent and dashboard still start and function — the dashboard shows data, the agent accepts requests — but submitted jobs will fail at the processing stage.
 
 ---
 
 ## Smart Contracts
 
-The `ProofOfCompute.sol` contract is deployed on Base mainnet. Deploy with Foundry:
+`ProofOfCompute.sol` is deployed on Base mainnet. To deploy a new instance:
 
 ```bash
 cd contracts
@@ -219,4 +382,14 @@ forge create src/ProofOfCompute.sol:ProofOfCompute \
   --private-key $WALLET_PRIVATE_KEY
 ```
 
-Set the resulting address as `PROOF_CONTRACT_ADDRESS` in the agent's environment.
+For testnet (Base Sepolia):
+
+```bash
+forge create src/ProofOfCompute.sol:ProofOfCompute \
+  --rpc-url https://sepolia.base.org \
+  --private-key $WALLET_PRIVATE_KEY
+```
+
+Set the resulting contract address as `PROOF_CONTRACT_ADDRESS` in the agent's environment variables.
+
+Foundry config is in `contracts/foundry.toml` (Solc 0.8.24, optimizer enabled with 200 runs).

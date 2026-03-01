@@ -54,7 +54,7 @@ export default function OutputDisplay({ raw }: OutputDisplayProps) {
         </pre>
         <button
           onClick={handleCopy}
-          className="absolute top-2 right-2 px-2 py-1 text-xs font-mono border border-o-border rounded bg-o-surface/90 backdrop-blur-sm text-o-muted hover:text-o-text hover:border-o-borderHover transition-colors"
+          className="absolute top-2 right-2 px-2 py-1 text-xs border border-o-border rounded bg-o-surface/90 backdrop-blur-sm text-o-muted hover:text-o-text hover:border-o-borderHover transition-colors"
         >
           {copied ? "Copied" : "Copy"}
         </button>

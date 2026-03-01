@@ -43,7 +43,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs uppercase tracking-wider font-mono ${s.bg} ${s.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider ${s.bg} ${s.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === "running" || status === "processing" ? "animate-pulse" : ""}`} />
       {status}
     </span>
@@ -214,7 +214,7 @@ export default function HistoryPage() {
           <p className="text-o-textSecondary text-sm mb-4">No jobs found for this wallet</p>
           <a
             href="/submit"
-            className="inline-block px-5 py-3 bg-o-blue text-white border border-o-blue rounded-lg text-xs font-mono hover:bg-o-blueHover transition-colors"
+            className="inline-block px-6 py-3 bg-o-blue text-white border border-o-blue rounded-lg text-sm font-medium hover:bg-o-blueHover transition-colors"
           >
             Submit your first job &rarr;
           </a>
@@ -222,10 +222,10 @@ export default function HistoryPage() {
       ) : (
         <div className="space-y-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-o-textSecondary font-mono">
+            <span className="text-xs text-o-textSecondary">
               {jobs.length} job{jobs.length !== 1 ? "s" : ""} for {address?.slice(0, 6)}...{address?.slice(-4)}
             </span>
-            <span className="text-xs text-o-textSecondary font-mono">
+            <span className="text-xs text-o-textSecondary">
               Total: ${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}
             </span>
           </div>

@@ -50,7 +50,7 @@ export default function AuditPanel() {
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <div className="stat-label">Audit Log</div>
-        <span className="text-xs font-mono text-o-textSecondary">{entries.length} events</span>
+        <span className="text-xs text-o-textSecondary">{entries.length} events</span>
       </div>
 
       <div className="overflow-x-auto">

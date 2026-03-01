@@ -145,12 +145,12 @@ export default function AdminPage() {
           <button
             onClick={handleSignIn}
             disabled={signing}
-            className="px-6 py-3 bg-o-blue/10 text-o-blueText border border-o-blue/20 rounded-lg text-sm font-mono hover:bg-o-blue/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-o-blue/10 text-o-blueText border border-o-blue/20 rounded-lg text-sm font-medium hover:bg-o-blue/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {signing ? "Waiting for signature..." : "Sign to authenticate"}
           </button>
           {error && (
-            <p className="text-o-red text-xs font-mono mt-2">{error}</p>
+            <p className="text-o-red text-xs mt-2">{error}</p>
           )}
         </div>
       </main>
@@ -170,7 +170,7 @@ export default function AdminPage() {
         </div>
         <button
           onClick={handleSignOut}
-          className="px-3 py-2 text-xs font-mono text-o-textSecondary hover:text-o-red border border-o-border rounded-lg hover:border-o-red/30 transition-colors"
+          className="px-3 py-2 text-xs text-o-textSecondary hover:text-o-red border border-o-border rounded-lg hover:border-o-red/30 transition-colors"
         >
           Sign out
         </button>

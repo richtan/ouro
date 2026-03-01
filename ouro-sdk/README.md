@@ -5,7 +5,9 @@ Python SDK for submitting and managing compute jobs on Ouro.
 ## Install
 
 ```bash
-pip install ouro-sdk
+pip install ./ouro-sdk    # from the project root
+# or
+cd ouro-sdk && pip install -e .
 ```
 
 ## Quick Start

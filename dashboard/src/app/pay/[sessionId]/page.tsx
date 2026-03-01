@@ -222,7 +222,7 @@ export default function PayPage() {
                 <div className="w-2.5 h-2.5 rounded-full bg-o-red" />
                 <span className="stat-label !text-o-red">Payment Failed</span>
               </div>
-              <p className="font-mono text-xs text-o-red/80">{error}</p>
+              <p className="text-xs text-o-red/80">{error}</p>
             </div>
           )}
         </>

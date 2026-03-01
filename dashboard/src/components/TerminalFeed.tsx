@@ -61,7 +61,7 @@ export default function TerminalFeed() {
         </div>
         <button
           onClick={() => setPaused(!paused)}
-          className="px-3 py-2 text-xs font-mono rounded-lg border border-o-border hover:border-o-borderHover transition-colors text-o-textSecondary hover:text-o-text"
+          className="px-3 py-2 text-xs rounded-lg border border-o-border hover:border-o-borderHover transition-colors text-o-textSecondary hover:text-o-text"
         >
           {paused ? "Resume" : "Pause"}
         </button>

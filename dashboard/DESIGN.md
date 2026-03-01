@@ -78,6 +78,15 @@ Fonts are loaded via the `geist` npm package in `layout.tsx` and exposed as CSS 
 
 Geist is Vercel's modern sans-serif typeface. It provides a clean, geometric feel with excellent readability at all sizes. `font-display` and `font-body` are aliases for `font-sans` (all resolve to Geist Sans).
 
+### When to Use `font-mono`
+
+`font-mono` (Geist Mono) is strictly reserved for **data that benefits from monospaced rendering**:
+
+- **Use mono**: Job IDs, Slurm IDs, wallet addresses, tx hashes, SHA-256 hashes, dollar amounts/prices, builder codes, `<pre>` code/script blocks, terminal/log output, decoded data values, table data cells in structured logs
+- **Never use mono**: Buttons ("Upload File", "Decode", "Sign out", "Copy"), status badges ("completed", "running"), UI labels ("Self-Sustaining", "Three Revenue Streams", "DUAL"), error messages, navigation links, summary text ("42 total", "3 jobs for..."), any human-readable label or CTA
+
+Buttons and badges should use `font-sans` (inherited by default) with `font-medium` or `font-semibold` for visual weight instead.
+
 ### Sizing Hierarchy
 
 | Element | Size | Class | Font | Additional |

@@ -31,7 +31,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs uppercase tracking-wider font-mono ${s.bg} ${s.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider ${s.bg} ${s.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === "running" || status === "processing" ? "animate-pulse" : ""}`} />
       {status}
     </span>
@@ -124,7 +124,7 @@ function JobRow({ job }: { job: Job }) {
             </div>
           </div>
           {job.retry_count != null && job.retry_count > 0 && (
-            <div className="text-xs text-o-amber font-mono">
+            <div className="text-xs text-o-amber">
               Retries: {job.retry_count}
             </div>
           )}
@@ -198,7 +198,7 @@ export default function JobsPanel() {
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <div className="stat-label">All Jobs (Admin)</div>
-        <span className="text-xs font-mono text-o-textSecondary">{jobs.length} total</span>
+        <span className="text-xs text-o-textSecondary">{jobs.length} total</span>
       </div>
 
       {/* Desktop column headers */}

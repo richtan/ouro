@@ -53,7 +53,7 @@ export default function PublicJobStats() {
           </div>
           <Link
             href="/history"
-            className="text-xs font-mono text-o-blueText hover:underline uppercase tracking-wider"
+            className="text-xs font-medium text-o-blueText hover:underline uppercase tracking-wider"
           >
             My Jobs &rarr;
           </Link>

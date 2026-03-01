@@ -62,7 +62,7 @@ export default function RevenueModel() {
         </div>
         <div className="flex items-center gap-1.5 bg-o-blue/10 border border-o-blue/20 rounded px-2.5 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-o-blue animate-pulse" />
-          <span className="text-xs font-mono text-o-blueText uppercase tracking-wider">
+          <span className="text-xs font-medium text-o-blueText uppercase tracking-wider">
             Self-Sustaining
           </span>
         </div>
@@ -126,7 +126,7 @@ export default function RevenueModel() {
               strokeLinejoin="round"
             />
           </svg>
-          <span className="text-xs font-mono text-o-blueText uppercase tracking-wider">
+          <span className="text-xs font-medium text-o-blueText uppercase tracking-wider">
             Three Revenue Streams
           </span>
         </div>

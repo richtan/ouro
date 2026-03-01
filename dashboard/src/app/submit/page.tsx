@@ -143,7 +143,7 @@ export default function SubmitPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-2 text-xs font-mono text-o-blueText bg-o-blue/10 border border-o-blue/20 rounded-lg hover:bg-o-blue/20 transition-colors"
+                  className="px-3 py-2 text-xs font-medium text-o-blueText bg-o-blue/10 border border-o-blue/20 rounded-lg hover:bg-o-blue/20 transition-colors"
                 >
                   Upload File
                 </button>
@@ -158,7 +158,7 @@ export default function SubmitPage() {
                   <button
                     key={t.name}
                     onClick={() => setScript(t.script)}
-                    className="px-2 py-1.5 text-xs font-mono text-o-textSecondary hover:text-o-blueText bg-o-bg border border-o-border rounded-lg transition-colors hover:border-o-blueText/30"
+                    className="px-2 py-1.5 text-xs text-o-textSecondary hover:text-o-blueText bg-o-bg border border-o-border rounded-lg transition-colors hover:border-o-blueText/30"
                   >
                     {t.name}
                   </button>
@@ -269,7 +269,7 @@ export default function SubmitPage() {
                 <div className="w-2.5 h-2.5 rounded-full bg-o-red" />
                 <span className="stat-label !text-o-red">Submission Failed</span>
               </div>
-              <p className="font-mono text-xs text-o-red/80">{error}</p>
+              <p className="text-xs text-o-red/80">{error}</p>
             </div>
           )}
         </div>
