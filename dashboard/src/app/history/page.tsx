@@ -102,12 +102,12 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
             </div>
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Price</div>
-              <div className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(6)}</div>
+              <div className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</div>
             </div>
             {hist?.gas_paid_usd != null && (
               <div>
                 <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Gas</div>
-                <div className="font-mono text-xs text-o-red">${hist.gas_paid_usd.toFixed(6)}</div>
+                <div className="font-mono text-xs text-o-textSecondary">${hist.gas_paid_usd.toFixed(4)}</div>
               </div>
             )}
           </div>
@@ -143,7 +143,7 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
           {hist?.output_text && (
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">
-                Output <span className="text-o-green normal-case tracking-normal ml-1">from Slurm cluster</span>
+                Output
               </div>
               <OutputDisplay raw={hist.output_text} />
             </div>
