@@ -2,18 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { fetchJobs } from "@/lib/api";
-import OutputDisplay from "./OutputDisplay";
+import OutputDisplay from "@/components/OutputDisplay";
 
-interface ActiveJob {
-  id: string;
-  slurm_job_id: number | null;
-  status: string;
-  price_usdc: number;
-  submitted_at: string;
-  script: string | null;
-}
-
-interface HistoricalJob {
+interface Job {
   id: string;
   slurm_job_id: number | null;
   status: string;
@@ -21,221 +12,209 @@ interface HistoricalJob {
   gas_paid_usd: number | null;
   proof_tx_hash: string | null;
   compute_duration_s: number | null;
-  completed_at: string;
+  submitted_at: string;
+  completed_at: string | null;
   script: string | null;
   output_text: string | null;
+  submitter_address: string | null;
+  retry_count: number | null;
 }
-
-interface JobsData {
-  active: ActiveJob[];
-  historical: HistoricalJob[];
-}
-
-type AnyJob = (ActiveJob & { _type: "active" }) | (HistoricalJob & { _type: "historical" });
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
-  pending: { bg: "bg-amber-500/10", text: "text-amber-400", dot: "bg-amber-400" },
-  processing: { bg: "bg-blue-500/10", text: "text-blue-400", dot: "bg-blue-400" },
-  running: { bg: "bg-blue-500/10", text: "text-blue-400", dot: "bg-blue-400" },
-  completed: { bg: "bg-emerald-500/10", text: "text-emerald-400", dot: "bg-emerald-400" },
-  failed: { bg: "bg-red-500/10", text: "text-red-400", dot: "bg-red-400" },
-  error: { bg: "bg-red-500/10", text: "text-red-400", dot: "bg-red-400" },
+  pending: { bg: "bg-o-amber/10", text: "text-o-amber", dot: "bg-o-amber" },
+  processing: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
+  running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
+  completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
+  failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-mono ${s.bg} ${s.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs uppercase tracking-wider font-mono ${s.bg} ${s.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === "running" || status === "processing" ? "animate-pulse" : ""}`} />
       {status}
     </span>
   );
 }
 
-function JobRow({ job, expanded, onToggle }: { job: AnyJob; expanded: boolean; onToggle: () => void }) {
-  const isHist = job._type === "historical";
-  const hist = isHist ? (job as HistoricalJob & { _type: "historical" }) : null;
-
-  const timestamp = isHist
-    ? new Date(hist!.completed_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-    : new Date((job as ActiveJob).submitted_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-
-  const scriptPreview = job.script ? job.script.replace(/^#!.*\n/, "").trim().slice(0, 60) : "—";
+function JobRow({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const ts = job.completed_at
+    ? new Date(job.completed_at).toLocaleString()
+    : new Date(job.submitted_at).toLocaleString();
 
   return (
-    <div className="border border-ouro-border/40 rounded-lg overflow-hidden transition-colors hover:border-ouro-border/70">
+    <>
+      {/* Desktop row */}
       <button
-        onClick={onToggle}
-        className="w-full grid grid-cols-[minmax(0,1fr)_80px_minmax(0,2fr)_80px_80px_80px] gap-3 items-center px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+        onClick={() => setOpen(!open)}
+        className="hidden md:grid grid-cols-[minmax(0,1fr)_80px_100px_80px_80px_140px_24px] gap-2 items-center w-full px-3 py-2.5 text-left hover:bg-o-surfaceHover transition-colors rounded-lg"
       >
-        <span className="font-mono text-xs text-ouro-accent truncate">{job.id.slice(0, 8)}</span>
+        <span className="font-mono text-xs text-o-blueText truncate">{job.id.slice(0, 12)}</span>
+        <span className="font-mono text-xs text-o-muted">{job.slurm_job_id ?? "—"}</span>
         <StatusBadge status={job.status} />
-        <span className="font-mono text-xs text-ouro-muted truncate">{scriptPreview}</span>
-        <span className="font-mono text-xs text-ouro-text text-right">
-          {hist?.compute_duration_s != null ? `${hist.compute_duration_s.toFixed(1)}s` : "—"}
+        <span className="font-mono text-xs text-o-green text-right">${(job.price_usdc ?? 0).toFixed(4)}</span>
+        <span className="font-mono text-xs text-o-textSecondary text-right">
+          {job.compute_duration_s != null ? `${job.compute_duration_s.toFixed(1)}s` : "—"}
         </span>
-        <span className="font-mono text-xs text-ouro-green text-right">${job.price_usdc.toFixed(4)}</span>
-        <span className="text-xs text-ouro-muted text-right">{timestamp.split(", ").pop()}</span>
+        <span className="text-xs text-o-muted text-right">{ts}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className={`text-o-muted transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
-      {expanded && (
-        <div className="border-t border-ouro-border/30 bg-black/20 px-4 py-4 space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Job ID</div>
-              <div className="font-mono text-xs text-ouro-text break-all">{job.id}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Slurm Job ID</div>
-              <div className="font-mono text-xs text-ouro-text">{job.slurm_job_id ?? "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Price Paid</div>
-              <div className="font-mono text-xs text-ouro-green">${job.price_usdc.toFixed(6)}</div>
-            </div>
-            {hist?.gas_paid_usd != null && (
-              <div>
-                <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Gas Cost</div>
-                <div className="font-mono text-xs text-ouro-red">${hist.gas_paid_usd.toFixed(6)}</div>
-              </div>
-            )}
+      {/* Mobile card */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="md:hidden w-full text-left bg-o-bg rounded-lg border border-o-border p-3 hover:border-o-borderHover transition-colors"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono text-xs text-o-blueText">{job.id.slice(0, 8)}</span>
+            <StatusBadge status={job.status} />
           </div>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className={`text-o-muted transition-transform shrink-0 ${open ? "rotate-180" : ""}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+          <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
+          {job.compute_duration_s != null && (
+            <span className="font-mono text-xs text-o-textSecondary">{job.compute_duration_s.toFixed(1)}s</span>
+          )}
+          <span className="text-xs text-o-muted">{ts}</span>
+        </div>
+      </button>
 
-          {hist?.proof_tx_hash && (
+      {open && (
+        <div className="bg-o-bg rounded-lg border border-o-border p-4 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">On-Chain Proof</div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Job ID</div>
+              <div className="font-mono text-xs text-o-text break-all">{job.id}</div>
+            </div>
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Slurm ID</div>
+              <div className="font-mono text-xs text-o-text">{job.slurm_job_id ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Submitter</div>
+              <div className="font-mono text-xs text-o-text truncate">{job.submitter_address ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Gas</div>
+              <div className="font-mono text-xs text-o-red">${(job.gas_paid_usd ?? 0).toFixed(6)}</div>
+            </div>
+          </div>
+          {job.retry_count != null && job.retry_count > 0 && (
+            <div className="text-xs text-o-amber font-mono">
+              Retries: {job.retry_count}
+            </div>
+          )}
+          {job.proof_tx_hash && (
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Proof TX</div>
               <a
-                href={`https://basescan.org/tx/${hist.proof_tx_hash}`}
+                href={`https://basescan.org/tx/${job.proof_tx_hash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono text-xs text-ouro-accent hover:underline"
+                className="font-mono text-xs text-o-blueText hover:underline"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-                {hist.proof_tx_hash.slice(0, 14)}...{hist.proof_tx_hash.slice(-8)}
+                {job.proof_tx_hash.slice(0, 14)}...{job.proof_tx_hash.slice(-8)}
               </a>
             </div>
           )}
-
           {job.script && (
             <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Script</div>
-              <pre className="bg-black/40 border border-ouro-border/30 rounded p-3 font-mono text-xs text-ouro-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">{job.script}</pre>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Script</div>
+              <pre className="bg-o-surface border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
+                {job.script}
+              </pre>
             </div>
           )}
-
-          {hist?.output_text && (
+          {job.output_text && (
             <div>
-              <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-2">
-                Output
-                <span className="text-ouro-green ml-2 normal-case tracking-normal">from Slurm cluster</span>
-              </div>
-              <OutputDisplay raw={hist.output_text} />
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">Output</div>
+              <OutputDisplay raw={job.output_text} />
             </div>
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
 export default function JobsPanel() {
-  const [jobs, setJobs] = useState<JobsData | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = () => fetchJobs().then(setJobs).catch(() => {});
+    const load = () =>
+      fetchJobs()
+        .then((data) => {
+          const all = [
+            ...(data.active ?? []).map((j: Job) => ({ ...j })),
+            ...(data.historical ?? []).map((j: Job) => ({ ...j })),
+          ].sort((a, b) => {
+            const tsA = new Date(a.completed_at ?? a.submitted_at).getTime();
+            const tsB = new Date(b.completed_at ?? b.submitted_at).getTime();
+            return tsB - tsA;
+          });
+          setJobs(all);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
     load();
-    const id = setInterval(load, 10_000);
+    const id = setInterval(load, 5_000);
     return () => clearInterval(id);
   }, []);
 
-  if (!jobs) {
+  if (loading && jobs.length === 0) {
     return (
       <div className="card animate-pulse">
-        <div className="h-48 bg-ouro-border/30 rounded" />
+        <div className="h-48 bg-o-border/30 rounded" />
       </div>
     );
   }
 
-  const allJobs: AnyJob[] = [
-    ...(jobs.active ?? []).map((j) => ({ ...j, _type: "active" as const })),
-    ...(jobs.historical ?? []).map((j) => ({ ...j, _type: "historical" as const })),
-  ].sort((a, b) => {
-    const tsA = a._type === "historical"
-      ? new Date((a as HistoricalJob & { _type: "historical" }).completed_at).getTime()
-      : new Date((a as ActiveJob & { _type: "active" }).submitted_at).getTime();
-    const tsB = b._type === "historical"
-      ? new Date((b as HistoricalJob & { _type: "historical" }).completed_at).getTime()
-      : new Date((b as ActiveJob & { _type: "active" }).submitted_at).getTime();
-    return tsB - tsA;
-  });
-
-  const completed = (jobs.historical ?? []).length;
-  const active = (jobs.active ?? []).length;
-  const totalRevenue = (jobs.historical ?? []).reduce((s, j) => s + (j.price_usdc ?? 0), 0);
-  const avgDuration =
-    completed > 0
-      ? (jobs.historical ?? []).reduce((s, j) => s + (j.compute_duration_s ?? 0), 0) / completed
-      : 0;
-
   return (
-    <div className="card col-span-full animate-slide-up">
-      <div className="flex items-center justify-between mb-5">
-        <div className="stat-label">Compute Jobs</div>
-        <div className="flex items-center gap-1.5 text-xs text-ouro-muted">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ouro-accent">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <line x1="8" y1="21" x2="16" y2="21" />
-            <line x1="12" y1="17" x2="12" y2="21" />
-          </svg>
-          GCP Slurm Cluster
-        </div>
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <div className="stat-label">All Jobs (Admin)</div>
+        <span className="text-xs font-mono text-o-textSecondary">{jobs.length} total</span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Active</div>
-          <div className="font-display text-xl font-bold text-ouro-amber mt-1">{active}</div>
-        </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Completed</div>
-          <div className="font-display text-xl font-bold text-ouro-green mt-1">{completed}</div>
-        </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Total Revenue</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">${totalRevenue.toFixed(4)}</div>
-        </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Avg Duration</div>
-          <div className="font-display text-xl font-bold text-ouro-accent mt-1">{avgDuration.toFixed(1)}s</div>
-        </div>
-      </div>
-
-      {/* Column headers */}
-      <div className="grid grid-cols-[minmax(0,1fr)_80px_minmax(0,2fr)_80px_80px_80px] gap-3 px-4 pb-2 text-[10px] text-ouro-muted uppercase tracking-wider">
+      {/* Desktop column headers */}
+      <div className="hidden md:grid grid-cols-[minmax(0,1fr)_80px_100px_80px_80px_140px_24px] gap-2 px-3 py-2 text-xs text-o-muted uppercase tracking-wider border-b border-o-border mb-1">
         <span>ID</span>
+        <span>Slurm</span>
         <span>Status</span>
-        <span>Script</span>
-        <span className="text-right">Duration</span>
         <span className="text-right">Price</span>
+        <span className="text-right">Duration</span>
         <span className="text-right">Time</span>
+        <span />
       </div>
 
-      <div className="space-y-1.5 max-h-[480px] overflow-y-auto">
-        {allJobs.length === 0 && (
-          <div className="text-center py-8 text-sm text-ouro-muted">No jobs yet. Submit a compute request to get started.</div>
-        )}
-        {allJobs.map((job) => (
-          <JobRow
-            key={job.id}
-            job={job}
-            expanded={expandedId === job.id}
-            onToggle={() => setExpandedId(expandedId === job.id ? null : job.id)}
-          />
+      <div className="space-y-1 max-h-[600px] overflow-y-auto">
+        {jobs.map((job) => (
+          <JobRow key={job.id} job={job} />
         ))}
       </div>
     </div>

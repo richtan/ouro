@@ -119,56 +119,31 @@ export default function SubmitPage() {
   };
 
   return (
-    <main className="relative z-10 min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-4xl mx-auto">
+    <main className="min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-4xl mx-auto">
       <div className="mb-8">
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-ouro-text">
+        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
           Submit Compute Job
         </h1>
-        <p className="font-body text-sm text-ouro-muted mt-1">
+        <p className="font-body text-sm text-o-textSecondary mt-1">
           Write or upload a script, configure parameters, and pay with USDC via x402
         </p>
       </div>
 
       {!isConnected ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
-          <p className="text-ouro-muted text-sm">Connect your wallet to submit compute jobs</p>
+          <p className="text-o-textSecondary text-sm">Connect your wallet to submit compute jobs</p>
           <ConnectButton />
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Script Editor */}
+          {/* File upload — prominent on all sizes */}
           <div className="card">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
               <label className="stat-label">Script</label>
-              <div className="flex items-center gap-2">
-                {TEMPLATES.map((t) => (
-                  <button
-                    key={t.name}
-                    onClick={() => setScript(t.script)}
-                    className="px-2 py-1 text-[10px] font-mono text-ouro-muted hover:text-ouro-accent bg-black/30 border border-ouro-border/30 rounded transition-colors hover:border-ouro-accent/30"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              className="relative"
-            >
-              <textarea
-                value={script}
-                onChange={(e) => setScript(e.target.value)}
-                rows={12}
-                spellCheck={false}
-                className="w-full bg-black/40 border border-ouro-border/40 rounded-lg p-4 font-mono text-sm text-ouro-text placeholder-ouro-muted/40 focus:outline-none focus:border-ouro-accent/50 resize-y leading-relaxed"
-                placeholder="#!/bin/bash&#10;echo 'Your script here'"
-              />
-              <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 text-[10px] font-mono text-ouro-muted bg-black/60 border border-ouro-border/30 rounded hover:border-ouro-accent/30 hover:text-ouro-accent transition-colors"
+                  className="px-3 py-2 text-xs font-mono text-o-blueText bg-o-blue/10 border border-o-blue/20 rounded-lg hover:bg-o-blue/20 transition-colors"
                 >
                   Upload File
                 </button>
@@ -179,9 +154,31 @@ export default function SubmitPage() {
                   onChange={handleFileUpload}
                   className="hidden"
                 />
+                {TEMPLATES.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => setScript(t.script)}
+                    className="px-2 py-1.5 text-xs font-mono text-o-textSecondary hover:text-o-blueText bg-o-bg border border-o-border rounded-lg transition-colors hover:border-o-blueText/30"
+                  >
+                    {t.name}
+                  </button>
+                ))}
               </div>
             </div>
-            <p className="text-[10px] text-ouro-muted mt-2">
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+            >
+              <textarea
+                value={script}
+                onChange={(e) => setScript(e.target.value)}
+                rows={12}
+                spellCheck={false}
+                className="w-full bg-o-bg border border-o-border rounded-lg p-4 font-mono text-sm text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText resize-y leading-relaxed"
+                placeholder="#!/bin/bash&#10;echo 'Your script here'"
+              />
+            </div>
+            <p className="text-xs text-o-muted mt-2">
               Drag and drop a script file, or click Upload. Supports .sh, .py, .bash, .txt
             </p>
           </div>
@@ -192,8 +189,8 @@ export default function SubmitPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-ouro-muted">Nodes</span>
-                  <span className="font-mono text-sm text-ouro-accent">{nodes}</span>
+                  <span className="text-xs text-o-textSecondary">Nodes</span>
+                  <span className="font-mono text-sm text-o-blueText">{nodes}</span>
                 </div>
                 <input
                   type="range"
@@ -201,17 +198,17 @@ export default function SubmitPage() {
                   max={16}
                   value={nodes}
                   onChange={(e) => setNodes(Number(e.target.value))}
-                  className="w-full accent-ouro-accent"
+                  className="w-full accent-o-blue"
                 />
-                <div className="flex justify-between text-[10px] text-ouro-muted mt-1">
+                <div className="flex justify-between text-xs text-o-muted mt-1">
                   <span>1</span>
                   <span>16</span>
                 </div>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-ouro-muted">Time Limit</span>
-                  <span className="font-mono text-sm text-ouro-accent">{timeLimit}m</span>
+                  <span className="text-xs text-o-textSecondary">Time Limit</span>
+                  <span className="font-mono text-sm text-o-blueText">{timeLimit}m</span>
                 </div>
                 <input
                   type="range"
@@ -219,25 +216,25 @@ export default function SubmitPage() {
                   max={60}
                   value={timeLimit}
                   onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  className="w-full accent-ouro-accent"
+                  className="w-full accent-o-blue"
                 />
-                <div className="flex justify-between text-[10px] text-ouro-muted mt-1">
+                <div className="flex justify-between text-xs text-o-muted mt-1">
                   <span>1 min</span>
                   <span>60 min</span>
                 </div>
               </div>
               <div>
                 <div className="mb-2">
-                  <span className="text-xs text-ouro-muted">Builder Code (optional)</span>
+                  <span className="text-xs text-o-textSecondary">Builder Code (optional)</span>
                 </div>
                 <input
                   type="text"
                   value={builderCode}
                   onChange={(e) => setBuilderCode(e.target.value)}
                   placeholder="your-builder-code"
-                  className="w-full bg-black/40 border border-ouro-border/40 rounded px-3 py-2 font-mono text-xs text-ouro-text placeholder-ouro-muted/40 focus:outline-none focus:border-ouro-accent/50"
+                  className="w-full bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
                 />
-                <p className="text-[10px] text-ouro-muted mt-1">
+                <p className="text-xs text-o-muted mt-1">
                   ERC-8021 builder code for dual attribution
                 </p>
               </div>
@@ -246,20 +243,20 @@ export default function SubmitPage() {
 
           {/* Submit */}
           <div className="card">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <p className="text-sm text-ouro-muted">
-                  Payment via <span className="text-ouro-accent">x402</span> protocol
+                <p className="text-sm text-o-textSecondary">
+                  Payment via <span className="text-o-blueText">x402</span> protocol
                   &mdash; you&apos;ll sign a USDC authorization when submitting
                 </p>
-                <p className="text-xs text-ouro-muted/60 mt-1">
+                <p className="text-xs text-o-muted mt-1">
                   Connected: {address?.slice(0, 6)}...{address?.slice(-4)}
                 </p>
               </div>
               <button
                 onClick={handleSubmit}
                 disabled={status === "submitting" || status === "paying" || !script.trim()}
-                className="px-6 py-3 bg-ouro-accent text-ouro-bg font-display font-bold text-sm rounded-lg hover:bg-ouro-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto px-6 py-3 bg-o-blue text-white font-display font-semibold text-sm rounded-lg hover:bg-o-blueHover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {status === "submitting" ? "Preparing..." : status === "paying" ? "Sign Payment..." : "Submit & Pay"}
               </button>
@@ -267,12 +264,12 @@ export default function SubmitPage() {
           </div>
 
           {status === "error" && (
-            <div className="card border-ouro-red/30">
+            <div className="card border-o-red/30">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-ouro-red" />
-                <span className="stat-label text-ouro-red">Submission Failed</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-o-red" />
+                <span className="stat-label !text-o-red">Submission Failed</span>
               </div>
-              <p className="font-mono text-xs text-ouro-red/80">{error}</p>
+              <p className="font-mono text-xs text-o-red/80">{error}</p>
             </div>
           )}
         </div>

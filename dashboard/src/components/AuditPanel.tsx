@@ -4,20 +4,21 @@ import { useEffect, useState } from "react";
 import { fetchAudit } from "@/lib/api";
 
 interface AuditEntry {
-  id: string;
+  id: number;
   event_type: string;
-  job_id: string | null;
-  wallet_address: string | null;
-  amount_usdc: number | null;
-  detail: Record<string, unknown> | null;
+  event_data: Record<string, unknown>;
   created_at: string;
 }
 
 const EVENT_STYLES: Record<string, string> = {
-  payment_received: "text-ouro-green",
-  job_completed: "text-ouro-accent",
-  job_failed: "text-ouro-red",
-  credit_issued: "text-ouro-amber",
+  job_submitted: "text-o-blueText",
+  job_completed: "text-o-green",
+  job_failed: "text-o-red",
+  payment_received: "text-o-green",
+  proof_submitted: "text-o-blueText",
+  gas_spent: "text-o-red",
+  credit_issued: "text-o-amber",
+  phase_change: "text-o-amber",
 };
 
 export default function AuditPanel() {
@@ -26,59 +27,46 @@ export default function AuditPanel() {
 
   useEffect(() => {
     const load = () =>
-      fetchAudit(100)
+      fetchAudit()
         .then((data) => {
-          setEntries(data.entries ?? []);
+          setEntries(data?.entries ?? []);
           setLoading(false);
         })
         .catch(() => setLoading(false));
     load();
-    const id = setInterval(load, 15_000);
+    const id = setInterval(load, 10_000);
     return () => clearInterval(id);
   }, []);
 
-  if (loading) {
+  if (loading && entries.length === 0) {
     return (
       <div className="card animate-pulse">
-        <div className="h-48 bg-ouro-border/30 rounded" />
+        <div className="h-32 bg-o-border/30 rounded" />
       </div>
     );
   }
 
   return (
-    <div className="card col-span-full animate-slide-up">
-      <div className="flex items-center justify-between mb-5">
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
         <div className="stat-label">Audit Log</div>
-        <span className="text-xs text-ouro-muted font-mono">
-          {entries.length} entries
-        </span>
+        <span className="text-xs font-mono text-o-textSecondary">{entries.length} events</span>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-xs font-mono">
+        <table className="w-full min-w-[600px]">
           <thead>
-            <tr className="text-[10px] text-ouro-muted uppercase tracking-wider border-b border-ouro-border/30">
-              <th className="text-left py-2 pr-4">Time</th>
-              <th className="text-left py-2 pr-4">Event</th>
-              <th className="text-left py-2 pr-4">Job</th>
-              <th className="text-left py-2 pr-4">Wallet</th>
-              <th className="text-right py-2 pr-4">Amount</th>
-              <th className="text-left py-2">Detail</th>
+            <tr className="text-xs text-o-muted uppercase tracking-wider border-b border-o-border">
+              <th className="text-left pb-2 pr-4">Time</th>
+              <th className="text-left pb-2 pr-4">Event</th>
+              <th className="text-left pb-2 pr-4">Job ID</th>
+              <th className="text-right pb-2 pr-4">Amount</th>
+              <th className="text-left pb-2">Details</th>
             </tr>
           </thead>
           <tbody>
-            {entries.length === 0 && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="text-center py-8 text-ouro-muted"
-                >
-                  No audit entries yet
-                </td>
-              </tr>
-            )}
-            {entries.map((e) => {
-              const ts = new Date(e.created_at).toLocaleString("en-US", {
+            {entries.map((entry) => {
+              const ts = new Date(entry.created_at).toLocaleString("en-US", {
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",
@@ -86,36 +74,37 @@ export default function AuditPanel() {
                 second: "2-digit",
                 hour12: false,
               });
-              const color =
-                EVENT_STYLES[e.event_type] ?? "text-ouro-text";
+              const color = EVENT_STYLES[entry.event_type] ?? "text-o-textSecondary";
+              const d = entry.event_data ?? {};
+              const jobId = (d.job_id as string) ?? "";
+              const amount = (d.amount_usdc as number) ?? (d.gas_usd as number) ?? null;
+
               return (
                 <tr
-                  key={e.id}
-                  className="border-b border-ouro-border/20 hover:bg-white/[0.02] transition-colors"
+                  key={entry.id}
+                  className="border-b border-o-border/50 hover:bg-o-surfaceHover transition-colors"
                 >
-                  <td className="py-2 pr-4 text-ouro-muted whitespace-nowrap">
-                    {ts}
+                  <td className="py-2 pr-4 text-xs text-o-muted whitespace-nowrap">{ts}</td>
+                  <td className={`py-2 pr-4 font-mono text-xs uppercase tracking-wider ${color}`}>
+                    {entry.event_type}
                   </td>
-                  <td className={`py-2 pr-4 ${color} whitespace-nowrap`}>
-                    {e.event_type.replace(/_/g, " ")}
+                  <td className="py-2 pr-4 font-mono text-xs text-o-blueText">
+                    {jobId ? jobId.slice(0, 8) : "—"}
                   </td>
-                  <td className="py-2 pr-4 text-ouro-accent">
-                    {e.job_id ? e.job_id.slice(0, 8) : "—"}
+                  <td className="py-2 pr-4 font-mono text-xs text-right">
+                    {amount != null ? (
+                      <span className={amount >= 0 ? "text-o-green" : "text-o-red"}>
+                        ${Math.abs(amount).toFixed(6)}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td className="py-2 pr-4 text-ouro-text/70">
-                    {e.wallet_address
-                      ? `${e.wallet_address.slice(0, 6)}...${e.wallet_address.slice(-4)}`
-                      : "—"}
-                  </td>
-                  <td className="py-2 pr-4 text-right text-ouro-green">
-                    {e.amount_usdc != null
-                      ? `$${e.amount_usdc.toFixed(4)}`
-                      : "—"}
-                  </td>
-                  <td className="py-2 text-ouro-muted max-w-[200px] truncate">
-                    {e.detail
-                      ? JSON.stringify(e.detail).slice(0, 60)
-                      : "—"}
+                  <td className="py-2 text-xs text-o-muted truncate max-w-[200px]">
+                    {Object.entries(d)
+                      .filter(([k]) => k !== "job_id" && k !== "amount_usdc" && k !== "gas_usd")
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(", ") || "—"}
                   </td>
                 </tr>
               );

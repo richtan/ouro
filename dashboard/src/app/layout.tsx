@@ -1,14 +1,36 @@
 import type { Metadata } from "next";
+import { Inter, Inter_Tight, Roboto_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { cookieToInitialState } from "wagmi";
 import "./globals.css";
 import Web3Provider, { config } from "@/components/Web3Provider";
 import NavBar from "@/components/NavBar";
 
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const interTight = Inter_Tight({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const robotoMono = Roboto_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Ouro — Proof-of-Compute Oracle",
+  title: "Ouro Compute",
   description:
-    "Self-sustaining autonomous HPC agent on Base. Submit compute jobs, pay with USDC via x402, and get verifiable on-chain proofs.",
+    "Autonomous HPC compute on Base. Submit jobs, pay with USDC via x402, get verifiable on-chain proofs.",
 };
 
 export default async function RootLayout({
@@ -21,12 +43,15 @@ export default async function RootLayout({
   const initialState = cookieToInitialState(config, cookie);
 
   return (
-    <html lang="en" className="dark">
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${interTight.variable} ${robotoMono.variable}`}
+    >
       <head>
         <meta name="base:app_id" content="6997ee68820ae5633e55081a" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </head>
-      <body className="min-h-screen antialiased relative">
+      <body className="min-h-screen antialiased font-body">
         <Web3Provider initialState={initialState}>
           <NavBar />
           {children}

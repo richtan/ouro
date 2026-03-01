@@ -25,17 +25,17 @@ export default function PublicJobStats() {
   if (!stats) {
     return (
       <div className="card animate-pulse">
-        <div className="h-32 bg-ouro-border/30 rounded" />
+        <div className="h-32 bg-o-border/30 rounded" />
       </div>
     );
   }
 
   return (
-    <div className="card col-span-full animate-slide-up">
+    <div className="card animate-slide-up">
       <div className="flex items-center justify-between mb-5">
         <div className="stat-label">Compute Jobs</div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-ouro-muted">
+          <div className="flex items-center gap-1.5 text-xs text-o-textSecondary">
             <svg
               width="14"
               height="14"
@@ -43,7 +43,7 @@ export default function PublicJobStats() {
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
-              className="text-ouro-accent"
+              className="text-o-blueText"
             >
               <rect x="2" y="3" width="20" height="14" rx="2" />
               <line x1="8" y1="21" x2="16" y2="21" />
@@ -53,7 +53,7 @@ export default function PublicJobStats() {
           </div>
           <Link
             href="/history"
-            className="text-[10px] font-mono text-ouro-accent hover:underline uppercase tracking-wider"
+            className="text-xs font-mono text-o-blueText hover:underline uppercase tracking-wider"
           >
             My Jobs &rarr;
           </Link>
@@ -61,46 +61,36 @@ export default function PublicJobStats() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">
-            Active
-          </div>
-          <div className="font-display text-xl font-bold text-ouro-amber mt-1">
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Active</div>
+          <div className="font-display text-xl font-semibold text-o-amber mt-1">
             {stats.active_jobs}
           </div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">
-            Completed
-          </div>
-          <div className="font-display text-xl font-bold text-ouro-green mt-1">
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Completed</div>
+          <div className="font-display text-xl font-semibold text-o-green mt-1">
             {stats.completed_jobs}
           </div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">
-            Total Revenue
-          </div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Total Revenue</div>
+          <div className="font-display text-xl font-semibold text-o-text mt-1">
             ${stats.total_revenue_usdc.toFixed(4)}
           </div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">
-            Avg Duration
-          </div>
-          <div className="font-display text-xl font-bold text-ouro-accent mt-1">
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Duration</div>
+          <div className="font-display text-xl font-semibold text-o-blueText mt-1">
             {stats.avg_duration_s.toFixed(1)}s
           </div>
         </div>
       </div>
 
       {stats.on_chain_proof_count > 0 && (
-        <div className="mt-4 pt-4 border-t border-ouro-border/30 flex items-center justify-between">
-          <span className="text-xs text-ouro-muted">
-            On-chain proofs submitted
-          </span>
-          <span className="font-mono text-sm font-bold text-ouro-green">
+        <div className="mt-4 pt-4 border-t border-o-border flex items-center justify-between">
+          <span className="text-xs text-o-textSecondary">On-chain proofs submitted</span>
+          <span className="font-mono text-sm font-semibold text-o-green">
             {stats.on_chain_proof_count}
           </span>
         </div>

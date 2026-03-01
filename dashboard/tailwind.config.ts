@@ -5,33 +5,33 @@ export default {
   theme: {
     extend: {
       colors: {
-        ouro: {
-          bg: "#0a0e17",
-          card: "#111827",
-          border: "#1e293b",
-          accent: "#22d3ee",
-          green: "#10b981",
+        o: {
+          bg: "#0a0b0d",
+          surface: "#111316",
+          surfaceHover: "#191b1f",
+          border: "#1e2025",
+          borderHover: "#32353d",
+          blue: "#0052ff",
+          blueHover: "#0045d6",
+          blueText: "#4C8FFF",
+          text: "#f5f5f5",
+          textSecondary: "#8a919e",
+          muted: "#5b616e",
+          green: "#22c55e",
           red: "#ef4444",
-          amber: "#f59e0b",
-          muted: "#64748b",
-          text: "#e2e8f0",
+          amber: "#eab308",
         },
       },
       fontFamily: {
-        display: ['"JetBrains Mono"', "monospace"],
-        body: ['"IBM Plex Sans"', "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', '"Fira Code"', "monospace"],
+        display: ["var(--font-display)", "Inter", "system-ui", "sans-serif"],
+        body: ["var(--font-body)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       animation: {
-        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
         "fade-in": "fade-in 0.5s ease-out",
         "slide-up": "slide-up 0.4s ease-out",
       },
       keyframes: {
-        "pulse-glow": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.6" },
-        },
         "fade-in": {
           from: { opacity: "0" },
           to: { opacity: "1" },

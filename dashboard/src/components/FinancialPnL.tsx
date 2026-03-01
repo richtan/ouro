@@ -23,10 +23,10 @@ function Bar({ label, value, max, color }: { label: string; value: number; max: 
   return (
     <div className="mb-3">
       <div className="flex justify-between text-xs mb-1.5">
-        <span className="text-ouro-muted">{label}</span>
-        <span className="font-mono text-ouro-text font-medium">${value.toFixed(4)}</span>
+        <span className="text-o-textSecondary">{label}</span>
+        <span className="font-mono text-o-text font-medium">${value.toFixed(4)}</span>
       </div>
-      <div className="h-2 bg-ouro-border/50 rounded-full overflow-hidden">
+      <div className="h-2 bg-o-border/50 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{ width: `${pct}%`, background: color }}
@@ -49,7 +49,7 @@ export default function FinancialPnL() {
   if (!stats) {
     return (
       <div className="card animate-pulse">
-        <div className="h-48 bg-ouro-border/30 rounded" />
+        <div className="h-48 bg-o-border/30 rounded" />
       </div>
     );
   }
@@ -65,16 +65,16 @@ export default function FinancialPnL() {
     <div className="card animate-slide-up">
       <div className="flex items-center justify-between mb-4">
         <div className="stat-label">Financial P&L</div>
-        <div className={`font-mono text-xs px-2 py-0.5 rounded-full ${pnlPositive ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+        <div className={`font-mono text-xs px-2 py-0.5 rounded-full ${pnlPositive ? "bg-o-green/10 text-o-green" : "bg-o-red/10 text-o-red"}`}>
           {ratioDisplay} ratio
         </div>
       </div>
 
       <div className="text-center mb-5">
-        <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-1">Net Profit / Loss</div>
+        <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Net Profit / Loss</div>
         <div
           className={`font-display text-4xl font-bold ${
-            pnlPositive ? "text-ouro-green glow-green" : "text-ouro-red glow-red"
+            pnlPositive ? "text-o-green" : "text-o-red"
           }`}
         >
           {pnlPositive ? "+" : ""}${stats.net_pnl_usd.toFixed(4)}
@@ -82,31 +82,31 @@ export default function FinancialPnL() {
       </div>
 
       <div className="space-y-1">
-        <Bar label="x402 Revenue" value={stats.total_revenue_usdc} max={maxVal} color="#10b981" />
+        <Bar label="x402 Revenue" value={stats.total_revenue_usdc} max={maxVal} color="#22c55e" />
         <Bar label="Gas Costs" value={stats.gas_costs_usd} max={maxVal} color="#ef4444" />
-        <Bar label="LLM Costs" value={stats.llm_costs_usd} max={maxVal} color="#f59e0b" />
+        <Bar label="LLM Costs" value={stats.llm_costs_usd} max={maxVal} color="#eab308" />
       </div>
 
-      <div className="mt-5 pt-4 border-t border-ouro-border/50">
-        <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-3">Per-Job Economics</div>
+      <div className="mt-5 pt-4 border-t border-o-border">
+        <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-3">Per-Job Economics</div>
         <div className="grid grid-cols-3 gap-2">
-          <div className="bg-black/30 rounded-lg p-2.5 text-center">
-            <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Avg Cost</div>
-            <div className="font-display text-sm font-bold text-ouro-red mt-1">
+          <div className="bg-o-bg rounded-lg p-2.5 text-center">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Cost</div>
+            <div className="font-display text-sm font-semibold text-o-red mt-1">
               ${stats.avg_cost_per_job.toFixed(4)}
             </div>
           </div>
-          <div className="bg-black/30 rounded-lg p-2.5 text-center">
-            <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Avg Price</div>
-            <div className="font-display text-sm font-bold text-ouro-text mt-1">
+          <div className="bg-o-bg rounded-lg p-2.5 text-center">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Price</div>
+            <div className="font-display text-sm font-semibold text-o-text mt-1">
               ${stats.avg_price_per_job.toFixed(4)}
             </div>
           </div>
-          <div className="bg-black/30 rounded-lg p-2.5 text-center">
-            <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Avg Margin</div>
+          <div className="bg-o-bg rounded-lg p-2.5 text-center">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Margin</div>
             <div
-              className={`font-display text-sm font-bold mt-1 ${
-                marginPositive ? "text-ouro-green" : "text-ouro-red"
+              className={`font-display text-sm font-semibold mt-1 ${
+                marginPositive ? "text-o-green" : "text-o-red"
               }`}
             >
               {marginPositive ? "+" : ""}${stats.avg_margin_per_job.toFixed(4)}
@@ -115,14 +115,14 @@ export default function FinancialPnL() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-ouro-border/50">
+      <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-o-border">
         <div>
           <div className="stat-label">Completed</div>
-          <div className="font-display text-lg font-bold text-ouro-text">{stats.completed_jobs}</div>
+          <div className="font-display text-lg font-semibold text-o-text">{stats.completed_jobs}</div>
         </div>
         <div>
           <div className="stat-label">Active</div>
-          <div className="font-display text-lg font-bold text-ouro-accent">{stats.active_jobs}</div>
+          <div className="font-display text-lg font-semibold text-o-blueText">{stats.active_jobs}</div>
         </div>
       </div>
     </div>

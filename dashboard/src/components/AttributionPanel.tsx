@@ -41,48 +41,47 @@ export default function AttributionPanel() {
   if (!data) {
     return (
       <div className="card animate-pulse">
-        <div className="h-32 bg-ouro-border/30 rounded" />
+        <div className="h-32 bg-o-border/30 rounded" />
       </div>
     );
   }
 
   const gasEth = (data.total_gas_attributed ?? 0) / 1e18;
-
   const uniqueCodes = Array.from(
     new Set((data.recent ?? []).flatMap((tx) => tx.codes ?? []))
   );
 
   return (
-    <div className="card col-span-full animate-slide-up">
+    <div className="card animate-slide-up">
       <div className="stat-label mb-5">ERC-8021 Builder Code Attribution</div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Attributed TXs</div>
-          <div className="font-display text-xl font-bold text-ouro-accent mt-1">{data.total_attributed_txs ?? 0}</div>
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Attributed TXs</div>
+          <div className="font-display text-xl font-semibold text-o-blueText mt-1">{data.total_attributed_txs ?? 0}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Gas Attributed</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">{gasEth.toFixed(6)} ETH</div>
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Gas Attributed</div>
+          <div className="font-display text-xl font-semibold text-o-text mt-1">{gasEth.toFixed(6)} ETH</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Multi-Code TXs</div>
-          <div className="font-display text-xl font-bold text-ouro-green mt-1">{data.multi_code_txs ?? 0}</div>
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Multi-Code TXs</div>
+          <div className="font-display text-xl font-semibold text-o-green mt-1">{data.multi_code_txs ?? 0}</div>
         </div>
-        <div className="bg-black/30 rounded-lg p-3 border border-ouro-border/30">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Unique Codes</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">{uniqueCodes.length}</div>
+        <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Unique Codes</div>
+          <div className="font-display text-xl font-semibold text-o-text mt-1">{uniqueCodes.length}</div>
         </div>
       </div>
 
       {uniqueCodes.length > 0 && (
         <div className="mb-6">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-2">Registered Codes</div>
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">Registered Codes</div>
           <div className="flex flex-wrap gap-1.5">
             {uniqueCodes.map((code) => (
               <span
                 key={code}
-                className="px-2 py-0.5 bg-ouro-accent/10 text-ouro-accent rounded text-xs font-mono border border-ouro-accent/20"
+                className="px-2 py-0.5 bg-o-blue/10 text-o-blueText rounded text-xs font-mono border border-o-blue/20"
               >
                 {code}
               </span>
@@ -93,7 +92,7 @@ export default function AttributionPanel() {
 
       {(data.recent ?? []).length > 0 && (
         <div className="mb-6">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-3">Recent Attributed Transactions</div>
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-3">Recent Attributed Transactions</div>
           <div className="space-y-1.5 max-h-60 overflow-y-auto">
             {data.recent.map((tx) => {
               const ts = new Date(tx.created_at).toLocaleString("en-US", {
@@ -107,33 +106,35 @@ export default function AttributionPanel() {
               return (
                 <div
                   key={tx.tx_hash}
-                  className="flex items-center justify-between gap-3 py-2 px-3 bg-black/20 rounded-lg border border-ouro-border/20"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 py-2 px-3 bg-o-bg rounded-lg border border-o-border"
                 >
                   <a
                     href={`https://basescan.org/tx/0x${tx.tx_hash}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-mono text-xs text-ouro-accent hover:underline shrink-0"
+                    className="font-mono text-xs text-o-blueText hover:underline shrink-0"
                   >
                     0x{tx.tx_hash.slice(0, 10)}...
                   </a>
-                  <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {tx.codes.map((c) => (
                       <span
                         key={c}
-                        className="px-1.5 py-0.5 bg-ouro-accent/10 text-ouro-accent rounded text-[10px] font-mono"
+                        className="px-1.5 py-0.5 bg-o-blue/10 text-o-blueText rounded text-xs font-mono"
                       >
                         {c}
                       </span>
                     ))}
                     {tx.is_multi && (
-                      <span className="text-[10px] text-ouro-green font-mono">DUAL</span>
+                      <span className="text-xs text-o-green font-mono">DUAL</span>
                     )}
                   </div>
-                  <span className="text-[10px] text-ouro-muted shrink-0">{ts}</span>
-                  <span className="font-mono text-[10px] text-ouro-muted shrink-0">
-                    {(parseInt(tx.gas_used || "0") / 1e18).toFixed(8)} ETH
-                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-o-muted">{ts}</span>
+                    <span className="font-mono text-xs text-o-muted">
+                      {(parseInt(tx.gas_used || "0") / 1e18).toFixed(8)} ETH
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -141,8 +142,8 @@ export default function AttributionPanel() {
         </div>
       )}
 
-      <div className="pt-4 border-t border-ouro-border/50">
-        <div className="text-[10px] text-ouro-muted uppercase tracking-wider mb-2">
+      <div className="pt-4 border-t border-o-border">
+        <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">
           Live Decoder
         </div>
         <div className="flex gap-2">
@@ -151,11 +152,11 @@ export default function AttributionPanel() {
             value={decodeInput}
             onChange={(e) => setDecodeInput(e.target.value)}
             placeholder="Paste calldata or tx data to decode..."
-            className="flex-1 bg-black/40 border border-ouro-border/40 rounded px-3 py-2 font-mono text-xs text-ouro-text placeholder-ouro-muted/50 focus:outline-none focus:border-ouro-accent/50"
+            className="flex-1 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
           />
           <button
             onClick={handleDecode}
-            className="px-4 py-2 bg-ouro-accent/20 text-ouro-accent border border-ouro-accent/30 rounded text-xs font-mono hover:bg-ouro-accent/30 transition-colors"
+            className="px-4 py-2.5 bg-o-blue/10 text-o-blueText border border-o-blue/20 rounded-lg text-xs font-mono hover:bg-o-blue/20 transition-colors"
           >
             Decode
           </button>
@@ -163,11 +164,11 @@ export default function AttributionPanel() {
         {decoded && (
           <div className="mt-2 font-mono text-xs">
             {decoded.length > 0 ? (
-              <span className="text-ouro-green">
+              <span className="text-o-green">
                 Found codes: {decoded.join(", ")}
               </span>
             ) : (
-              <span className="text-ouro-muted">No builder codes found</span>
+              <span className="text-o-textSecondary">No builder codes found</span>
             )}
           </div>
         )}

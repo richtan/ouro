@@ -11,11 +11,11 @@ interface StatsData {
   demand_multiplier: number;
 }
 
-const PHASE_COLORS: Record<string, { text: string; bg: string; glow: string }> = {
-  OPTIMAL: { text: "text-ouro-green", bg: "bg-ouro-green", glow: "glow-green" },
-  CAUTIOUS: { text: "text-ouro-amber", bg: "bg-ouro-amber", glow: "" },
-  SURVIVAL: { text: "text-orange-400", bg: "bg-orange-400", glow: "" },
-  CRITICAL: { text: "text-ouro-red", bg: "bg-ouro-red", glow: "glow-red" },
+const PHASE_COLORS: Record<string, { text: string; bg: string }> = {
+  OPTIMAL: { text: "text-o-green", bg: "bg-o-green" },
+  CAUTIOUS: { text: "text-o-amber", bg: "bg-o-amber" },
+  SURVIVAL: { text: "text-orange-400", bg: "bg-orange-400" },
+  CRITICAL: { text: "text-o-red", bg: "bg-o-red" },
 };
 
 const PHASE_DESCRIPTIONS: Record<string, string> = {
@@ -63,7 +63,7 @@ export default function SustainabilityGauge() {
           <path
             d="M 10 80 A 70 70 0 0 1 150 80"
             fill="none"
-            stroke="#1e293b"
+            stroke="#1e2025"
             strokeWidth="10"
             strokeLinecap="round"
           />
@@ -71,7 +71,7 @@ export default function SustainabilityGauge() {
             <path
               d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 0 ${x2} ${y2}`}
               fill="none"
-              stroke={isSustainable ? "#10b981" : "#ef4444"}
+              stroke={isSustainable ? "#0052ff" : "#ef4444"}
               strokeWidth="10"
               strokeLinecap="round"
               className="transition-all duration-1000"
@@ -81,7 +81,7 @@ export default function SustainabilityGauge() {
         <div className="absolute inset-0 flex items-end justify-center pb-1">
           <span
             className={`font-display text-3xl font-bold ${
-              isSustainable ? "text-ouro-green glow-green" : "text-ouro-red glow-red"
+              isSustainable ? "text-o-blueText" : "text-o-red"
             }`}
           >
             {displayRatio.toFixed(2)}x
@@ -91,32 +91,32 @@ export default function SustainabilityGauge() {
 
       <div className="mt-4 w-full">
         <div className="flex items-center justify-center gap-2 mb-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${phaseStyle.bg} animate-pulse-glow`} />
-          <span className={`font-display text-sm font-bold tracking-wider ${phaseStyle.text} ${phaseStyle.glow}`}>
+          <div className={`w-2.5 h-2.5 rounded-full ${phaseStyle.bg} animate-pulse`} />
+          <span className={`font-display text-sm font-bold tracking-wider ${phaseStyle.text}`}>
             {phase}
           </span>
         </div>
-        <div className="text-xs text-ouro-muted text-center leading-relaxed">
+        <div className="text-xs text-o-textSecondary text-center leading-relaxed">
           {PHASE_DESCRIPTIONS[phase]}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 w-full mt-5 pt-4 border-t border-ouro-border/50">
+      <div className="grid grid-cols-3 gap-3 w-full mt-5 pt-4 border-t border-o-border">
         <div className="text-center">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Margin</div>
-          <div className="font-display text-lg font-bold text-ouro-text mt-1">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Margin</div>
+          <div className="font-display text-lg font-semibold text-o-text mt-1">
             {(stats?.margin_multiplier ?? 0).toFixed(2)}x
           </div>
         </div>
         <div className="text-center">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Demand</div>
-          <div className="font-display text-lg font-bold text-ouro-text mt-1">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Demand</div>
+          <div className="font-display text-lg font-semibold text-o-text mt-1">
             {(stats?.demand_multiplier ?? 0).toFixed(2)}x
           </div>
         </div>
         <div className="text-center">
-          <div className="text-[10px] text-ouro-muted uppercase tracking-wider">Heartbeat</div>
-          <div className="font-display text-lg font-bold text-ouro-text mt-1">
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider">Heartbeat</div>
+          <div className="font-display text-lg font-semibold text-o-text mt-1">
             {(stats?.heartbeat_interval_min ?? 0) > 0
               ? `${stats?.heartbeat_interval_min}m`
               : "OFF"}
@@ -124,7 +124,7 @@ export default function SustainabilityGauge() {
         </div>
       </div>
 
-      <div className="flex justify-between w-full mt-3 text-[10px] text-ouro-muted px-2">
+      <div className="flex justify-between w-full mt-3 text-xs text-o-muted px-2">
         <span>0x</span>
         <span>1.0x</span>
         <span>2.0x</span>

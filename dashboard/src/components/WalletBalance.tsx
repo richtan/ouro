@@ -33,7 +33,7 @@ function Sparkline({ data }: { data: number[] }) {
     return `${x},${y}`;
   });
   const areaPoints = `0,${h} ${points.join(" ")} ${w},${h}`;
-  const lineColor = data[data.length - 1] >= data[0] ? "#10b981" : "#ef4444";
+  const lineColor = data[data.length - 1] >= data[0] ? "#22c55e" : "#ef4444";
   return (
     <svg width={w} height={h} className="opacity-80">
       <defs>
@@ -61,7 +61,7 @@ export default function WalletBalance() {
   if (!data) {
     return (
       <div className="card animate-pulse">
-        <div className="h-28 bg-ouro-border/30 rounded" />
+        <div className="h-28 bg-o-border/30 rounded" />
       </div>
     );
   }
@@ -76,8 +76,8 @@ export default function WalletBalance() {
     .map((s) => weiToEth(s.eth_balance_wei ?? "0") * (s.eth_price_usd ?? 0) + (s.usdc_balance ?? 0));
 
   return (
-    <div className="card col-span-full animate-fade-in">
-      <div className="flex items-start justify-between gap-6 flex-wrap">
+    <div className="card animate-fade-in">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-4 sm:gap-6">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-3">
             <div className="stat-label">Agent Wallet</div>
@@ -85,45 +85,45 @@ export default function WalletBalance() {
               href={`https://basescan.org/address/${data.address}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-mono text-xs text-ouro-accent hover:underline"
+              className="font-mono text-xs text-o-blueText hover:underline"
             >
               {shortAddr}
             </a>
           </div>
 
-          <div className="font-display text-4xl md:text-5xl font-bold text-ouro-accent glow-cyan tracking-tight">
+          <div className="font-display text-4xl md:text-5xl font-bold text-o-text tracking-tight">
             ${totalUsd.toFixed(2)}
           </div>
-          <div className="text-sm text-ouro-muted mt-1">Total Portfolio Value (USD)</div>
+          <div className="text-sm text-o-textSecondary mt-1">Total Portfolio Value (USD)</div>
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0 w-full sm:w-auto">
           <Sparkline data={sparkData} />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6 mt-6 pt-5 border-t border-ouro-border/50">
+      <div className="grid grid-cols-3 gap-4 sm:gap-6 mt-6 pt-5 border-t border-o-border">
         <div>
           <div className="stat-label">ETH Balance</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">
+          <div className="font-display text-lg sm:text-xl font-semibold text-o-text mt-1">
             {ethBalance.toFixed(4)}
-            <span className="text-sm text-ouro-muted ml-1.5 font-normal">ETH</span>
+            <span className="text-xs text-o-textSecondary ml-1.5 font-normal">ETH</span>
           </div>
-          <div className="text-xs text-ouro-muted mt-0.5">
+          <div className="text-xs text-o-muted mt-0.5">
             @ ${(data.eth_price_usd ?? 0).toFixed(0)}/ETH
           </div>
         </div>
         <div>
           <div className="stat-label">USDC Balance</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">
+          <div className="font-display text-lg sm:text-xl font-semibold text-o-text mt-1">
             {(data.usdc_balance ?? 0).toFixed(2)}
-            <span className="text-sm text-ouro-muted ml-1.5 font-normal">USDC</span>
+            <span className="text-xs text-o-textSecondary ml-1.5 font-normal">USDC</span>
           </div>
         </div>
         <div>
           <div className="stat-label">Network</div>
-          <div className="font-display text-xl font-bold text-ouro-text mt-1">
+          <div className="font-display text-lg sm:text-xl font-semibold text-o-text mt-1">
             Base
-            <span className="text-sm text-ouro-green ml-1.5 font-normal">Mainnet</span>
+            <span className="text-xs text-o-green ml-1.5 font-normal">Mainnet</span>
           </div>
         </div>
       </div>

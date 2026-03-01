@@ -8,16 +8,16 @@ interface LogEntry {
   timestamp: string;
 }
 
-const TYPE_STYLES: Record<string, string> = {
-  system: "text-blue-400",
-  agent: "text-ouro-accent",
-  slurm: "text-ouro-amber",
-  chain: "text-ouro-green",
-  cost: "text-purple-400",
-  slurm_error: "text-ouro-red",
-  chain_error: "text-ouro-red",
-  error: "text-ouro-red",
-  heartbeat: "text-ouro-muted",
+const TYPE_COLORS: Record<string, string> = {
+  system: "text-o-blueText",
+  agent: "text-o-blueText",
+  slurm: "text-o-amber",
+  chain: "text-o-green",
+  cost: "text-o-text",
+  slurm_error: "text-o-red",
+  chain_error: "text-o-red",
+  error: "text-o-red",
+  heartbeat: "text-o-muted",
 };
 
 export default function TerminalFeed() {
@@ -27,7 +27,7 @@ export default function TerminalFeed() {
   const feedRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const es = new EventSource(`/api/stream`);
+    const es = new EventSource("/api/stream");
 
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
@@ -50,55 +50,61 @@ export default function TerminalFeed() {
   }, [logs, paused]);
 
   return (
-    <div className="card col-span-full animate-slide-up">
-      <div className="flex items-center justify-between mb-4">
-        <div className="stat-label">Agent Terminal</div>
+    <div className="card">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setPaused(!paused)}
-            className="text-[10px] font-mono text-ouro-muted hover:text-ouro-text transition-colors uppercase tracking-wider"
-          >
-            {paused ? "▶ Resume" : "⏸ Pause"}
-          </button>
+          <div className="stat-label">Agent Terminal</div>
           <div className="flex items-center gap-1.5">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                connected ? "bg-ouro-green animate-pulse" : "bg-ouro-red"
-              }`}
-            />
-            <span className="text-[10px] font-mono text-ouro-muted uppercase tracking-wider">
-              {connected ? "SSE Live" : "Disconnected"}
-            </span>
+            <div className={`w-2 h-2 rounded-full ${connected ? "bg-o-green animate-pulse" : "bg-o-red"}`} />
+            <span className="text-xs text-o-muted">{connected ? "Live" : "Offline"}</span>
           </div>
         </div>
+        <button
+          onClick={() => setPaused(!paused)}
+          className="px-3 py-2 text-xs font-mono rounded-lg border border-o-border hover:border-o-borderHover transition-colors text-o-textSecondary hover:text-o-text"
+        >
+          {paused ? "Resume" : "Pause"}
+        </button>
       </div>
+
       <div
         ref={feedRef}
-        className="h-64 overflow-y-auto bg-black/40 rounded-lg border border-ouro-border/30 p-3 font-mono text-xs space-y-0.5"
+        className="h-48 sm:h-64 overflow-y-auto bg-o-bg rounded-lg border border-o-border p-3 font-mono text-xs leading-relaxed"
       >
-        {logs.length === 0 && (
-          <div className="text-ouro-muted py-6 text-center">Waiting for agent events...</div>
+        {logs.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-o-muted">
+            Waiting for agent activity...
+          </div>
+        ) : (
+          logs.map((log, i) => {
+            const color = TYPE_COLORS[log.type] ?? "text-o-textSecondary";
+            const isError =
+              log.type === "error" ||
+              log.type === "slurm_error" ||
+              log.type === "chain_error" ||
+              log.message.toLowerCase().includes("error");
+            return (
+              <div key={i} className={`py-0.5 ${isError ? "text-o-red" : ""}`}>
+                <span className="text-o-muted">
+                  {new Date(log.timestamp).toLocaleTimeString("en-US", {
+                    hour12: false,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+                {" "}
+                <span className={`uppercase tracking-wider ${isError ? "text-o-red" : color}`}>
+                  [{log.type.replace("_", " ")}]
+                </span>
+                {" "}
+                <span className={isError ? "text-o-red" : "text-o-text/80"}>
+                  {log.message}
+                </span>
+              </div>
+            );
+          })
         )}
-        {logs.map((log, i) => {
-          const ts = new Date(log.timestamp).toLocaleTimeString("en-US", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          });
-          const color = TYPE_STYLES[log.type] ?? "text-ouro-text";
-          return (
-            <div key={i} className="flex gap-2 leading-relaxed">
-              <span className="text-ouro-muted/60 shrink-0">{ts}</span>
-              <span
-                className={`shrink-0 w-14 text-right uppercase text-[10px] leading-[18px] ${color}`}
-              >
-                {log.type.replace("_", " ")}
-              </span>
-              <span className="text-ouro-text/80 break-all">{log.message}</span>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
