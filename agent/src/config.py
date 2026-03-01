@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Contracts
     PROOF_CONTRACT_ADDRESS: str = ""
-    USDC_CONTRACT_ADDRESS: str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    USDC_CONTRACT_ADDRESS: str = "0x..."
 
     # ERC-8021
     BUILDER_CODE: str = ""

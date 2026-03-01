@@ -164,7 +164,7 @@ OURO_API_URL=https://api.ourocompute.com ouro-mcp
 | `CHAIN_ID` | No | `8453` | Chain ID (8453=mainnet, 84532=Sepolia) |
 | `CHAIN_CAIP2` | No | `eip155:8453` | CAIP-2 identifier |
 | `PROOF_CONTRACT_ADDRESS` | Yes | — | Deployed ProofOfCompute.sol address |
-| `USDC_CONTRACT_ADDRESS` | No | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | USDC on Base |
+| `USDC_CONTRACT_ADDRESS` | No | `0x...` | USDC on Base |
 | `BUILDER_CODE` | No | — | ERC-8021 builder code (set to `ouro` in .env.example) |
 | `SLURMREST_URL` | Yes* | — | Slurm REST API URL (*agent starts without it, but jobs won't run) |
 | `SLURMREST_JWT` | Yes* | — | Slurm auth token |
