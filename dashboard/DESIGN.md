@@ -246,6 +246,27 @@ Narrower pages (submit, history, pay): use `max-w-4xl` or `max-w-2xl`.
 - 4-stat: `grid grid-cols-2 md:grid-cols-4 gap-4`
 - 3-stat: `grid grid-cols-3 gap-4`
 
+### Landing Page (`/`)
+
+The landing page is a standalone marketing page with its own header. The global `NavBar` is hidden on `/` (returns `null` when `pathname === "/"`). The page has its own sticky header with the OURO wordmark and a "Dashboard" link.
+
+Route structure:
+- `/` — Landing page (introduces Ouro, CTAs to submit and dashboard)
+- `/dashboard` — Operator dashboard (wallet, P&L, stats, attribution)
+- `/submit`, `/history`, `/admin`, `/pay/[sessionId]` — App pages (use NavBar)
+
+Sections (top to bottom):
+
+1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Dashboard link, GitHub icon, ConnectButton.
+2. **Hero** — Large `font-display` heading (`text-4xl` to `text-7xl`) with `tracking-tight`. Subtext + two CTAs (primary blue, secondary outlined). Spacing: `pt-32 pb-20 md:pt-40 md:pb-28`.
+3. **Live Stats Strip** — 4 inline stats with `border-t` divider. Values use `text-2xl sm:text-3xl` with `tabular-nums`. Always visible with "—" placeholder when loading. Spacing: `py-16 md:py-20`.
+4. **How It Works** — Section label ("How it works", uppercase, `text-o-muted`) + 3-column grid of cards (`bg-o-surface border border-o-border rounded-xl p-6`). Each card has a mono step number, bold title, and description. Spacing: `py-20 md:py-28`.
+5. **Narrative Bridge** — Standalone paragraph (`max-w-2xl`, `text-o-textSecondary`). Creates breathing room between structured cards and code block. Spacing: `py-12 md:py-16`.
+6. **Developer Quick Start** — Section label ("For developers") + heading ("Start in one request") + `<pre>` code block + "Or use the web UI" link. Spacing: `py-20 md:py-28`.
+7. **Footer** — `border-t`, Dashboard and Submit links. `text-o-textSecondary`.
+
+Max container width: `max-w-5xl`.
+
 ---
 
 ## Responsive Rules
