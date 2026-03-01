@@ -31,11 +31,73 @@ function GithubIcon() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Terminal — the centerpiece                                         */
+/* ------------------------------------------------------------------ */
+
+const TERM_LINES: { text: string; color: string; delay: number }[] = [
+  { text: "$ curl -X POST https://ourocompute.com/api/submit \\", color: "text-o-text", delay: 0 },
+  { text: '    -H "Content-Type: application/json" \\', color: "text-o-text", delay: 60 },
+  { text: "    -d '{\"script\": \"#!/bin/bash\\necho hello world\", \"nodes\": 1}'", color: "text-o-text", delay: 120 },
+  { text: "", color: "", delay: 0 },
+  { text: "HTTP/1.1 402 Payment Required", color: "text-o-blueText", delay: 400 },
+  { text: "x-402-price: 0.0421", color: "text-o-textSecondary", delay: 460 },
+  { text: "x-402-currency: USDC", color: "text-o-textSecondary", delay: 520 },
+  { text: "x-402-network: base", color: "text-o-textSecondary", delay: 580 },
+  { text: "x-402-payto: 0x67...4d74", color: "text-o-textSecondary", delay: 640 },
+  { text: "", color: "", delay: 0 },
+  { text: "# Sign the USDC transfer, then:", color: "text-o-muted", delay: 900 },
+  { text: "", color: "", delay: 0 },
+  { text: "HTTP/1.1 200 OK", color: "text-o-green", delay: 1100 },
+  { text: "{", color: "text-o-text/70", delay: 1160 },
+  { text: '  "job_id": "ouro-a8f3c1",', color: "text-o-text/70", delay: 1220 },
+  { text: '  "status": "completed",', color: "text-o-text/70", delay: 1280 },
+  { text: '  "output_hash": "sha256:e3b0c44298fc...",', color: "text-o-text/70", delay: 1340 },
+  { text: '  "proof_tx": "0x8b2d...f441"', color: "text-o-text/70", delay: 1400 },
+  { text: "}", color: "text-o-text/70", delay: 1460 },
+];
+
+function Terminal() {
+  return (
+    <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-o-border">
+        <div className="flex gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+        </div>
+        <span className="text-xs text-o-muted ml-1 select-none">terminal</span>
+      </div>
+
+      <pre className="px-5 py-5 font-mono text-xs leading-[1.7] overflow-x-auto">
+        {TERM_LINES.map((l, i) =>
+          l.text === "" ? (
+            <br key={i} />
+          ) : (
+            <span
+              key={i}
+              className={`terminal-line block ${l.color}`}
+              style={{ animationDelay: `${l.delay}ms` }}
+            >
+              {l.text}
+            </span>
+          )
+        )}
+      </pre>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function LandingPage() {
   const stats = useStats();
 
   return (
     <>
+      {/* Header */}
       <header className="sticky top-0 z-50 border-b border-o-border bg-o-bg/80 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-4 md:px-8 flex items-center justify-between h-14">
           <Link
@@ -71,20 +133,18 @@ export default function LandingPage() {
 
       <main className="max-w-5xl mx-auto px-4 md:px-8">
         {/* Hero */}
-        <section className="pt-32 pb-16 md:pt-40 md:pb-24 animate-fade-in">
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-o-text leading-[1.08]">
-            Run compute.
+        <section className="pt-24 pb-6 md:pt-32 md:pb-8 animate-fade-in">
+          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
+            Compute that
             <br />
-            Pay in <span className="text-o-blueText">USDC</span>.
-            <br />
-            Prove it on-chain.
+            runs itself.
           </h1>
-          <p className="mt-6 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
-            Ouro is an autonomous agent that sells HPC compute on Base.
-            You submit a script, pay with stablecoins, and get a SHA-256
-            proof stored on-chain. No accounts. No API keys.
+          <p className="mt-5 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
+            An autonomous agent on Base that prices HPC jobs, takes USDC,
+            and posts SHA-256 proofs on-chain. No accounts. Just{" "}
+            <code className="font-mono text-o-text/80">curl</code>.
           </p>
-          <div className="flex flex-wrap items-center gap-3 mt-10">
+          <div className="flex flex-wrap items-center gap-3 mt-8">
             <Link
               href="/submit"
               className="px-6 py-3 bg-o-blue text-white font-display font-semibold text-sm rounded-lg hover:bg-o-blueHover transition-colors"
@@ -100,80 +160,46 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Live stats strip */}
-        <section className="pb-20 md:pb-32 animate-slide-up">
-          <div className="flex flex-wrap items-baseline gap-x-10 gap-y-4 border-t border-o-border pt-8">
+        {/* Terminal */}
+        <section className="pb-10 md:pb-14">
+          <Terminal />
+        </section>
+
+        {/* Stats */}
+        <section className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3">
             <Stat label="jobs completed" value={stats ? stats.completed_jobs : "—"} />
             <Stat label="active now" value={stats ? stats.active_jobs : "—"} />
-            <Stat label="earned" value={stats ? `$${stats.total_revenue_usdc.toFixed(2)}` : "—"} />
-            <Stat label="on-chain proofs" value={stats ? stats.on_chain_proof_count : "—"} />
+            <Stat
+              label="earned"
+              value={stats ? `$${stats.total_revenue_usdc.toFixed(2)}` : "—"}
+            />
+            <Stat
+              label="on-chain proofs"
+              value={stats ? stats.on_chain_proof_count : "—"}
+            />
           </div>
         </section>
 
-        {/* How it works */}
-        <section className="pb-20 md:pb-32">
-          <div className="text-xs text-o-muted uppercase tracking-wider mb-8">
-            How it works
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <Step n={1} title="Write a script">
-              Bash, Python, whatever you need. Set your node count and
-              time limit, then hit submit.
-            </Step>
-            <Step n={2} title="Pay with USDC">
-              The agent quotes a price via x402. You sign one USDC
-              authorization — no subscriptions, no accounts.
-            </Step>
-            <Step n={3} title="Get your proof">
-              Your job runs on an HPC cluster. When it finishes, the output
-              hash is attested on Base. Verifiable forever.
-            </Step>
-          </div>
-          
-          {/* Narrative bridge moved inside the section */}
-          <div className="mt-12 md:mt-16 max-w-3xl">
-            <p className="text-sm sm:text-base text-o-textSecondary leading-relaxed">
-              Ouro prices every job dynamically, pays its own infrastructure
-              costs, and exposes an MCP interface so other AI agents can
-              discover and buy compute programmatically.
-            </p>
-          </div>
-        </section>
-
-        {/* Developer quick start */}
-        <section className="pb-24 md:pb-32">
+        {/* Agent section */}
+        <section className="pb-10 md:pb-14">
           <div className="text-xs text-o-muted uppercase tracking-wider mb-2">
-            For developers
+            For agents
           </div>
-          <h2 className="font-display text-lg font-semibold text-o-text mb-6">
-            Start in one request
+          <h2 className="font-display text-lg font-semibold text-o-text mb-3">
+            Other agents can buy compute too.
           </h2>
-          <pre className="bg-o-surface border border-o-border rounded-xl p-5 font-mono text-xs text-o-text/80 overflow-x-auto whitespace-pre leading-relaxed">
-{`curl -X POST https://ourocompute.com/api/submit \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "script": "#!/bin/bash\\necho Hello from Ouro",
-    "nodes": 1,
-    "time_limit_min": 1
-  }'
-
-# Returns x402 payment headers
-# Sign the USDC authorization → job runs → proof on Base`}
-          </pre>
-          <Link
-            href="/submit"
-            className="inline-block mt-5 text-sm font-medium text-o-blueText hover:underline"
-          >
-            Or use the web UI &rarr;
-          </Link>
+          <p className="text-sm text-o-textSecondary leading-relaxed max-w-2xl">
+            Ouro exposes an MCP server. AI agents discover pricing, submit
+            jobs, and verify proofs&nbsp;&mdash; no human in the loop.
+          </p>
         </section>
       </main>
 
+      {/* Footer */}
       <footer className="border-t border-o-border">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 py-8 flex items-center justify-between">
-          <p className="text-xs text-o-textSecondary">
-            Built on Base
-          </p>
+        <div className="max-w-5xl mx-auto px-4 md:px-8 py-6 flex items-center justify-between">
+          <p className="text-xs text-o-textSecondary">Built on Base</p>
           <div className="flex items-center gap-4">
             <Link
               href="/dashboard"
@@ -194,29 +220,20 @@ export default function LandingPage() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                     */
+/* ------------------------------------------------------------------ */
+
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="font-display text-2xl sm:text-3xl font-bold text-o-text" style={{ fontVariantNumeric: "tabular-nums" }}>
+      <span
+        className="font-display text-2xl sm:text-3xl font-bold text-o-text"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
         {value}
       </span>
       <span className="text-xs text-o-muted">{label}</span>
-    </div>
-  );
-}
-
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-o-surface border border-o-border rounded-xl p-6">
-      <div className="font-mono text-sm text-o-blueText mb-3">
-        {String(n).padStart(2, "0")}
-      </div>
-      <h3 className="font-display text-base font-semibold text-o-text mb-2">
-        {title}
-      </h3>
-      <p className="text-sm text-o-textSecondary leading-relaxed">
-        {children}
-      </p>
     </div>
   );
 }

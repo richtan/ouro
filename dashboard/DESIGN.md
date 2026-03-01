@@ -255,15 +255,16 @@ Route structure:
 - `/dashboard` — Operator dashboard (wallet, P&L, stats, attribution)
 - `/submit`, `/history`, `/admin`, `/pay/[sessionId]` — App pages (use NavBar)
 
+Design philosophy: **show, don't describe**. The terminal showing the real x402 API flow IS the "how it works" — no description cards. The page is ~2 viewports total, dense with actual information.
+
 Sections (top to bottom):
 
-1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Dashboard link, GitHub icon, ConnectButton.
-2. **Hero** — Large `font-display` heading (`text-4xl` to `text-7xl`) with `tracking-tight`. Subtext + two CTAs (primary blue, secondary outlined). Spacing: `pt-32 pb-20 md:pt-40 md:pb-28`.
-3. **Live Stats Strip** — 4 inline stats with `border-t` divider. Values use `text-2xl sm:text-3xl` with `tabular-nums`. Always visible with "—" placeholder when loading. Spacing: `py-16 md:py-20`.
-4. **How It Works** — Section label ("How it works", uppercase, `text-o-muted`) + 3-column grid of cards (`bg-o-surface border border-o-border rounded-xl p-6`). Each card has a mono step number, bold title, and description. Spacing: `py-20 md:py-28`.
-5. **Narrative Bridge** — Standalone paragraph (`max-w-2xl`, `text-o-textSecondary`). Creates breathing room between structured cards and code block. Spacing: `py-12 md:py-16`.
-6. **Developer Quick Start** — Section label ("For developers") + heading ("Start in one request") + `<pre>` code block + "Or use the web UI" link. Spacing: `py-20 md:py-28`.
-7. **Footer** — `border-t`, Dashboard and Submit links. `text-o-textSecondary`.
+1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Dashboard link, GitHub icon, ConnectButton. `h-14`.
+2. **Hero** — `font-display` heading (`text-4xl` to `text-6xl`) with `tracking-tight`. One-sentence technical description + two CTAs (primary blue, secondary ghost). Spacing: `pt-24 pb-6 md:pt-32 md:pb-8`. Flows directly into terminal.
+3. **Terminal Window** — The centerpiece. Styled terminal with chrome (three dots + "terminal" label) showing the real x402 API conversation: curl request → 402 Payment Required with price headers → 200 OK with job result and proof hash. Uses `bg-o-surface`, `border-o-border`, `rounded-xl`. Lines animate in sequentially via `.terminal-line` class with staggered `animation-delay`. Spacing: `pb-10 md:pb-14`.
+4. **Stats Bar** — `border-t` separator + 4 inline stats with tight `gap-x-8`. Values `text-2xl sm:text-3xl` with `tabular-nums`. Always shows "—" placeholder. Spacing: `pt-6 pb-10 md:pt-8 md:pb-14`.
+5. **Agent Section** — Label ("For agents", uppercase muted) + heading ("Other agents can buy compute too.") + one sentence about MCP. No cards. Spacing: `pb-10 md:pb-14`.
+6. **Footer** — `border-t`, `py-6`. Dashboard and Submit links. "Built on Base".
 
 Max container width: `max-w-5xl`.
 
@@ -374,7 +375,7 @@ Write styles for mobile first, then add `sm:`, `md:`, `lg:` overrides:
 - Add glow effects, text shadows, or scanline animations
 - Use gradient backgrounds on cards
 - Use `::before` pseudo-elements for decorative card borders
-- Use JetBrains Mono or IBM Plex Sans (use Inter Tight / Inter / Roboto Mono)
+- Use JetBrains Mono, IBM Plex Sans, Inter, or Roboto (use Geist Sans / Geist Mono)
 - Use cyan (`#22d3ee`) anywhere — the accent is blue (`#0052ff` / `#4C8FFF`)
 - Add `col-span-full` to components that aren't children of a grid
 
