@@ -36,7 +36,7 @@ function GithubIcon() {
 /* ------------------------------------------------------------------ */
 
 const TERM_LINES: { text: string; color: string; delay: number }[] = [
-  { text: "$ curl -X POST https://ourocompute.com/api/submit \\", color: "text-o-text", delay: 0 },
+  { text: "$ curl -X POST https://api.ourocompute.com/api/compute/submit \\", color: "text-o-text", delay: 0 },
   { text: '    -H "Content-Type: application/json" \\', color: "text-o-text", delay: 60 },
   { text: "    -d '{\"script\": \"#!/bin/bash\\necho hello world\", \"nodes\": 1}'", color: "text-o-text", delay: 120 },
   { text: "", color: "", delay: 0 },
