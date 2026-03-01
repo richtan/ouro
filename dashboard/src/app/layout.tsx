@@ -32,7 +32,7 @@ export default async function RootLayout({
         <meta name="base:app_id" content="6997ee68820ae5633e55081a" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </head>
-      <body className="min-h-screen antialiased font-sans">
+      <body className="min-h-screen antialiased font-sans flex flex-col">
         <Web3Provider initialState={initialState}>
           <NavBar />
           {children}

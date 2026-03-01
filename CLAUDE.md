@@ -47,7 +47,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 ## Project Structure
 
 ```
-Ouros/
+ouro/
 ├── agent/                  # Python FastAPI backend
 │   ├── Dockerfile
 │   ├── pyproject.toml
