@@ -3,6 +3,10 @@
 # Fetches Slurm controller IP from GCP, sets SLURMREST_URL, then deploys
 # agent, mcp-server, and dashboard in parallel.
 #
+# NOTE: Pushes to main auto-deploy via GitHub Actions (.github/workflows/deploy.yml).
+# Use this script for manual deploys or when SLURMREST_URL needs updating
+# (the GH Actions workflow skips the GCP IP fetch for simplicity).
+#
 # Secrets: Managed by Doppler → Railway integration (auto-synced).
 # Only SLURMREST_URL is set here because it's dynamically fetched from GCP.
 #
