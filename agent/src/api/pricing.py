@@ -11,7 +11,6 @@ from src.db.models import AgentCost
 
 logger = logging.getLogger(__name__)
 
-ATTRIBUTION_DISCOUNT = 0.10
 MIN_PRICE_USD = 0.01
 DEFAULT_GAS_COST_USD = 0.002
 DEFAULT_LLM_COST_USD = 0.008
@@ -106,7 +105,6 @@ async def calculate_price(
     db: AsyncSession,
     requested_nodes: int,
     time_limit_min: int,
-    client_builder_code: str | None = None,
 ) -> PriceQuote:
     max_gas = await get_cost_upper_bound(db, "gas") or DEFAULT_GAS_COST_USD
     max_llm = await get_cost_upper_bound(db, "llm_inference") or DEFAULT_LLM_COST_USD
@@ -120,10 +118,6 @@ async def calculate_price(
     margin_price = cost_floor * current_margin * demand_multiplier
     min_profit_price = cost_floor * (1 + settings.MIN_PROFIT_PCT)
     price = max(margin_price, min_profit_price, MIN_PRICE_USD)
-
-    if client_builder_code:
-        discounted = price * (1 - ATTRIBUTION_DISCOUNT)
-        price = max(discounted, min_profit_price)
 
     profit = price - cost_floor
     profit_pct = (profit / cost_floor * 100) if cost_floor > 0 else float("inf")
@@ -145,7 +139,6 @@ async def calculate_price(
             "phase": current_phase,
             "min_profit_pct": settings.MIN_PROFIT_PCT,
             "safety_factor": COST_SAFETY_FACTOR,
-            "builder_discount_applied": bool(client_builder_code),
         },
     )
 

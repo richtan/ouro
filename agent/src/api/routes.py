@@ -225,10 +225,10 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
             raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
 
-    cache_key = (nodes, time_limit_min, client_code or "")
+    cache_key = (nodes, time_limit_min)
     quote = _price_cache.get(cache_key)
     if not quote:
-        quote = await calculate_price(db, nodes, time_limit_min, client_code)
+        quote = await calculate_price(db, nodes, time_limit_min)
         _price_cache.set(cache_key, quote)
 
     config = ResourceConfig(

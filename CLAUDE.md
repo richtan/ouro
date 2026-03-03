@@ -219,8 +219,6 @@ Price formula: `max(cost_floor × margin × demand_multiplier, cost_floor × 1.2
 
 Cost floor = `max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/node-min`
 
-Builder code holders get 10% discount (but never below cost floor).
-
 ## Secrets Management (Doppler)
 
 Secrets are managed via [Doppler](https://doppler.com) as the single source of truth. Doppler project: `ouro`, configs: `dev` (local), `prd` (production, shared across all Railway services).
