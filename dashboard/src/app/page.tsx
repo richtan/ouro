@@ -61,6 +61,16 @@ const MCP_TOOLS = [
     params: ["nodes", "time_limit_min"],
   },
   {
+    name: "get_payment_requirements",
+    description: "Get x402 payment header for autonomous signing",
+    params: ["script", "nodes", "time_limit_min"],
+  },
+  {
+    name: "submit_and_pay",
+    description: "Submit a job with a pre-signed x402 payment",
+    params: ["script", "payment_signature"],
+  },
+  {
     name: "get_api_endpoint",
     description: "Get the direct x402 API endpoint",
     params: [],
@@ -224,7 +234,7 @@ export default function LandingPage() {
                 compute jobs.
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-5">
               {MCP_TOOLS.map((tool, i) => (
                 <div
                   key={tool.name}
