@@ -56,31 +56,38 @@ def parse_time_limit(tl) -> str:
     return str(tl)
 
 
-def wrap_in_apptainer(user_script: str, job_name: str) -> str:
-    """Wrap user script in Apptainer container for isolation."""
+def wrap_in_apptainer(user_script: str, job_name: str) -> tuple[str, str]:
+    """Wrap user script in Apptainer container for isolation.
+
+    Returns (wrapper_script, user_script_path) tuple.  The caller must
+    clean up *both* temp files.
+
+    Raises HTTPException(503) if Apptainer or the base image is missing —
+    we must never fall back to running user code on the bare host.
+    """
     if not APPTAINER_AVAILABLE or not os.path.exists(BASE_IMAGE):
-        logger.warning("Apptainer or base image not available, running without isolation")
-        return user_script
+        raise HTTPException(
+            503,
+            "Container isolation unavailable (Apptainer or base image missing)",
+        )
 
-    return f"""#!/bin/bash
-mkdir -p {SCRIPTS_DIR}
-SCRIPT_FILE={SCRIPTS_DIR}/{job_name}-$SLURM_JOB_ID.sh
+    # Write user script to a temp file via Python — avoids heredoc injection
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sh", delete=False, dir=SCRIPTS_DIR, prefix=f"{job_name}-",
+    ) as uf:
+        uf.write(user_script)
+        user_script_path = uf.name
+    os.chmod(user_script_path, 0o755)
 
-cat > "$SCRIPT_FILE" << 'OURO_SCRIPT_END'
-{user_script}
-OURO_SCRIPT_END
-chmod +x "$SCRIPT_FILE"
-
+    wrapper = f"""#!/bin/bash
 apptainer exec \\
     --contain --writable-tmpfs --no-home \\
-    --bind "$SCRIPT_FILE":/job.sh:ro \\
+    --bind "{user_script_path}":/job.sh:ro \\
     {BASE_IMAGE} \\
     bash /job.sh
-EXIT_CODE=$?
-
-rm -f "$SCRIPT_FILE"
-exit $EXIT_CODE
+exit $?
 """
+    return wrapper, user_script_path
 
 
 @app.post("/slurm/v0.0.37/job/submit")
@@ -103,19 +110,18 @@ async def submit_job(
     time_limit = parse_time_limit(job.get("time_limit", "5"))
     cwd = job.get("current_working_directory", "/tmp")
 
-    wrapped = wrap_in_apptainer(script, name)
+    wrapper_script, user_script_path = wrap_in_apptainer(script, name)
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".sh", delete=False, dir="/tmp"
     ) as f:
-        f.write(wrapped)
-        script_path = f.name
-    os.chmod(script_path, 0o755)
+        f.write(wrapper_script)
+        wrapper_path = f.name
+    os.chmod(wrapper_path, 0o755)
 
-    isolation_mode = "apptainer" if APPTAINER_AVAILABLE and os.path.exists(BASE_IMAGE) else "bare"
     logger.info(
-        "Submitting: partition=%s name=%s nodes=%s time=%s isolation=%s",
-        partition, name, nodes, time_limit, isolation_mode,
+        "Submitting: partition=%s name=%s nodes=%s time=%s isolation=apptainer",
+        partition, name, nodes, time_limit,
     )
 
     try:
@@ -130,20 +136,21 @@ async def submit_job(
                 f"--output={OUTPUT_DIR}/slurm-%j.out",
                 f"--error={OUTPUT_DIR}/slurm-%j.err",
                 f"--chdir={cwd}",
-                script_path,
+                wrapper_path,
             ]
         )
         job_id = int(result.strip())
-        logger.info("Job submitted: %d (isolation: %s)", job_id, isolation_mode)
+        logger.info("Job submitted: %d (isolation: apptainer)", job_id)
         return {"job_id": job_id, "step_id": "batch", "error_code": 0, "error": ""}
     except Exception as e:
         logger.error("Submit failed: %s", e)
         raise
     finally:
-        try:
-            os.unlink(script_path)
-        except Exception:
-            pass
+        for path in (wrapper_path, user_script_path):
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
 
 
 @app.get("/slurm/v0.0.37/job/{job_id}")

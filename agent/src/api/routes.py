@@ -6,9 +6,11 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +34,29 @@ from src.db.session import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
+
+class ComputeSubmitRequest(BaseModel):
+    script: str = Field(..., min_length=1, max_length=65_536)
+    nodes: int = Field(default=1, ge=1, le=16)
+    time_limit_min: int = Field(default=1, ge=1, le=60)
+    submitter_address: Optional[str] = None
+    builder_code: Optional[str] = None
+
+
+class CreateSessionRequest(BaseModel):
+    script: str = Field(..., min_length=1, max_length=65_536)
+    nodes: int = Field(default=1, ge=1, le=16)
+    time_limit_min: int = Field(default=1, ge=1, le=60)
+    price: str = "unknown"
+
+
+class CompleteSessionRequest(BaseModel):
+    job_id: str = Field(..., min_length=1)
 
 _event_bus: EventBus | None = None
 _chain_client: BaseChainClient | None = None
@@ -102,6 +127,8 @@ class _RateLimiter:
         self._per_key_limit = per_key_limit
         self._global_limit = global_limit
         self._window = window_s
+        self._last_cleanup = time.monotonic()
+        self._cleanup_interval = 300.0  # 5 minutes
 
     def _prune(self, timestamps: list[float], now: float) -> list[float]:
         cutoff = now - self._window
@@ -109,9 +136,25 @@ class _RateLimiter:
             timestamps.pop(0)
         return timestamps
 
+    def _maybe_cleanup(self, now: float) -> None:
+        """Prune expired timestamps and remove empty keys to prevent unbounded growth."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        cutoff = now - self._window
+        empty_keys = []
+        for k, v in self._per_key.items():
+            while v and v[0] < cutoff:
+                v.pop(0)
+            if not v:
+                empty_keys.append(k)
+        for k in empty_keys:
+            del self._per_key[k]
+
     def check(self, key: str | None) -> bool:
         """Returns True if the request is allowed."""
         now = time.monotonic()
+        self._maybe_cleanup(now)
         self._global = self._prune(self._global, now)
         if len(self._global) >= self._global_limit:
             return False
@@ -189,8 +232,13 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     )
 
     payment_header = request.headers.get("payment-signature")
-    body = await request.json()
+    raw_body = await request.json()
     client_code = request.headers.get("X-BUILDER-CODE")
+
+    try:
+        body = ComputeSubmitRequest(**raw_body)
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors())
 
     if payment_header:
         logger.debug("x402 payment-signature header received (len=%d)", len(payment_header))
@@ -201,13 +249,10 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         except Exception:
             logger.debug("x402 could not decode payment-signature header")
 
-    script = body.get("script", "")
-    nodes = body.get("nodes", 1)
-    time_limit_min = body.get("time_limit_min", 1)
-    submitter_address = body.get("submitter_address")
-
-    if len(script) > MAX_SCRIPT_SIZE:
-        raise HTTPException(413, f"Script too large: {len(script)} bytes (max {MAX_SCRIPT_SIZE})")
+    script = body.script
+    nodes = body.nodes
+    time_limit_min = body.time_limit_min
+    submitter_address = body.submitter_address
 
     rate_key = submitter_address.lower() if submitter_address else None
     if not _rate_limiter.check(rate_key):
@@ -291,7 +336,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     job_id = str(uuid.uuid4())
     job = ActiveJob(
         id=job_id,
-        payload=body,
+        payload=raw_body,
         price_usdc=quote.price_usd,
         client_builder_code=client_code,
         submitter_address=submitter_address,
@@ -687,17 +732,28 @@ SESSION_TTL_SECONDS = 600  # 10 minutes
 @router.post("/api/sessions")
 async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
     """Create a payment session. Called by MCP server."""
-    body = await request.json()
-    script = body.get("script", "")
-    nodes = int(body.get("nodes", 1))
-    time_limit_min = int(body.get("time_limit_min", 1))
-    price = body.get("price", "unknown")
+    raw_body = await request.json()
+
+    try:
+        body = CreateSessionRequest(**raw_body)
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors())
+
+    # Rate limit by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not _rate_limiter.check(f"session:{client_ip}"):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Too many session requests"},
+            headers={"Retry-After": "60"},
+        )
+
     session = PaymentSession(
         status="pending",
-        script=script,
-        nodes=nodes,
-        time_limit_min=time_limit_min,
-        price=price,
+        script=body.script,
+        nodes=body.nodes,
+        time_limit_min=body.time_limit_min,
+        price=body.price,
         agent_url=settings.PUBLIC_API_URL or "",
     )
     db.add(session)
@@ -740,15 +796,35 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/api/sessions/{session_id}/complete")
 async def complete_session(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Mark session as paid with job_id. Called by pay page after successful submit."""
-    body = await request.json()
+    from datetime import datetime, timezone
+
+    raw_body = await request.json()
+
+    try:
+        body = CompleteSessionRequest(**raw_body)
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors())
+
+    # Validate job_id is a valid UUID
+    try:
+        parsed_job_id = uuid.UUID(body.job_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid job_id format (expected UUID)")
+
     session = await db.get(PaymentSession, session_id)
     if not session:
         raise HTTPException(404, "Session not found or expired")
-    job_id = body.get("job_id")
-    if not job_id:
-        raise HTTPException(400, "job_id required")
+
+    # TTL check (same as get_session)
+    if (datetime.now(timezone.utc) - session.created_at).total_seconds() > SESSION_TTL_SECONDS:
+        raise HTTPException(404, "Session expired")
+
+    # Only pending sessions can be completed
+    if session.status != "pending":
+        raise HTTPException(409, f"Session already {session.status}")
+
     session.status = "paid"
-    session.job_id = uuid.UUID(job_id)
+    session.job_id = parsed_job_id
     await db.commit()
     return {"status": "ok"}
 

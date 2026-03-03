@@ -422,10 +422,20 @@ async def get_api_endpoint() -> dict:
 
 def main():
     port = int(os.environ.get("PORT", "8080"))
+    cors_origins_str = os.environ.get(
+        "CORS_ORIGINS",
+        "https://ourocompute.com,http://localhost:3000,http://localhost:3001",
+    )
+    cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
 
     app = mcp.http_app(
         middleware=[
-            Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]),
+            Middleware(
+                CORSMiddleware,
+                allow_origins=cors_origins,
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=["Content-Type"],
+            ),
         ]
     )
     uvicorn.run(app, host="0.0.0.0", port=port)

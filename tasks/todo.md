@@ -1,31 +1,40 @@
-# Fix x402 Python Signing for Autonomous MCP Payment Flow
+# Phase 1: Security Hardening
 
-## Status: VERIFIED
-
-## Root Cause
-The Python x402 SDK v2.2.0 has two bugs causing the CDP facilitator to reject payloads:
-
-1. **Nonce format mismatch**: `build_typed_data_for_signing()` converts nonce to `bytes` before passing to `eth_account.sign_typed_data()`. But the SDK's own verify path (and the JS SDK) uses hex strings. The EIP-712 hash differs, causing signature verification failure.
-
-2. **Address checksumming**: The `payTo` address from payment requirements is passed as-is without checksumming. The JS SDK checksums all addresses via `getAddress()`.
+## Status: COMPLETE
 
 ## Changes Made
 
-- [x] `agent/src/api/routes.py` — Debug logging for payment-signature headers + improved facilitator error handling (returns 403 with structured error instead of 503 for client errors like insufficient_funds)
-- [x] `mcp-server/src/ouro_mcp/x402_signer.py` — Manual EIP-3009 signing helper that bypasses the SDK and mirrors JS SDK behavior (checksummed addresses, hex string nonce)
-- [x] `mcp-server/test_e2e.py` — End-to-end test script
-- [x] `mcp-server/pyproject.toml` — Added eth-account and eth-utils to dev dependencies
-- [x] `mcp-server/src/ouro_mcp/server.py` — Improved 403 error messages (distinguishes insufficient_funds vs invalid_payload)
+- [x] **Fix 1: Heredoc Injection** (`deploy/slurm/slurm_proxy.py`) — Rewrote `wrap_in_apptainer()` to write user scripts to temp files via Python instead of bash heredoc. Changed Apptainer-unavailable fallback from silent bare execution to HTTP 503. Both wrapper and user script cleaned up in finally block.
 
-## Verification
+- [x] **Fix 2: Session Endpoint Hardening** (`agent/src/api/routes.py`) — Added rate limiting by client IP on session creation. Added TTL check and status guard (409 Conflict on double-complete) to `complete_session`. Added UUID validation for job_id.
 
-E2E test with throwaway keypair confirms:
-- Facilitator accepts the payload structure (no more `invalid_payload`)
-- Correctly recovers the signer address
-- Only rejects due to `insufficient_funds` (expected with no USDC)
+- [x] **Fix 3: Pydantic Request Models** (`agent/src/api/routes.py`) — Added `ComputeSubmitRequest`, `CreateSessionRequest`, `CompleteSessionRequest` Pydantic models with Field constraints (min/max length, ge/le bounds). All POST endpoints now validate input and return 422 on bad data instead of 500s.
 
-## Next Steps
+- [x] **Fix 4: CORS Lockdown** (`agent/src/config.py`, `agent/src/main.py`, `mcp-server/src/ouro_mcp/server.py`) — Replaced `allow_origins=["*"]` with configurable origin list (default: ourocompute.com + localhost). Restricted methods to GET/POST/OPTIONS. Restricted headers to only those actually used.
 
-- [ ] Deploy agent changes (`./deploy/deploy.sh agent`)
-- [ ] Test with funded wallet: `PRIVATE_KEY=0x... python test_e2e.py`
-- [ ] Consider upstreaming the fix to the x402 Python SDK
+- [x] **Fix 5: Non-root Docker Users** (`agent/Dockerfile`, `dashboard/Dockerfile`, `mcp-server/Dockerfile`) — All containers now run as non-root users (app/nextjs). Dashboard uses `--chown` on COPY for proper file ownership.
+
+- [x] **Fix 6: Rate Limiter Cleanup** (`agent/src/api/routes.py`) — Added `_maybe_cleanup()` to `_RateLimiter` that removes empty key entries every 5 minutes, preventing unbounded `_per_key` dict growth.
+
+## Files Modified
+
+| File | Fixes |
+|------|-------|
+| `deploy/slurm/slurm_proxy.py` | 1 |
+| `agent/src/api/routes.py` | 2, 3, 6 |
+| `agent/src/config.py` | 4 |
+| `agent/src/main.py` | 4 |
+| `mcp-server/src/ouro_mcp/server.py` | 4 |
+| `agent/Dockerfile` | 5 |
+| `dashboard/Dockerfile` | 5 |
+| `mcp-server/Dockerfile` | 5 |
+
+## Verification Checklist
+
+- [ ] `docker compose up --build` — all services start, dashboard loads
+- [ ] Submit job via `/submit` — payment flow works
+- [ ] Invalid inputs (nodes=99, empty script, nodes="abc") → 422/400 not 500
+- [ ] Double session complete → 409
+- [ ] CORS blocks unauthorized origins
+- [ ] `docker compose exec agent whoami` → `app`
+- [ ] `docker compose exec dashboard whoami` → `nextjs`

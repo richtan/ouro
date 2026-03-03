@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     MIN_PROFIT_PCT: float = 0.20
     INFRA_COST_PER_NODE_MINUTE: float = 0.0006
 
+    # CORS
+    CORS_ORIGINS: str = "https://ourocompute.com,http://localhost:3000,http://localhost:3001"
+
     # Admin
     ADMIN_API_KEY: str = ""
 
