@@ -20,7 +20,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file: .env
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT
+      - DB_NAME
+      - DB_USER
+      - DB_PASSWORD
+      - BASE_RPC_URL
+      - CHAIN_ID
+      - CHAIN_CAIP2
+      - WALLET_PRIVATE_KEY
+      - WALLET_ADDRESS
+      - PROOF_CONTRACT_ADDRESS
+      - USDC_CONTRACT_ADDRESS
+      - BUILDER_CODE
+      - SLURMREST_URL
+      - SLURMREST_JWT
+      - LLM_MODEL
+      - OPENAI_API_KEY
+      - CDP_API_KEY_ID
+      - CDP_API_KEY_SECRET
+      - X402_FACILITATOR_URL
+      - PRICE_MARGIN_MULTIPLIER
+      - ADMIN_API_KEY
+      - PUBLIC_API_URL
+      - PUBLIC_DASHBOARD_URL
     ports: ["8000:8000"]
 
   dashboard:

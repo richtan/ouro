@@ -70,6 +70,27 @@ class _PriceCache:
 _price_cache = _PriceCache()
 
 
+def _parse_facilitator_error(error_str: str) -> dict | None:
+    """Try to extract structured JSON from a facilitator error message.
+
+    The x402 facilitator client raises ValueError with messages like:
+        Facilitator verify failed (400): {"invalidMessage":"...","invalidReason":"...","isValid":false,...}
+
+    Returns the parsed dict if the message looks like a facilitator rejection,
+    or None if it's a transient/unrecognized error.
+    """
+    idx = error_str.find("{")
+    if idx == -1:
+        return None
+    try:
+        data = json.loads(error_str[idx:])
+        if isinstance(data, dict) and "invalidReason" in data:
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Rate limiter — per-wallet + global sliding window
 # ---------------------------------------------------------------------------
@@ -171,6 +192,15 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     body = await request.json()
     client_code = request.headers.get("X-BUILDER-CODE")
 
+    if payment_header:
+        logger.debug("x402 payment-signature header received (len=%d)", len(payment_header))
+        try:
+            from x402.http.utils import safe_base64_decode
+            decoded = safe_base64_decode(payment_header)
+            logger.debug("x402 decoded payload: %s", decoded[:500])
+        except Exception:
+            logger.debug("x402 could not decode payment-signature header")
+
     script = body.get("script", "")
     nodes = body.get("nodes", 1)
     time_limit_min = body.get("time_limit_min", 1)
@@ -226,14 +256,30 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         payload = decode_payment_signature_header(payment_header)
         result = await _resource_server.verify_payment(payload, requirements[0])
     except Exception as e:
+        error_str = str(e)
+        # The facilitator client raises ValueError with the raw response for
+        # non-200 statuses.  Parse it to distinguish client errors (403) from
+        # genuine availability problems (503).
+        facilitator_reason = _parse_facilitator_error(error_str)
+        if facilitator_reason:
+            logger.warning("x402 verification rejected: %s", facilitator_reason)
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": facilitator_reason.get("invalidReason", "verification_failed"),
+                    "detail": facilitator_reason.get("invalidMessage", error_str),
+                    "payer": facilitator_reason.get("payer"),
+                },
+            )
         logger.error("x402 facilitator error: %s", e)
         return JSONResponse(
             status_code=503,
-            content={"error": "Payment verification temporarily unavailable", "detail": str(e)},
+            content={"error": "Payment verification temporarily unavailable", "detail": error_str},
             headers={"Retry-After": "30"},
         )
 
     if not result.is_valid:
+        logger.warning("x402 payment verification failed: %s", getattr(result, "error", "unknown"))
         raise HTTPException(403, "Payment verification failed")
 
     _event_bus.emit(

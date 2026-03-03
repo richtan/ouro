@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = ["pytest", "pytest-asyncio", "eth-account>=0.11", "eth-utils>=2.3"]
 
 [project.scripts]
 ouro-mcp = "ouro_mcp.server:main"

@@ -133,7 +133,7 @@ ouro/
 ├── mcp-server/
 │   ├── Dockerfile
 │   ├── pyproject.toml
-│   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote, get_api_endpoint
+│   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote, get_payment_requirements, submit_and_pay, get_api_endpoint
 ├── ouro-sdk/               # Python SDK for programmatic access
 │   ├── pyproject.toml
 │   └── src/ouro_sdk/
@@ -164,13 +164,23 @@ ouro/
 6. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → proof)
 7. On completion, job moved to `historical_data`, proof posted on-chain
 
-### Job Submission (via MCP)
+### Job Submission (via MCP — Browser Flow)
 1. AI agent calls `run_compute_job` MCP tool
 2. MCP server creates payment session via `POST {AGENT_URL}/api/sessions`
 3. Returns payment URL: `https://dashboard.../pay/{sessionId}`
 4. User opens link, connects wallet, pays (same x402 flow as above)
 5. Pay page marks session complete via `POST /api/proxy/sessions/{id}/complete`
 6. AI agent polls with `get_job_status(session_id)` to get results
+
+### Job Submission (via MCP — Autonomous Flow)
+1. AI agent calls `get_payment_requirements` MCP tool with job details
+2. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` without payment → receives 402 + `PAYMENT-REQUIRED` header
+3. Returns price + raw payment header to calling agent
+4. Calling agent decodes header with its x402 library, signs USDC payment locally
+5. Agent calls `submit_and_pay` with the signed `payment-signature`
+6. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` with payment header → job created
+7. Agent polls with `get_job_status(job_id)` to get results
+8. No private keys leave the calling agent — only the opaque payment signature is transmitted
 
 ### Payment Sessions
 Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API.
@@ -489,9 +499,11 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 ```
 
 MCP tools:
-- `run_compute_job(script, nodes, time_limit_min)` → Returns payment URL + session_id
+- `run_compute_job(script, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow)
 - `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
 - `get_price_quote(nodes, time_limit_min)` → Returns price without submitting
+- `get_payment_requirements(script, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing
+- `submit_and_pay(script, payment_signature, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)
 - `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access
 
 ## Common Operations
