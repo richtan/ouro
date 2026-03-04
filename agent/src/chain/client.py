@@ -15,6 +15,7 @@ from src.chain.abi import (
     CODE_REGISTRY_ABI,
     ERC20_BALANCE_OF_ABI,
     ERC8004_ABI,
+    ERC8004_REPUTATION_ABI,
     PROOF_OF_COMPUTE_ABI,
     PROOF_OF_COMPUTE_REPUTATION_ABI,
 )
@@ -31,6 +32,7 @@ class TxResult:
     gas_cost_usd: float
     gas_cost_wei: int
     codes: list[str]
+    receipt: dict | None = None
 
 
 class BaseChainClient:
@@ -111,6 +113,7 @@ class BaseChainClient:
             gas_cost_usd=gas_cost_usd,
             gas_cost_wei=gas_cost_wei,
             codes=codes,
+            receipt=dict(receipt),
         )
 
     async def _estimate_gas(self, to: str, data: bytes, value: int) -> int:
@@ -193,14 +196,43 @@ class BaseChainClient:
             except Exception:
                 return 0
 
-    async def get_erc8004_agent_count(self) -> int:
-        from src.chain.erc8004 import ERC8004_REGISTRY
-
+    async def get_reputation_feedback(self, agent_id: int) -> dict | None:
+        """Read reputation summary from the ERC-8004 Reputation Registry."""
+        if not settings.ERC8004_REPUTATION_REGISTRY:
+            return None
         try:
             registry = self.w3.eth.contract(
-                address=self.w3.to_checksum_address(ERC8004_REGISTRY),
-                abi=ERC8004_ABI,
+                address=self.w3.to_checksum_address(settings.ERC8004_REPUTATION_REGISTRY),
+                abi=ERC8004_REPUTATION_ABI,
             )
-            return await registry.functions.agentCount().call()
-        except Exception:
-            return 0
+            result = await registry.functions.getSummary(
+                agent_id, [], "compute", ""
+            ).call()
+            total_score, count, weighted_sum, total_weight = result
+            return {
+                "feedback_count": count,
+                "average_score": round(weighted_sum / total_weight, 2) if total_weight > 0 else None,
+                "total_score": total_score,
+                "registry": settings.ERC8004_REPUTATION_REGISTRY,
+            }
+        except Exception as e:
+            logger.warning("Failed to read reputation feedback: %s", e)
+            return None
+
+    def encode_feedback_calldata(self, agent_id: int, score: int, job_id: str) -> bytes:
+        """Encode giveFeedback() calldata for client agents to submit on-chain."""
+        import hashlib
+
+        registry = self.w3.eth.contract(
+            address=self.w3.to_checksum_address(settings.ERC8004_REPUTATION_REGISTRY),
+            abi=ERC8004_REPUTATION_ABI,
+        )
+        # Use job_id hash as the ref bytes32
+        ref = hashlib.sha256(job_id.encode()).digest()
+        api_url = settings.PUBLIC_API_URL or "https://api.ourocompute.com"
+        return bytes.fromhex(
+            registry.encode_abi(
+                "giveFeedback",
+                args=[agent_id, score, 0, "compute", "", f"{api_url}/api/compute/submit", "", ref],
+            ).removeprefix("0x")
+        )

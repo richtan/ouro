@@ -229,10 +229,12 @@ async def health_ready(db: AsyncSession = Depends(get_db)):
 @router.post("/api/compute/submit")
 async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     from x402 import ResourceConfig
+    from x402.extensions.bazaar.resource_service import OutputConfig, declare_discovery_extension
     from x402.http.utils import (
         decode_payment_signature_header,
         encode_payment_required_header,
     )
+    from x402.schemas import ResourceInfo
 
     payment_header = request.headers.get("payment-signature")
     raw_body = await request.json()
@@ -287,7 +289,30 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     requirements = _resource_server.build_payment_requirements(config)
 
     if not payment_header:
-        payment_required = _resource_server.create_payment_required_response(requirements)
+        resource_info = ResourceInfo(
+            url="/api/compute/submit",
+            description="Submit an HPC compute job to a Slurm cluster with Apptainer isolation",
+            mimeType="application/json",
+        )
+        bazaar_ext = declare_discovery_extension(
+            input={"script": "echo hello", "nodes": 1, "time_limit_min": 1},
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "script": {"type": "string", "description": "Script to execute"},
+                    "nodes": {"type": "integer", "minimum": 1, "maximum": 16, "description": "Compute nodes"},
+                    "time_limit_min": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Max runtime (min)"},
+                    "submitter_address": {"type": "string", "description": "0x wallet address"},
+                },
+                "required": ["script"],
+            },
+            body_type="json",
+            output=OutputConfig(example={"job_id": "uuid", "status": "pending", "price": "$0.01"}),
+        )
+        bazaar_ext = _resource_server.enrich_extensions(bazaar_ext, request)
+        payment_required = _resource_server.create_payment_required_response(
+            requirements, resource_info, "Payment required", bazaar_ext,
+        )
         encoded_header = encode_payment_required_header(payment_required)
         return JSONResponse(
             status_code=402,
@@ -873,6 +898,9 @@ async def get_capabilities():
             "proof_contract": settings.PROOF_CONTRACT_ADDRESS,
             "on_chain_proofs": proof_count,
             "agent_address": settings.WALLET_ADDRESS,
+            "erc8004_agent_id": settings.ERC8004_AGENT_ID or None,
+            "identity_registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+            "reputation_endpoint": "/api/reputation",
         },
         "limits": {
             "max_active_jobs_per_wallet": MAX_ACTIVE_JOBS_PER_WALLET,
@@ -911,4 +939,142 @@ async def get_audit(
             }
             for e in entries
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /.well-known/agent-card.json — A2A Agent Card
+# ---------------------------------------------------------------------------
+
+@router.get("/.well-known/agent-card.json")
+async def agent_card():
+    base_url = settings.PUBLIC_API_URL or "https://api.ourocompute.com"
+    dashboard_url = settings.PUBLIC_DASHBOARD_URL or "https://ourocompute.com"
+    return {
+        "name": "Ouro Compute",
+        "description": (
+            "Autonomous HPC compute agent on Base. Submit scripts, "
+            "pay with USDC via x402, get on-chain proofs of execution."
+        ),
+        "url": base_url,
+        "version": "1.0.0",
+        "provider": {
+            "organization": "Ouro",
+            "url": dashboard_url,
+        },
+        "capabilities": {"streaming": False, "pushNotifications": False},
+        "defaultInputModes": ["application/json"],
+        "defaultOutputModes": ["application/json"],
+        "authentication": {"schemes": ["x402"]},
+        "skills": [
+            {
+                "id": "run_compute_job",
+                "name": "Run HPC Compute Job",
+                "description": "Execute a script on a Slurm HPC cluster with Apptainer isolation. Pay per job with USDC.",
+                "tags": ["compute", "hpc", "slurm", "execution"],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json"],
+            },
+            {
+                "id": "get_price_quote",
+                "name": "Get Price Quote",
+                "description": "Get a price quote for a compute job without submitting it.",
+                "tags": ["pricing", "quote"],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json"],
+            },
+            {
+                "id": "get_job_status",
+                "name": "Check Job Status",
+                "description": "Get status, output, and proof hash of a submitted compute job.",
+                "tags": ["status", "results", "proof"],
+                "inputModes": ["application/json"],
+                "outputModes": ["application/json"],
+            },
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/reputation — aggregated trust signals
+# ---------------------------------------------------------------------------
+
+@router.get("/api/reputation")
+async def get_reputation(db: AsyncSession = Depends(get_db)):
+    proof_count = 0
+    if _chain_client:
+        try:
+            proof_count = await _chain_client.get_on_chain_proof_count()
+        except Exception:
+            pass
+
+    completed_q = await db.execute(
+        select(func.count(HistoricalData.id)).where(HistoricalData.status == "completed")
+    )
+    failed_q = await db.execute(
+        select(func.count(HistoricalData.id)).where(HistoricalData.status == "failed")
+    )
+    total_completed = completed_q.scalar_one()
+    total_failed = failed_q.scalar_one()
+
+    # On-chain reputation from ERC-8004 Reputation Registry
+    on_chain_feedback = None
+    if _chain_client and settings.ERC8004_AGENT_ID:
+        try:
+            on_chain_feedback = await _chain_client.get_reputation_feedback(
+                int(settings.ERC8004_AGENT_ID)
+            )
+        except Exception:
+            pass
+
+    result = {
+        "agent_address": settings.WALLET_ADDRESS,
+        "erc8004_agent_id": settings.ERC8004_AGENT_ID or None,
+        "identity_registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+        "proof_contract": settings.PROOF_CONTRACT_ADDRESS,
+        "on_chain_proofs": proof_count,
+        "success_rate": round(total_completed / max(total_completed + total_failed, 1), 4),
+        "total_jobs_completed": total_completed,
+        "total_jobs_failed": total_failed,
+        "verify": {
+            "proof_contract": f"https://basescan.org/address/{settings.PROOF_CONTRACT_ADDRESS}#events",
+            "identity_nft": "https://basescan.org/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+        },
+    }
+
+    if on_chain_feedback:
+        result["on_chain_feedback"] = on_chain_feedback
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# GET /api/reputation/feedback-calldata — encoded calldata for giveFeedback
+# ---------------------------------------------------------------------------
+
+@router.get("/api/reputation/feedback-calldata")
+async def get_feedback_calldata(job_id: str, score: int):
+    """Returns encoded calldata for giveFeedback() so client agents
+    can submit on-chain feedback about Ouro without building the tx themselves."""
+    if not settings.ERC8004_AGENT_ID:
+        raise HTTPException(503, "Agent ID not yet registered on ERC-8004")
+    if not (1 <= score <= 5):
+        raise HTTPException(422, "Score must be between 1 and 5")
+    if not settings.ERC8004_REPUTATION_REGISTRY:
+        raise HTTPException(503, "Reputation Registry not configured")
+
+    if not _chain_client:
+        raise HTTPException(503, "Chain client not available")
+
+    calldata = _chain_client.encode_feedback_calldata(
+        agent_id=int(settings.ERC8004_AGENT_ID),
+        score=score,
+        job_id=job_id,
+    )
+
+    return {
+        "to": settings.ERC8004_REPUTATION_REGISTRY,
+        "data": f"0x{calldata.hex()}",
+        "chain_id": settings.CHAIN_ID,
+        "description": f"Submit feedback (score={score}) for Ouro agent (agentId={settings.ERC8004_AGENT_ID})",
     }

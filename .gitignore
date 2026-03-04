@@ -29,3 +29,7 @@ pgdata/
 .idea/
 *.swp
 .DS_Store
+
+# Task tracking
+tasks/
+tasks/

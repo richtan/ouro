@@ -154,18 +154,6 @@ async def autonomous_loop(
                         f"Heartbeat paused (phase={new_phase}, saving gas)",
                     )
 
-                # 6. Agent discovery via ERC-8004 (every 10 cycles)
-                if cycle_count % 10 == 0:
-                    try:
-                        agent_count = await chain_client.get_erc8004_agent_count()
-                        event_bus.emit(
-                            "discovery",
-                            f"ERC-8004 registry scan: {agent_count} agents registered. "
-                            f"Ouro is discoverable for agent-to-agent compute commerce.",
-                        )
-                    except Exception:
-                        pass
-
                 cycle_count += 1
 
         except Exception as e:

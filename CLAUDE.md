@@ -139,6 +139,8 @@ ouro/
 │   └── src/ouro_sdk/
 │       ├── client.py       # OuroClient: run, submit, wait, quote, capabilities
 │       └── models.py       # JobResult, Quote dataclasses
+├── .mcp/
+│   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
 ├── .env.example
 └── .gitignore
@@ -148,7 +150,7 @@ ouro/
 
 - **x402** — HTTP 402 payment protocol. Agent returns 402 with PAYMENT-REQUIRED header; client signs USDC authorization. Facilitated by Coinbase CDP on mainnet, x402.org on testnet.
 - **ERC-8021** — Builder Code attribution appended to every on-chain transaction calldata. Format: `codesJoined + length(1 byte) + schemaId(0x00) + marker(16 bytes)`. See `agent/src/chain/erc8021.py`.
-- **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent registers itself on startup.
+- **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent resolves or registers its `agentId` on startup (stored in `ERC8004_AGENT_ID`). Supports the Reputation Registry (`ERC8004_REPUTATION_REGISTRY`) for on-chain feedback via `giveFeedback()`.
 - **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
 - **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Apptainer container isolation.
 - **Apptainer** — Container isolation for user scripts on Slurm workers. Base image is ubuntu:22.04 stored at `/ouro-jobs/images/base.sif`.
@@ -243,6 +245,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
+ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
 LLM_MODEL=openai:gpt-4o-mini
@@ -344,6 +347,11 @@ Set the resulting address as `PROOF_CONTRACT_ADDRESS`.
 
 ## Agent Internals
 
+### Startup (in lifespan)
+
+- **ERC-8004 agentId**: On startup, queries the Identity Registry for an existing `agentId` via `balanceOf`/`tokenOfOwnerByIndex`. If none found and `PUBLIC_DASHBOARD_URL` is set, registers a new agent identity. Stores the resolved `agentId` in `settings.ERC8004_AGENT_ID` at runtime.
+- **x402 Bazaar**: Registers the `bazaar_resource_server_extension` on the x402 resource server so the 402 response includes Bazaar discovery metadata (input schema, output example).
+
 ### Background Tasks (started in lifespan)
 
 1. **autonomous_loop** (`agent/loop.py`) — Runs every 60s:
@@ -399,6 +407,9 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
+| `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
+| `GET` | `/api/reputation` | None | Aggregated trust signals: on-chain proofs, success rate, job counts, ERC-8004 agentId, on-chain feedback summary. |
+| `GET` | `/api/reputation/feedback-calldata` | None | Returns encoded calldata for `giveFeedback()` on the ERC-8004 Reputation Registry. Query params: `job_id`, `score` (1-5). |
 
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
 
@@ -544,6 +555,19 @@ No automated test suite currently. Manual verification:
 - Agent: `docker compose up --build` then `curl http://localhost:8000/api/stats`
 - Dashboard: Visit `http://localhost:3000`, check that all panels load data
 - MCP: Add server to Cursor config, ask agent to run a compute job
+
+## Agent Discoverability
+
+Ouro is discoverable by autonomous agents through multiple channels:
+
+| Channel | URL / Endpoint | Purpose |
+|---------|---------------|---------|
+| **A2A Agent Card** | `GET /.well-known/agent-card.json` | Google A2A protocol discovery — skills, auth, capabilities |
+| **MCP Registry** | `.mcp/server.json` (publish via `mcp-publisher`) | Official MCP server registry at registry.modelcontextprotocol.io |
+| **x402 Bazaar** | Automatic via CDP facilitator | Discovery via Bazaar extension in 402 response (input schema, output example) |
+| **ERC-8004 Identity** | On-chain at `0x8004...9432` | Agent identity NFT with service endpoints |
+| **Reputation API** | `GET /api/reputation` | Aggregated trust signals: proofs, success rate, on-chain feedback |
+| **Capabilities** | `GET /api/capabilities` | Machine-readable service description with trust section |
 
 ## Known Issues & Lessons
 

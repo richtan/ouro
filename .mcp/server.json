@@ -1,0 +1,9 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.richtan/ouro-compute",
+  "title": "Ouro Compute",
+  "description": "HPC compute MCP server. Submit scripts to a Slurm cluster, pay with USDC via x402, get on-chain proofs on Base.",
+  "repository": { "url": "https://github.com/richtan/ouro", "source": "github" },
+  "version": "1.0.0",
+  "remotes": [{ "transportType": "streamable-http", "url": "https://mcp.ourocompute.com/mcp" }]
+}

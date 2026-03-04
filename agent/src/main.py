@@ -79,6 +79,7 @@ def _init_x402_server():
     x402.org facilitator on testnet.
     """
     from x402 import x402ResourceServer
+    from x402.extensions.bazaar.server import bazaar_resource_server_extension
     from x402.http import FacilitatorConfig, HTTPFacilitatorClient
     from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
@@ -97,6 +98,7 @@ def _init_x402_server():
     )
     server = x402ResourceServer(facilitator)
     server.register("eip155:*", ExactEvmServerScheme())
+    server.register_extension(bazaar_resource_server_extension)
     server.initialize()
     return server
 
@@ -124,17 +126,27 @@ async def lifespan(app: FastAPI):
 
     event_bus.emit("system", "Ouro agent starting up")
 
-    # ERC-8004 registration (one-time)
-    if not settings.ERC8004_AGENT_ID and settings.PUBLIC_DASHBOARD_URL:
+    # ERC-8004 identity — resolve or register agentId
+    if not settings.ERC8004_AGENT_ID:
         try:
-            from src.chain.erc8004 import register_agent
+            from src.chain.erc8004 import get_agent_id, register_agent
 
-            tx = await register_agent(
-                chain_client, settings.PUBLIC_DASHBOARD_URL, settings.PUBLIC_API_URL
-            )
-            event_bus.emit("erc8004", f"Agent registered on-chain: {tx}")
+            # First check if we already have a registration
+            existing_id = await get_agent_id(chain_client, settings.WALLET_ADDRESS)
+            if existing_id is not None:
+                settings.ERC8004_AGENT_ID = str(existing_id)
+                event_bus.emit("erc8004", f"Existing agentId resolved: {existing_id}")
+                logger.info("ERC-8004 agentId resolved from registry: %d", existing_id)
+            elif settings.PUBLIC_DASHBOARD_URL:
+                # No existing registration — register now
+                tx, agent_id = await register_agent(
+                    chain_client, settings.PUBLIC_DASHBOARD_URL, settings.PUBLIC_API_URL
+                )
+                if agent_id is not None:
+                    settings.ERC8004_AGENT_ID = str(agent_id)
+                event_bus.emit("erc8004", f"Agent registered on-chain: {tx} (agentId={agent_id})")
         except Exception as e:
-            event_bus.emit("erc8004_error", f"Registration failed (non-fatal): {e}")
+            event_bus.emit("erc8004_error", f"ERC-8004 lookup/registration failed (non-fatal): {e}")
 
     loop_task = asyncio.create_task(
         autonomous_loop(

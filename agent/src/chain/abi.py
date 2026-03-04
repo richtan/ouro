@@ -77,9 +77,99 @@ ERC8004_ABI = [
         "type": "function",
     },
     {
-        "inputs": [],
-        "name": "agentCount",
+        "inputs": [{"name": "owner", "type": "address"}],
+        "name": "balanceOf",
         "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "name": "ownerOf",
+        "outputs": [{"name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+# ERC-8004 Reputation Registry — on-chain feedback for agents
+ERC8004_REPUTATION_ABI = [
+    {
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "score", "type": "uint8"},
+            {"name": "weight", "type": "uint256"},
+            {"name": "serviceType", "type": "string"},
+            {"name": "comment", "type": "string"},
+            {"name": "endpoint", "type": "string"},
+            {"name": "extra", "type": "string"},
+            {"name": "ref", "type": "bytes32"},
+        ],
+        "name": "giveFeedback",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "filters", "type": "string[]"},
+            {"name": "serviceType", "type": "string"},
+            {"name": "endpoint", "type": "string"},
+        ],
+        "name": "getSummary",
+        "outputs": [
+            {"name": "totalScore", "type": "uint256"},
+            {"name": "count", "type": "uint256"},
+            {"name": "weightedSum", "type": "uint256"},
+            {"name": "totalWeight", "type": "uint256"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "agentId", "type": "uint256"},
+            {"name": "reviewer", "type": "address"},
+            {"name": "serviceType", "type": "string"},
+            {"name": "endpoint", "type": "string"},
+        ],
+        "name": "readFeedback",
+        "outputs": [
+            {"name": "score", "type": "uint8"},
+            {"name": "weight", "type": "uint256"},
+            {"name": "comment", "type": "string"},
+            {"name": "timestamp", "type": "uint256"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+MULTICALL3_ABI = [
+    {
+        "inputs": [
+            {"name": "requireSuccess", "type": "bool"},
+            {
+                "components": [
+                    {"name": "target", "type": "address"},
+                    {"name": "callData", "type": "bytes"},
+                ],
+                "name": "calls",
+                "type": "tuple[]",
+            },
+        ],
+        "name": "tryAggregate",
+        "outputs": [
+            {
+                "components": [
+                    {"name": "success", "type": "bool"},
+                    {"name": "returnData", "type": "bytes"},
+                ],
+                "name": "returnData",
+                "type": "tuple[]",
+            },
+        ],
         "stateMutability": "view",
         "type": "function",
     },

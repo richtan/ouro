@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # ERC-8004
     ERC8004_AGENT_ID: str = ""
+    ERC8004_REPUTATION_REGISTRY: str = ""
 
     # x402
     X402_FACILITATOR_URL: str = "https://x402.org/facilitator"
