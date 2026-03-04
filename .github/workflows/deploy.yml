@@ -3,10 +3,29 @@ name: Deploy to Railway
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
+  test-agent:
+    name: Test agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/pyproject.toml
+      - run: pip install -e ".[test]"
+        working-directory: agent
+      - run: python -m pytest tests/ -v --tb=short
+        working-directory: agent
+
   deploy-agent:
     name: Deploy agent
+    needs: [test-agent]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     container: ghcr.io/railwayapp/cli:latest
     env:
@@ -17,6 +36,8 @@ jobs:
 
   deploy-dashboard:
     name: Deploy dashboard
+    needs: [test-agent]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     container: ghcr.io/railwayapp/cli:latest
     env:
@@ -27,6 +48,8 @@ jobs:
 
   deploy-mcp:
     name: Deploy mcp-server
+    needs: [test-agent]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     container: ghcr.io/railwayapp/cli:latest
     env:
