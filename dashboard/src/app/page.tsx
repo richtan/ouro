@@ -33,7 +33,7 @@ function GithubIcon() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Terminal — the centerpiece                                         */
+/*  Terminal — x402 HTTP flow                                          */
 /* ------------------------------------------------------------------ */
 
 const MCP_JSON = `{
@@ -44,57 +44,18 @@ const MCP_JSON = `{
   }
 }`;
 
-const MCP_TOOLS = [
-  {
-    name: "run_compute_job",
-    description: "Submit a script and get a payment link",
-    params: ["script", "nodes", "time_limit_min"],
-  },
-  {
-    name: "get_job_status",
-    description: "Poll for results and on-chain proof",
-    params: ["job_id"],
-  },
-  {
-    name: "get_price_quote",
-    description: "Check pricing before committing",
-    params: ["nodes", "time_limit_min"],
-  },
-  {
-    name: "get_payment_requirements",
-    description: "Get x402 payment header for autonomous signing",
-    params: ["script", "nodes", "time_limit_min"],
-  },
-  {
-    name: "submit_and_pay",
-    description: "Submit a job with a pre-signed x402 payment",
-    params: ["script", "payment_signature"],
-  },
-  {
-    name: "get_api_endpoint",
-    description: "Get the direct x402 API endpoint",
-    params: [],
-  },
-];
-
 const TERM_LINES: { text: string; color: string; delay: number }[] = [
-  { text: "> train my MNIST model, 50 epochs", color: "text-o-text", delay: 0 },
+  { text: '$ curl -X POST https://api.ourocompute.com/api/compute/submit \\', color: "text-o-text", delay: 0 },
+  { text: '    -d \'{"script": "python3 train.py --epochs 50", "nodes": 2}\'', color: "text-o-text", delay: 80 },
   { text: "", color: "", delay: 0 },
-  { text: "claude  too compute-heavy to run locally", color: "text-o-blueText", delay: 300 },
-  { text: "        → invoking run_compute_job", color: "text-o-blueText", delay: 420 },
+  { text: '402 Payment Required \u00b7 $0.0841 USDC', color: "text-o-amber", delay: 500 },
   { text: "", color: "", delay: 0 },
-  { text: "tool    nodes: 2 · time_limit: 30min", color: "text-o-textSecondary", delay: 620 },
-  { text: '        script: "python3 train.py --epochs 50"', color: "text-o-textSecondary", delay: 720 },
+  { text: '# re-send with signed USDC payment', color: "text-o-muted", delay: 900 },
+  { text: '$ curl ... -H "payment-signature: 0x3fa9...b21c"', color: "text-o-text", delay: 1000 },
   { text: "", color: "", delay: 0 },
-  { text: "ouro    payment required · $0.0841 USDC", color: "text-o-amber", delay: 920 },
-  { text: "        → ourocompute.com/pay/sess_f2a9c1", color: "text-o-amber", delay: 1020 },
+  { text: '200 OK \u00b7 job_id: f2a9c1e8-...', color: "text-o-green", delay: 1400 },
   { text: "", color: "", delay: 0 },
-  { text: "user    ✓ paid", color: "text-o-muted", delay: 1300 },
-  { text: "", color: "", delay: 0 },
-  { text: "ouro    running · 2 nodes · 4m 12s elapsed", color: "text-o-textSecondary", delay: 1500 },
-  { text: "        ✓ complete", color: "text-o-green", delay: 1700 },
-  { text: "        accuracy: 98.7% · loss: 0.041", color: "text-o-green", delay: 1800 },
-  { text: "        proof: 0x4f2a...c981 (Base)", color: "text-o-muted", delay: 1900 },
+  { text: '\u2713 completed \u00b7 accuracy: 98.7% \u00b7 proof: 0x4f2a...c981', color: "text-o-green", delay: 1800 },
 ];
 
 function Terminal() {
@@ -129,11 +90,34 @@ function Terminal() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  How It Works steps                                                 */
+/* ------------------------------------------------------------------ */
+
+const STEPS = [
+  {
+    num: "1",
+    title: "No signup required",
+    desc: "POST your script to the API. No account, no API key, no billing page.",
+  },
+  {
+    num: "2",
+    title: "Pay per job",
+    desc: "HTTP 402 tells you the exact price. Sign one USDC payment \u2014 that\u2019s it.",
+  },
+  {
+    num: "3",
+    title: "Proven results",
+    desc: "Every result gets a SHA-256 proof posted on Base. Verifiable by anyone.",
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
 export default function LandingPage() {
   const stats = useStats();
+  const [howRef, howVisible] = useInView();
   const [statsRef, statsVisible] = useInView();
   const [mcpRef, mcpVisible] = useInView();
 
@@ -180,14 +164,13 @@ export default function LandingPage() {
           {/* Left: text */}
           <div className="animate-fade-in-up">
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
-              Compute that
+              Pay for compute
               <br />
-              runs itself.
+              over HTTP.
             </h1>
             <p className="mt-5 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
-              An autonomous agent on Base that prices HPC jobs, takes USDC,
-              and posts SHA-256 proofs on-chain. No accounts. Just{" "}
-              <code className="font-mono text-o-text/80">curl</code>.
+              No accounts. No API keys. Just USDC and a{" "}
+              <code className="font-mono text-o-text/80">POST</code> request.
             </p>
             <div className="flex flex-wrap items-center gap-3 mt-8">
               <Link
@@ -197,10 +180,10 @@ export default function LandingPage() {
                 Submit a Job
               </Link>
               <Link
-                href="/dashboard"
+                href="/docs"
                 className="px-6 py-3 border border-o-border text-o-textSecondary font-display font-medium text-sm rounded-lg hover:border-o-borderHover hover:text-o-text transition-colors"
               >
-                Dashboard
+                View Docs
               </Link>
             </div>
           </div>
@@ -211,14 +194,36 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* How It Works */}
+        <section ref={howRef} className="border-t border-o-border pt-10 pb-10 md:pt-14 md:pb-14">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {STEPS.map((step, i) => (
+              <div
+                key={step.num}
+                className={`reveal${howVisible ? " visible" : ""} reveal-delay-${i + 1} bg-o-surface border border-o-border rounded-lg px-5 py-5`}
+              >
+                <span className="font-display text-sm font-bold text-o-blueText">
+                  {step.num}
+                </span>
+                <h3 className="font-display text-base font-semibold text-o-text mt-2">
+                  {step.title}
+                </h3>
+                <p className="text-sm text-o-textSecondary mt-1.5 leading-relaxed">
+                  {step.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Stats */}
         <section ref={statsRef} className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
           <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 lg:justify-center lg:gap-x-16">
             {[
-              { label: "jobs completed", value: stats ? stats.completed_jobs : "—" },
-              { label: "active now", value: stats ? stats.active_jobs : "—" },
-              { label: "earned", value: stats ? `$${(stats.total_revenue_usdc ?? 0).toFixed(2)}` : "—" },
-              { label: "on-chain proofs", value: stats ? stats.on_chain_proof_count : "—" },
+              { label: "jobs completed", value: stats ? stats.completed_jobs : "\u2014" },
+              { label: "active now", value: stats ? stats.active_jobs : "\u2014" },
+              { label: "earned", value: stats ? `$${(stats.total_revenue_usdc ?? 0).toFixed(2)}` : "\u2014" },
+              { label: "on-chain proofs", value: stats ? stats.on_chain_proof_count : "\u2014" },
             ].map((s, i) => (
               <div key={s.label} className={`reveal${statsVisible ? " visible" : ""} reveal-delay-${i + 1}`}>
                 <Stat label={s.label} value={s.value} />
@@ -229,33 +234,20 @@ export default function LandingPage() {
 
         {/* MCP section */}
         <section ref={mcpRef} className="border-t border-o-border pt-10 pb-12 md:pt-14 md:pb-16 lg:grid lg:grid-cols-2 lg:gap-12 lg:items-center">
-          <div>
-            <div className={`reveal${mcpVisible ? " visible" : ""}`}>
-              <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text leading-tight">
-                Built for agents.
-              </h2>
-              <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed">
-                Add one URL to your MCP config. Any AI tool&mdash;Cursor, Claude
-                Desktop, your own agent&mdash;can price, submit, and verify
-                compute jobs.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
-              {MCP_TOOLS.map((tool, i) => (
-                <div
-                  key={tool.name}
-                  className={`reveal${mcpVisible ? " visible" : ""} reveal-delay-${i + 1} bg-o-surface border border-o-border rounded-lg px-3.5 py-3 hover:border-o-borderHover transition-colors`}
-                >
-                  <span className="font-mono text-xs text-o-text">{tool.name}</span>
-                  <p className="text-xs text-o-muted mt-1">{tool.description}</p>
-                  {tool.params.length > 0 && (
-                    <p className="text-xs text-o-muted/70 mt-1.5 font-mono">
-                      {tool.params.join(" · ")}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+          <div className={`reveal${mcpVisible ? " visible" : ""}`}>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text leading-tight">
+              Built for agents.
+            </h2>
+            <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed max-w-lg">
+              Add one URL to your MCP config. Any AI agent&mdash;Cursor, Claude
+              Desktop, your own&mdash;can price, submit, and verify compute jobs.
+            </p>
+            <Link
+              href="/docs/mcp"
+              className="inline-block mt-4 text-sm font-medium text-o-blueText hover:text-o-text transition-colors"
+            >
+              Read the MCP docs &rarr;
+            </Link>
           </div>
 
           <div className={`mt-8 lg:mt-0 reveal${mcpVisible ? " visible" : ""} reveal-delay-2`}>
