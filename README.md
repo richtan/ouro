@@ -96,17 +96,17 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results + on-ch
 │  │  Next.js 15   │──▶│  Python 3.12     │◀──│  FastMCP           │  │
 │  │  :3000        │   │  :8000           │   │  :8080             │  │
 │  └───────────────┘   └────────┬─────────┘   └────────────────────┘  │
-│                              │                                      │
-│                    ┌─────────▼───────────┐                          │
-│                    │  PostgreSQL 16      │                          │
-│                    │  (Railway managed)  │                          │
-│                    └─────────────────────┘                          │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTP (slurmrestd proxy)
-                    ┌──────────▼──────────┐
-                    │  GCP Compute Engine  │
-                    │  Slurm HPC Cluster   │
-                    └─────────────────────┘
+│                               │                                     │
+│                     ┌─────────▼───────────┐                         │
+│                     │  PostgreSQL 16      │                         │
+│                     │  (Railway managed)  │                         │
+│                     └─────────────────────┘                         │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │ HTTP (slurmrestd proxy)
+                     ┌──────────▼──────────┐
+                     │  GCP Compute Engine │
+                     │  Slurm HPC Cluster  │
+                     └─────────────────────┘
 ```
 
 - **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, posts on-chain proofs, runs autonomous pricing loop
