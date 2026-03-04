@@ -26,7 +26,7 @@ LLM_FALLBACK_TIMEOUT_S = 900
 MAX_RETRIES = 2
 MAX_CONCURRENT_JOBS = 3
 
-TRANSIENT_ERRORS = ("TIMEOUT", "connection", "unreachable", "slurm_error")
+TRANSIENT_ERRORS = ("timeout", "connection", "unreachable", "slurm_error")
 
 
 def _is_transient(error_msg: str) -> bool:
