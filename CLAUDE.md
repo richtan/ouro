@@ -550,10 +550,18 @@ forge test -vvv     # Verbose output with traces
 
 Tests cover: proof submission, duplicate prevention, nonexistent proof lookup, multiple proofs, reputation tracking, and per-submitter isolation.
 
-### Agent / Dashboard
-No automated test suite currently. Manual verification:
-- Agent: `docker compose up --build` then `curl http://localhost:8000/api/stats`
-- Dashboard: Visit `http://localhost:3000`, check that all panels load data
+### Agent
+```bash
+cd agent
+python -m pytest tests/ -v --tb=short          # Run all tests
+python -m pytest tests/ --cov=src --cov-report=term-missing  # With coverage
+```
+
+Tests cover 5 core modules: erc8021 (encoding/decoding), pricing (phases, demand, calculate_price), processor (retry logic, recovery, failure handling), operations (DB ops, credits, job archival), oracle (validation, Slurm submission, polling, proof posting).
+
+### Dashboard
+No automated test suite. Manual verification:
+- Visit `http://localhost:3000`, check that all panels load data
 - MCP: Add server to Cursor config, ask agent to run a compute job
 
 ## Agent Discoverability
@@ -597,3 +605,6 @@ Ouro is discoverable by autonomous agents through multiple channels:
 - Find root causes, no temporary fixes
 - Before making any dashboard changes, read `dashboard/DESIGN.md` first to align with the overall theme, design tokens, and visual patterns
 - After making changes, update `CLAUDE.md`, `dashboard/DESIGN.md`, and `README.md` if the changes affect architecture, design, APIs, or project structure
+- When adding or modifying agent code, write or update corresponding tests in `agent/tests/`
+- New features and bug fixes require tests before marking complete
+- Run `cd agent && python -m pytest tests/ -v` to verify before committing

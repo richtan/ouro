@@ -160,6 +160,12 @@ cd contracts && forge create src/ProofOfCompute.sol:ProofOfCompute \
   --rpc-url https://mainnet.base.org --private-key $WALLET_PRIVATE_KEY
 ```
 
-## License
+## Testing
 
-MIT
+```bash
+# Agent tests
+cd agent && python -m pytest tests/ -v
+
+# Smart contract tests
+cd contracts && forge test
+```
