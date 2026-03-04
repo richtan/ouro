@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchStats } from "@/lib/api";
+import { useStats } from "@/hooks/useData";
 
 interface StatsData {
   sustainability_ratio: number;
@@ -26,14 +25,7 @@ const PHASE_DESCRIPTIONS: Record<string, string> = {
 };
 
 export default function SustainabilityGauge() {
-  const [stats, setStats] = useState<StatsData | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchStats().then(setStats).catch(() => {});
-    load();
-    const id = setInterval(load, 10_000);
-    return () => clearInterval(id);
-  }, []);
+  const { data: stats } = useStats() as { data: StatsData | undefined };
 
   const ratio = stats?.sustainability_ratio ?? 0;
   const displayRatio = isFinite(ratio) ? ratio : 99.9;

@@ -1,28 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { fetchStats } from "@/lib/api";
+import { useStats } from "@/hooks/useData";
 import { useInView } from "@/hooks/useInView";
-
-
-interface LiveStats {
-  completed_jobs: number;
-  active_jobs: number;
-  total_revenue_usdc: number;
-  on_chain_proof_count: number;
-}
-
-function useStats() {
-  const [stats, setStats] = useState<LiveStats | null>(null);
-  useEffect(() => {
-    const load = () => fetchStats().then(setStats).catch(() => {});
-    load();
-    const id = setInterval(load, 15_000);
-    return () => clearInterval(id);
-  }, []);
-  return stats;
-}
 
 function GithubIcon() {
   return (
@@ -116,7 +97,7 @@ const STEPS = [
 /* ------------------------------------------------------------------ */
 
 export default function LandingPage() {
-  const stats = useStats();
+  const { data: stats } = useStats();
   const [howRef, howVisible] = useInView();
   const [statsRef, statsVisible] = useInView();
   const [mcpRef, mcpVisible] = useInView();

@@ -82,7 +82,14 @@ const ouroTheme: Theme = {
   },
 };
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5_000,
+      retry: 1,
+    },
+  },
+});
 
 export default function Web3Provider({
   children,

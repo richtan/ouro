@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchStats } from "@/lib/api";
+import { useStats } from "@/hooks/useData";
 
 interface StatsData {
   margin_multiplier: number;
@@ -32,14 +31,7 @@ function FlowArrow({ className }: { className?: string }) {
 }
 
 export default function RevenueModel() {
-  const [stats, setStats] = useState<StatsData | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchStats().then(setStats).catch(() => {});
-    load();
-    const id = setInterval(load, 10_000);
-    return () => clearInterval(id);
-  }, []);
+  const { data: stats } = useStats() as { data: StatsData | undefined };
 
   if (!stats) {
     return (
@@ -70,15 +62,15 @@ export default function RevenueModel() {
 
       {/* Flow: responsive vertical on mobile, horizontal on desktop */}
       <div className="flex flex-col sm:flex-row items-stretch gap-2 mb-6">
-        <FlowStep label="x402 Payment" value={`$${stats.avg_price_per_job.toFixed(4)}`} />
+        <FlowStep label="x402 Payment" value={`$${(stats.avg_price_per_job ?? 0).toFixed(4)}`} />
         <FlowArrow className="rotate-90 sm:rotate-0 self-center" />
-        <FlowStep label="HPC Compute" value={`$${stats.avg_cost_per_job.toFixed(4)}`} />
+        <FlowStep label="HPC Compute" value={`$${(stats.avg_cost_per_job ?? 0).toFixed(4)}`} />
         <FlowArrow className="rotate-90 sm:rotate-0 self-center" />
         <FlowStep label="On-Chain Proof" value={`${stats.on_chain_proof_count}`} accent />
         <FlowArrow className="rotate-90 sm:rotate-0 self-center" />
         <FlowStep
           label="Net Margin"
-          value={`${marginPositive ? "+" : ""}$${stats.avg_margin_per_job.toFixed(4)}`}
+          value={`${marginPositive ? "+" : ""}$${(stats.avg_margin_per_job ?? 0).toFixed(4)}`}
         />
       </div>
 
@@ -92,13 +84,13 @@ export default function RevenueModel() {
         <div className="bg-o-bg rounded-lg p-3 border border-o-border">
           <div className="text-xs text-o-textSecondary uppercase tracking-wider">Margin Multiplier</div>
           <div className="font-display text-xl font-semibold text-o-text mt-1">
-            {stats.margin_multiplier.toFixed(2)}x
+            {(stats.margin_multiplier ?? 0).toFixed(2)}x
           </div>
         </div>
         <div className="bg-o-bg rounded-lg p-3 border border-o-border">
           <div className="text-xs text-o-textSecondary uppercase tracking-wider">Demand Factor</div>
           <div className="font-display text-xl font-semibold text-o-text mt-1">
-            {stats.demand_multiplier.toFixed(2)}x
+            {(stats.demand_multiplier ?? 0).toFixed(2)}x
           </div>
         </div>
         <div className="bg-o-bg rounded-lg p-3 border border-o-border">

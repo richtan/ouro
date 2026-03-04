@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchAttribution, decodeBuilderCodes } from "@/lib/api";
+import { useState } from "react";
+import { decodeBuilderCodes } from "@/lib/api";
+import { useAttribution } from "@/hooks/useData";
 
 interface AttributionData {
   total_attributed_txs: number;
@@ -17,16 +18,9 @@ interface AttributionData {
 }
 
 export default function AttributionPanel() {
-  const [data, setData] = useState<AttributionData | null>(null);
+  const { data } = useAttribution() as { data: AttributionData | undefined };
   const [decodeInput, setDecodeInput] = useState("");
   const [decoded, setDecoded] = useState<string[] | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchAttribution().then(setData).catch(() => {});
-    load();
-    const id = setInterval(load, 15_000);
-    return () => clearInterval(id);
-  }, []);
 
   const handleDecode = async () => {
     if (!decodeInput.trim()) return;

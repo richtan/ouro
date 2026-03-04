@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchWallet } from "@/lib/api";
+import { useWallet } from "@/hooks/useData";
 
 interface WalletData {
   address: string;
@@ -49,14 +48,7 @@ function Sparkline({ data }: { data: number[] }) {
 }
 
 export default function WalletBalance() {
-  const [data, setData] = useState<WalletData | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchWallet().then(setData).catch(() => {});
-    load();
-    const id = setInterval(load, 10_000);
-    return () => clearInterval(id);
-  }, []);
+  const { data } = useWallet() as { data: WalletData | undefined };
 
   if (!data) {
     return (

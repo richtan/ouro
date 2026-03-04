@@ -1,23 +1,28 @@
 const BASE = "";
 
+async function jsonOrThrow(res: Response) {
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function fetchStats() {
   const res = await fetch(`${BASE}/api/stats`, { cache: "no-store" });
-  return res.json();
+  return jsonOrThrow(res);
 }
 
 export async function fetchWallet() {
   const res = await fetch(`${BASE}/api/wallet`, { cache: "no-store" });
-  return res.json();
+  return jsonOrThrow(res);
 }
 
 export async function fetchJobs() {
   const res = await fetch(`${BASE}/api/jobs`, { cache: "no-store" });
-  return res.json();
+  return jsonOrThrow(res);
 }
 
 export async function fetchAttribution() {
   const res = await fetch(`${BASE}/api/attribution`, { cache: "no-store" });
-  return res.json();
+  return jsonOrThrow(res);
 }
 
 export async function decodeBuilderCodes(calldata: string) {
@@ -25,7 +30,7 @@ export async function decodeBuilderCodes(calldata: string) {
     `${BASE}/api/attribution/decode?calldata=${encodeURIComponent(calldata)}`,
     { cache: "no-store" }
   );
-  return res.json();
+  return jsonOrThrow(res);
 }
 
 export async function fetchAudit(limit?: number, eventType?: string) {
@@ -36,5 +41,5 @@ export async function fetchAudit(limit?: number, eventType?: string) {
   const res = await fetch(`${BASE}/api/audit${qs ? `?${qs}` : ""}`, {
     cache: "no-store",
   });
-  return res.json();
+  return jsonOrThrow(res);
 }

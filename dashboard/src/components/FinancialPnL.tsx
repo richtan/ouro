@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchStats } from "@/lib/api";
+import { useStats } from "@/hooks/useData";
 
 interface StatsData {
   total_revenue_usdc: number;
@@ -37,14 +36,7 @@ function Bar({ label, value, max, color }: { label: string; value: number; max: 
 }
 
 export default function FinancialPnL() {
-  const [stats, setStats] = useState<StatsData | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchStats().then(setStats).catch(() => {});
-    load();
-    const id = setInterval(load, 10_000);
-    return () => clearInterval(id);
-  }, []);
+  const { data: stats } = useStats() as { data: StatsData | undefined };
 
   if (!stats) {
     return (
@@ -58,7 +50,7 @@ export default function FinancialPnL() {
   const pnlPositive = stats.net_pnl_usd >= 0;
   const marginPositive = stats.avg_margin_per_job >= 0;
   const ratioDisplay = isFinite(stats.sustainability_ratio)
-    ? stats.sustainability_ratio.toFixed(1) + "x"
+    ? (stats.sustainability_ratio ?? 0).toFixed(1) + "x"
     : "∞";
 
   return (
@@ -77,7 +69,7 @@ export default function FinancialPnL() {
             pnlPositive ? "text-o-green" : "text-o-red"
           }`}
         >
-          {pnlPositive ? "+" : ""}${stats.net_pnl_usd.toFixed(4)}
+          {pnlPositive ? "+" : ""}${(stats.net_pnl_usd ?? 0).toFixed(4)}
         </div>
       </div>
 
@@ -93,13 +85,13 @@ export default function FinancialPnL() {
           <div className="bg-o-bg rounded-lg p-2.5 text-center">
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Cost</div>
             <div className="font-display text-sm font-semibold text-o-red mt-1">
-              ${stats.avg_cost_per_job.toFixed(4)}
+              ${(stats.avg_cost_per_job ?? 0).toFixed(4)}
             </div>
           </div>
           <div className="bg-o-bg rounded-lg p-2.5 text-center">
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Price</div>
             <div className="font-display text-sm font-semibold text-o-text mt-1">
-              ${stats.avg_price_per_job.toFixed(4)}
+              ${(stats.avg_price_per_job ?? 0).toFixed(4)}
             </div>
           </div>
           <div className="bg-o-bg rounded-lg p-2.5 text-center">
@@ -109,7 +101,7 @@ export default function FinancialPnL() {
                 marginPositive ? "text-o-green" : "text-o-red"
               }`}
             >
-              {marginPositive ? "+" : ""}${stats.avg_margin_per_job.toFixed(4)}
+              {marginPositive ? "+" : ""}${(stats.avg_margin_per_job ?? 0).toFixed(4)}
             </div>
           </div>
         </div>

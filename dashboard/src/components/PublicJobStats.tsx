@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchStats } from "@/lib/api";
+import { useStats } from "@/hooks/useData";
 import Link from "next/link";
 
 interface StatsData {
@@ -13,14 +12,7 @@ interface StatsData {
 }
 
 export default function PublicJobStats() {
-  const [stats, setStats] = useState<StatsData | null>(null);
-
-  useEffect(() => {
-    const load = () => fetchStats().then(setStats).catch(() => {});
-    load();
-    const id = setInterval(load, 10_000);
-    return () => clearInterval(id);
-  }, []);
+  const { data: stats } = useStats() as { data: StatsData | undefined };
 
   if (!stats) {
     return (
@@ -76,13 +68,13 @@ export default function PublicJobStats() {
         <div className="bg-o-bg rounded-lg p-3 border border-o-border">
           <div className="text-xs text-o-textSecondary uppercase tracking-wider">Total Revenue</div>
           <div className="font-display text-xl font-semibold text-o-text mt-1">
-            ${stats.total_revenue_usdc.toFixed(4)}
+            ${(stats.total_revenue_usdc ?? 0).toFixed(4)}
           </div>
         </div>
         <div className="bg-o-bg rounded-lg p-3 border border-o-border">
           <div className="text-xs text-o-textSecondary uppercase tracking-wider">Avg Duration</div>
           <div className="font-display text-xl font-semibold text-o-blueText mt-1">
-            {stats.avg_duration_s.toFixed(1)}s
+            {(stats.avg_duration_s ?? 0).toFixed(1)}s
           </div>
         </div>
       </div>
