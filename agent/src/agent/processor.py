@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 FAST_PATH_TIMEOUT_S = 600
 LLM_FALLBACK_TIMEOUT_S = 900
 MAX_RETRIES = 2
+MAX_CONCURRENT_JOBS = 3
 
 TRANSIENT_ERRORS = ("TIMEOUT", "connection", "unreachable", "slurm_error")
 
@@ -200,17 +201,83 @@ async def _finalize_success(
     event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived")
 
 
+async def _process_one_job(
+    job: ActiveJob,
+    chain_client: BaseChainClient,
+    slurm_client: SlurmClient,
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+    semaphore: asyncio.Semaphore,
+) -> None:
+    """Process a single job. Runs as a concurrent task; releases semaphore when done."""
+    try:
+        event_bus.emit("agent", f"Processing job {str(job.id)[:8]} (fast path)")
+        job_start = time.monotonic()
+        llm_cost_usd = 0.0
+
+        async with session_maker() as db:
+            deps = OracleDeps(
+                job_id=str(job.id),
+                script=job.payload.get("script", ""),
+                partition=job.payload.get("partition", "default"),
+                nodes=job.payload.get("nodes", 1),
+                time_limit_min=job.payload.get("time_limit_min", 1),
+                client_builder_code=job.client_builder_code,
+                slurm_client=slurm_client,
+                chain_client=chain_client,
+                db=db,
+                event_bus=event_bus,
+            )
+
+            job_result = await asyncio.wait_for(
+                process_job_fast(deps),
+                timeout=FAST_PATH_TIMEOUT_S,
+            )
+
+        compute_duration_s = time.monotonic() - job_start
+
+        if job_result and job_result.proof_tx:
+            await _finalize_success(
+                session_maker, event_bus, job, job_result,
+                deps, llm_cost_usd, compute_duration_s,
+            )
+        else:
+            reason = job_result.status if job_result else "no result"
+            retried = await _maybe_retry(session_maker, event_bus, job, reason)
+            if not retried:
+                await _mark_failed(session_maker, event_bus, job, reason)
+
+    except asyncio.TimeoutError:
+        reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"
+        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} {reason}")
+        logger.error("Fast path timed out for job %s", job.id)
+        retried = await _maybe_retry(session_maker, event_bus, job, reason)
+        if not retried:
+            await _mark_failed(session_maker, event_bus, job, reason)
+    except Exception as e:
+        reason = str(e)
+        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} error: {reason}")
+        logger.exception("job processor error for %s", job.id)
+        retried = await _maybe_retry(session_maker, event_bus, job, reason)
+        if not retried:
+            await _mark_failed(session_maker, event_bus, job, reason)
+    finally:
+        semaphore.release()
+
+
 async def process_pending_jobs(
     chain_client: BaseChainClient,
     slurm_client: SlurmClient,
     session_maker: async_sessionmaker,
     event_bus: EventBus,
 ) -> None:
-    """Background loop: pick up pending jobs, run via fast path, fall back to LLM on failure."""
+    """Background loop: pick up pending jobs and process up to MAX_CONCURRENT_JOBS concurrently."""
     await recover_stuck_jobs(session_maker, event_bus)
 
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
     while True:
-        job = None
+        await semaphore.acquire()
         try:
             async with session_maker() as db:
                 result = await db.execute(
@@ -223,6 +290,7 @@ async def process_pending_jobs(
                 job = result.scalar_one_or_none()
 
                 if job is None:
+                    semaphore.release()
                     await asyncio.sleep(5)
                     continue
 
@@ -233,57 +301,13 @@ async def process_pending_jobs(
                 )
                 await db.commit()
 
-            event_bus.emit("agent", f"Processing job {str(job.id)[:8]} (fast path)")
-            job_start = time.monotonic()
-            llm_cost_usd = 0.0
+            # Spawn concurrent task — semaphore is released in _process_one_job's finally
+            asyncio.create_task(_process_one_job(
+                job, chain_client, slurm_client, session_maker, event_bus, semaphore,
+            ))
 
-            async with session_maker() as db:
-                deps = OracleDeps(
-                    job_id=str(job.id),
-                    script=job.payload.get("script", ""),
-                    partition=job.payload.get("partition", "default"),
-                    nodes=job.payload.get("nodes", 1),
-                    time_limit_min=job.payload.get("time_limit_min", 1),
-                    client_builder_code=job.client_builder_code,
-                    slurm_client=slurm_client,
-                    chain_client=chain_client,
-                    db=db,
-                    event_bus=event_bus,
-                )
-
-                job_result = await asyncio.wait_for(
-                    process_job_fast(deps),
-                    timeout=FAST_PATH_TIMEOUT_S,
-                )
-
-            compute_duration_s = time.monotonic() - job_start
-
-            if job_result and job_result.proof_tx:
-                await _finalize_success(
-                    session_maker, event_bus, job, job_result,
-                    deps, llm_cost_usd, compute_duration_s,
-                )
-            else:
-                reason = job_result.status if job_result else "no result"
-                retried = await _maybe_retry(session_maker, event_bus, job, reason)
-                if not retried:
-                    await _mark_failed(session_maker, event_bus, job, reason)
-
-        except asyncio.TimeoutError:
-            reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"
-            event_bus.emit("agent_error", f"Job processor {reason}")
-            logger.error("Fast path timed out for job %s", job.id if job else "?")
-            if job is not None:
-                retried = await _maybe_retry(session_maker, event_bus, job, reason)
-                if not retried:
-                    await _mark_failed(session_maker, event_bus, job, reason)
-            await asyncio.sleep(10)
         except Exception as e:
-            reason = str(e)
-            event_bus.emit("agent_error", f"Job processor error (recovering): {reason}")
-            logger.exception("job processor error")
-            if job is not None:
-                retried = await _maybe_retry(session_maker, event_bus, job, reason)
-                if not retried:
-                    await _mark_failed(session_maker, event_bus, job, reason)
+            semaphore.release()
+            logger.exception("Error picking up job: %s", e)
+            event_bus.emit("agent_error", f"Job pickup error: {e}")
             await asyncio.sleep(10)

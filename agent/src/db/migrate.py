@@ -32,4 +32,23 @@ async def run_migrations(engine) -> None:
             "ALTER TABLE active_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0"
         ))
 
+        # Performance indexes (Phase 4)
+        logger.info("Running auto-migration: create performance indexes ...")
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_active_jobs_status_submitted "
+            "ON active_jobs (status, submitted_at)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_active_jobs_submitter_lower "
+            "ON active_jobs (lower(submitter_address))"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_historical_data_submitter_lower "
+            "ON historical_data (lower(submitter_address))"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_agent_costs_type_created "
+            "ON agent_costs (cost_type, created_at)"
+        ))
+
     logger.info("Auto-migration complete.")

@@ -13,6 +13,11 @@ CREATE TABLE active_jobs (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Processor hot path (runs every 5s)
+CREATE INDEX idx_active_jobs_status_submitted ON active_jobs (status, submitted_at);
+-- User job lookups (case-insensitive)
+CREATE INDEX idx_active_jobs_submitter_lower ON active_jobs (lower(submitter_address));
+
 CREATE TABLE historical_data (
   id                 UUID NOT NULL,
   slurm_job_id       INTEGER,
@@ -33,6 +38,9 @@ CREATE TABLE historical_data (
   PRIMARY KEY (id, completed_at)
 ) PARTITION BY RANGE (completed_at);
 
+-- User job lookups (case-insensitive)
+CREATE INDEX idx_historical_data_submitter_lower ON historical_data (lower(submitter_address));
+
 CREATE TABLE agent_costs (
   id          SERIAL PRIMARY KEY,
   cost_type   TEXT NOT NULL,
@@ -40,6 +48,9 @@ CREATE TABLE agent_costs (
   detail      JSONB,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Stats cost aggregation
+CREATE INDEX idx_agent_costs_type_created ON agent_costs (cost_type, created_at);
 
 CREATE TABLE wallet_snapshots (
   id            SERIAL PRIMARY KEY,

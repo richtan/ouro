@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -31,7 +32,7 @@ from src.db.models import (
     WalletSnapshot,
 )
 from src.db.operations import get_available_credit, log_audit, redeem_credits
-from src.db.session import get_db
+from src.db.session import async_session_maker, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -412,32 +413,71 @@ async def event_stream(request: Request, _=Depends(require_admin_key)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/stats")
-async def get_stats(db: AsyncSession = Depends(get_db)):
-    revenue_q = await db.execute(
-        select(
-            func.coalesce(func.sum(HistoricalData.price_usdc), 0).label("total_revenue"),
-            func.count(HistoricalData.id).label("completed_jobs"),
-            func.coalesce(func.avg(HistoricalData.compute_duration_s), 0).label("avg_duration"),
+async def get_stats():
+    from datetime import datetime, timedelta, timezone
+
+    async def _query_revenue():
+        async with async_session_maker() as db:
+            q = await db.execute(
+                select(
+                    func.coalesce(func.sum(HistoricalData.price_usdc), 0).label("total_revenue"),
+                    func.count(HistoricalData.id).label("completed_jobs"),
+                    func.coalesce(func.avg(HistoricalData.compute_duration_s), 0).label("avg_duration"),
+                )
+            )
+            return q.one()
+
+    async def _query_gas_costs():
+        async with async_session_maker() as db:
+            q = await db.execute(
+                select(func.coalesce(func.sum(AgentCost.amount_usd), 0)).where(
+                    AgentCost.cost_type == "gas"
+                )
+            )
+            return float(q.scalar_one())
+
+    async def _query_llm_costs():
+        async with async_session_maker() as db:
+            q = await db.execute(
+                select(func.coalesce(func.sum(AgentCost.amount_usd), 0)).where(
+                    AgentCost.cost_type == "llm_inference"
+                )
+            )
+            return float(q.scalar_one())
+
+    async def _query_active_count():
+        async with async_session_maker() as db:
+            q = await db.execute(select(func.count(ActiveJob.id)))
+            return q.scalar_one()
+
+    async def _query_jobs_last_hour():
+        async with async_session_maker() as db:
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+            q = await db.execute(
+                select(func.count(ActiveJob.id)).where(
+                    ActiveJob.submitted_at >= one_hour_ago
+                )
+            )
+            return int(q.scalar_one())
+
+    async def _query_proof_count():
+        if not _chain_client:
+            return 0
+        try:
+            return await _chain_client.get_on_chain_proof_count()
+        except Exception:
+            return 0
+
+    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, proof_count = (
+        await asyncio.gather(
+            _query_revenue(),
+            _query_gas_costs(),
+            _query_llm_costs(),
+            _query_active_count(),
+            _query_jobs_last_hour(),
+            _query_proof_count(),
         )
     )
-    rev_row = revenue_q.one()
-
-    gas_q = await db.execute(
-        select(func.coalesce(func.sum(AgentCost.amount_usd), 0)).where(
-            AgentCost.cost_type == "gas"
-        )
-    )
-    gas_costs = float(gas_q.scalar_one())
-
-    llm_q = await db.execute(
-        select(func.coalesce(func.sum(AgentCost.amount_usd), 0)).where(
-            AgentCost.cost_type == "llm_inference"
-        )
-    )
-    llm_costs = float(llm_q.scalar_one())
-
-    active_q = await db.execute(select(func.count(ActiveJob.id)))
-    active_jobs = active_q.scalar_one()
 
     total_revenue = float(rev_row.total_revenue)
     total_costs = gas_costs + llm_costs
@@ -447,22 +487,6 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     avg_cost_per_job = total_costs / completed if completed > 0 else 0
     avg_price_per_job = total_revenue / completed if completed > 0 else 0
     avg_margin_per_job = avg_price_per_job - avg_cost_per_job
-
-    proof_count = 0
-    if _chain_client:
-        try:
-            proof_count = await _chain_client.get_on_chain_proof_count()
-        except Exception:
-            pass
-
-    from datetime import datetime, timedelta, timezone
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-    jobs_last_hour_q = await db.execute(
-        select(func.count(ActiveJob.id)).where(
-            ActiveJob.submitted_at >= one_hour_ago
-        )
-    )
-    jobs_last_hour = int(jobs_last_hour_q.scalar_one())
 
     return {
         "total_revenue_usdc": total_revenue,
