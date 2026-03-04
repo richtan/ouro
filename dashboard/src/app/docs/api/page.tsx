@@ -1,0 +1,208 @@
+import CodeBlock from "@/components/docs/CodeBlock";
+import EndpointCard from "@/components/docs/EndpointCard";
+import ParamTable from "@/components/docs/ParamTable";
+import StepCard from "@/components/docs/StepCard";
+
+const CURL_402_CMD = `curl -X POST https://api.ourocompute.com/api/compute/submit \\
+  -H "Content-Type: application/json" \\
+  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'`;
+
+const CURL_402 = `${CURL_402_CMD}
+
+# Response: 402 Payment Required
+# Headers: payment-required: eyJ0eXAiOiJ4NDAyL...
+# Body: { "price": "$0.0841", "breakdown": { ... } }`;
+
+const CURL_SUBMIT_CMD = `curl -X POST https://api.ourocompute.com/api/compute/submit \\
+  -H "Content-Type: application/json" \\
+  -H "payment-signature: <your-signed-x402-payment>" \\
+  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'`;
+
+const CURL_SUBMIT = `${CURL_SUBMIT_CMD}
+
+# Response: 200 OK
+# Body: { "job_id": "a1b2c3d4-...", "status": "pending", "price": "$0.0841" }`;
+
+const CURL_STATUS_CMD = `curl https://api.ourocompute.com/api/jobs/{job_id}`;
+
+const CURL_STATUS = `${CURL_STATUS_CMD}
+
+# Response: 200 OK
+# Body: { "id": "...", "status": "completed", "output": "hello\\n", ... }`;
+
+export default function ApiPage() {
+  return (
+    <>
+      <div className="mb-8">
+        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
+          REST API
+        </h1>
+        <p className="text-sm text-o-textSecondary mt-1">
+          Direct HTTP endpoints with x402 payment protocol.
+        </p>
+      </div>
+
+      {/* Base URL */}
+      <section className="mb-10">
+        <div className="bg-o-surface border border-o-border rounded-xl px-4 py-3.5">
+          <span className="text-xs text-o-muted uppercase tracking-wider">Base URL</span>
+          <p className="font-mono text-sm text-o-blueText mt-1">
+            https://api.ourocompute.com
+          </p>
+        </div>
+      </section>
+
+      {/* x402 flow */}
+      <section className="mb-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
+          x402 Payment Flow
+        </h2>
+        <p className="text-sm text-o-textSecondary leading-relaxed mb-6">
+          Ouro uses the x402 payment protocol. POST without payment to get the price,
+          sign the payment locally, then POST again with the signature.
+        </p>
+
+        <div className="mb-6">
+          <StepCard number={1} title="Get price (402 response)">
+            <CodeBlock filename="terminal" language="bash" copyText={CURL_402_CMD}>
+              {CURL_402}
+            </CodeBlock>
+          </StepCard>
+          <StepCard number={2} title="Sign and submit">
+            <CodeBlock filename="terminal" language="bash" copyText={CURL_SUBMIT_CMD}>
+              {CURL_SUBMIT}
+            </CodeBlock>
+          </StepCard>
+          <StepCard number={3} title="Poll for results" last>
+            <CodeBlock filename="terminal" language="bash" copyText={CURL_STATUS_CMD}>
+              {CURL_STATUS}
+            </CodeBlock>
+          </StepCard>
+        </div>
+      </section>
+
+      {/* Endpoints */}
+      <section className="border-t border-o-border pt-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-6">
+          Endpoints
+        </h2>
+        <div className="space-y-3">
+          <EndpointCard
+            method="POST"
+            path="/api/compute/submit"
+            auth="x402"
+            description="Submit a compute job"
+          >
+            <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Request Body</h4>
+            <ParamTable
+              params={[
+                { name: "script", type: "string", description: "Shell script to execute", required: true },
+                { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+                { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
+                { name: "submitter_address", type: "string", description: "Your wallet address for tracking (optional)" },
+              ]}
+            />
+            <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>
+            <ParamTable
+              params={[
+                { name: "payment-signature", type: "string", description: "Signed x402 payment (omit for price quote)" },
+                { name: "X-BUILDER-CODE", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
+              ]}
+            />
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
+            path="/api/jobs/{job_id}"
+            description="Get job details, output, and proof hash"
+          >
+            <p className="text-xs text-o-textSecondary">
+              The job UUID serves as a capability token — anyone with the ID can view the job.
+              Returns status, output, error_output, output_hash, proof_tx_hash, compute_duration_s, and price_usdc.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
+            path="/api/stats"
+            description="Aggregate P&L, job counts, sustainability ratio"
+          />
+
+          <EndpointCard
+            method="GET"
+            path="/api/wallet"
+            description="Current ETH/USDC balances and recent snapshots"
+          />
+
+          <EndpointCard
+            method="GET"
+            path="/api/attribution"
+            description="Builder code analytics and recent attribution entries"
+          />
+
+          <EndpointCard
+            method="GET"
+            path="/api/attribution/decode?tx_hash=0x..."
+            description="Decode ERC-8021 builder codes from a transaction"
+          />
+
+          <EndpointCard
+            method="GET"
+            path="/api/capabilities"
+            description="Machine-readable service manifest"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Returns payment protocol info, compute limits (max nodes, max time), trust metrics
+              (on-chain proofs, uptime), and rate limits. Useful for agent discovery.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
+            path="/health"
+            description="Liveness probe"
+          />
+
+          <EndpointCard
+            method="GET"
+            path="/health/ready"
+            description="Readiness probe (checks DB, wallet)"
+          />
+
+          <EndpointCard
+            method="POST"
+            path="/api/sessions"
+            description="Create a payment session (used by MCP server)"
+          >
+            <ParamTable
+              params={[
+                { name: "script", type: "string", description: "Shell script to execute", required: true },
+                { name: "nodes", type: "int", description: "Number of compute nodes", required: true },
+                { name: "time_limit_min", type: "int", description: "Max runtime in minutes", required: true },
+                { name: "price", type: "string", description: "Price string from quote", required: true },
+              ]}
+            />
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
+            path="/api/sessions/{session_id}"
+            description="Get payment session details (10-min TTL)"
+          />
+
+          <EndpointCard
+            method="POST"
+            path="/api/sessions/{session_id}/complete"
+            description="Mark payment session as paid"
+          >
+            <ParamTable
+              params={[
+                { name: "job_id", type: "string", description: "Job ID from successful payment", required: true },
+              ]}
+            />
+          </EndpointCard>
+        </div>
+      </section>
+    </>
+  );
+}

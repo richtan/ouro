@@ -150,6 +150,12 @@ export default function LandingPage() {
           </Link>
           <div className="flex items-center gap-4">
             <Link
+              href="/docs"
+              className="text-sm font-medium text-o-textSecondary hover:text-o-text transition-colors py-2"
+            >
+              Docs
+            </Link>
+            <Link
               href="/dashboard"
               className="text-sm font-medium text-o-textSecondary hover:text-o-text transition-colors py-2"
             >
@@ -211,7 +217,7 @@ export default function LandingPage() {
             {[
               { label: "jobs completed", value: stats ? stats.completed_jobs : "—" },
               { label: "active now", value: stats ? stats.active_jobs : "—" },
-              { label: "earned", value: stats ? `$${stats.total_revenue_usdc.toFixed(2)}` : "—" },
+              { label: "earned", value: stats ? `$${(stats.total_revenue_usdc ?? 0).toFixed(2)}` : "—" },
               { label: "on-chain proofs", value: stats ? stats.on_chain_proof_count : "—" },
             ].map((s, i) => (
               <div key={s.label} className={`reveal${statsVisible ? " visible" : ""} reveal-delay-${i + 1}`}>

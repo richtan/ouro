@@ -381,6 +381,31 @@ Write styles for mobile first, then add `sm:`, `md:`, `lg:` overrides:
 
 ---
 
+## Syntax Highlighting
+
+Code blocks in docs use **Shiki** (the VS Code TextMate grammar engine) with CSS variable theming. Highlighting runs entirely server-side via React Server Components — zero JS ships to the client. The `CodeBlock` component (`components/docs/CodeBlock.tsx`) is an async server component; only the copy button (`CopyButton.tsx`) is a client component.
+
+### CSS Variable Theme
+
+Defined in `globals.css` under `:root`. All map to existing `o-*` design tokens:
+
+| Variable | Value | Maps To |
+|---|---|---|
+| `--shiki-foreground` | `#8a919e` | `o-textSecondary` — default code text |
+| `--shiki-background` | `transparent` | CodeBlock card handles bg |
+| `--shiki-token-keyword` | `#c084fc` | Purple — keywords (`import`, `const`, `def`, etc.) |
+| `--shiki-token-constant` | `#eab308` | `o-amber` — constants, booleans, numbers |
+| `--shiki-token-string` | `#22c55e` | `o-green` — string literals |
+| `--shiki-token-comment` | `#5b616e` | `o-muted` — comments |
+| `--shiki-token-function` | `#f5f5f5` | `o-text` — function calls |
+| `--shiki-token-parameter` | `#8a919e` | `o-textSecondary` — parameters |
+| `--shiki-token-punctuation` | `#5b616e` | `o-muted` — punctuation |
+| `--shiki-token-link` | `#4C8FFF` | `o-blueText` — URLs |
+
+To customize highlighting colors, update the CSS variables — no Shiki theme file changes needed.
+
+---
+
 ## Code Patterns
 
 ### New card component

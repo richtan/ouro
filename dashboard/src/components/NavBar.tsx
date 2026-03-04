@@ -44,25 +44,32 @@ export default function NavBar() {
             OURO
           </Link>
           <div className="hidden sm:flex items-center gap-1">
-            {navItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`inline-flex items-center px-3 py-2 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
-                    active
-                      ? "bg-o-blue/10 text-o-blueText"
-                      : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`inline-flex items-center px-3 py-2 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
+                  pathname === item.href
+                    ? "bg-o-blue/10 text-o-blueText"
+                    : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/docs"
+            className={`hidden sm:inline-flex items-center px-3 py-2 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
+              pathname.startsWith("/docs")
+                ? "bg-o-blue/10 text-o-blueText"
+                : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
+            }`}
+          >
+            Docs
+          </Link>
           <a
             href="https://github.com/richtan/ouro"
             target="_blank"
@@ -190,6 +197,19 @@ export default function NavBar() {
                 </Link>
               );
             })}
+            <div className="border-t border-o-border mt-1 pt-1">
+              <Link
+                href="/docs"
+                onClick={() => setMobileOpen(false)}
+                className={`inline-flex items-center min-h-[44px] px-3 rounded-lg text-xs font-sans font-medium uppercase tracking-wider transition-colors ${
+                  pathname.startsWith("/docs")
+                    ? "bg-o-blue/10 text-o-blueText"
+                    : "text-o-textSecondary hover:text-o-text hover:bg-o-surfaceHover"
+                }`}
+              >
+                Docs
+              </Link>
+            </div>
           </div>
         </div>
       )}
