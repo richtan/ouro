@@ -6,6 +6,7 @@ so the agent's SlurmClient needs zero changes.
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -18,9 +19,12 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("slurm_proxy")
 
+JWT_TOKEN = os.environ.get("SLURM_PROXY_TOKEN", "")
+if not JWT_TOKEN:
+    logger.critical("SLURM_PROXY_TOKEN is empty — all endpoints will reject requests")
+
 app = FastAPI(title="Ouro Slurm Proxy")
 
-JWT_TOKEN = os.environ.get("SLURM_PROXY_TOKEN", "")
 OUTPUT_DIR = "/ouro-jobs/output"
 SCRIPTS_DIR = "/ouro-jobs/scripts"
 BASE_IMAGE = "/ouro-jobs/images/base.sif"
@@ -28,7 +32,9 @@ APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/u
 
 
 def check_auth(token: str | None):
-    if JWT_TOKEN and token != JWT_TOKEN:
+    if not JWT_TOKEN:
+        raise HTTPException(401, "Authentication not configured")
+    if not token or not hmac.compare_digest(token, JWT_TOKEN):
         raise HTTPException(401, "Authentication failure")
 
 
@@ -44,7 +50,7 @@ async def run_cmd(cmd: list[str], env: dict | None = None) -> str:
     if proc.returncode != 0:
         err_msg = stderr.decode().strip()
         logger.error("Command %s failed (rc=%d): %s", cmd, proc.returncode, err_msg)
-        raise HTTPException(500, f"Command failed: {err_msg}")
+        raise HTTPException(500, "Command execution failed")
     return stdout.decode()
 
 
@@ -294,10 +300,10 @@ async def get_nodes(x_slurm_user_token: str | None = Header(None)):
 @app.get("/health")
 async def health():
     try:
-        result = await run_cmd(["sinfo", "--noheader", "-o", "%P %a %T %D"])
-        return {"status": "ok", "cluster": "ouro", "sinfo": result.strip()}
-    except Exception as e:
-        return JSONResponse(500, {"status": "error", "detail": str(e)})
+        await run_cmd(["sinfo", "--noheader", "-o", "%P %a %T %D"])
+        return {"status": "ok"}
+    except Exception:
+        return JSONResponse(status_code=500, content={"status": "error"})
 
 
 if __name__ == "__main__":

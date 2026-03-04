@@ -4,8 +4,11 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 from src.agent.event_bus import EventBus
 from src.agent.loop import autonomous_loop
@@ -21,6 +24,23 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+MAX_REQUEST_BODY_BYTES = 1_048_576  # 1 MB
+
+
+class RequestBodyLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.max_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={"error": "Request body too large"},
+            )
+        return await call_next(request)
 
 
 def _build_cdp_auth_provider():
@@ -88,6 +108,12 @@ async def lifespan(app: FastAPI):
 
     await run_migrations(engine)
 
+    if not settings.ADMIN_API_KEY:
+        logger.critical(
+            "ADMIN_API_KEY is empty — all admin endpoints are unauthenticated. "
+            "Set ADMIN_API_KEY to a secure value (>= 32 chars) in production."
+        )
+
     event_bus = EventBus()
     chain_client = BaseChainClient()
     slurm_client = SlurmClient()
@@ -152,5 +178,17 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "payment-signature", "X-BUILDER-CODE", "X-Admin-Key"],
 )
+app.add_middleware(RequestBodyLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 app.include_router(router)

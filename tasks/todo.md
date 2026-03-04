@@ -29,12 +29,33 @@
 | `dashboard/Dockerfile` | 5 |
 | `mcp-server/Dockerfile` | 5 |
 
-## Verification Checklist
+---
 
-- [ ] `docker compose up --build` — all services start, dashboard loads
-- [ ] Submit job via `/submit` — payment flow works
-- [ ] Invalid inputs (nodes=99, empty script, nodes="abc") → 422/400 not 500
-- [ ] Double session complete → 409
-- [ ] CORS blocks unauthorized origins
-- [ ] `docker compose exec agent whoami` → `app`
-- [ ] `docker compose exec dashboard whoami` → `nextjs`
+# Phase 2: Security Audit Verification
+
+## Status: COMPLETE
+
+## Regression Fix
+- [x] **C2 Regression**: Reverted JWT auth from `dashboard/src/app/api/proxy/jobs/route.ts` — route serves `/history` for regular (non-admin) users who don't have JWT cookies
+
+## Build Fix
+- [x] **Dockerfile**: Added `package-lock.json` to COPY, changed `npm install` → `npm ci --ignore-scripts` (fixes utf-8-validate native module build failure on arm64 Docker)
+
+## Verification Results
+
+| # | Test | Expected | Result |
+|---|------|----------|--------|
+| 1 | All services build and start | 3 containers up | PASS |
+| 2 | Agent CRITICAL warning for empty ADMIN_API_KEY | Log message present | PASS |
+| 3 | Security headers on agent `/health` | nosniff, DENY, HSTS, referrer-policy | PASS |
+| 4 | 2MB payload → 413 | HTTP 413 | PASS |
+| 5 | Invalid submitter_address → 422 | HTTP 422 + message | PASS |
+| 6 | Invalid builder code → 422 | HTTP 422 + message | PASS |
+| 7 | Session create | 200 + session object | PASS |
+| 8 | Session get | 200 + details | PASS |
+| 9 | Session complete (fake job_id) → 400 | HTTP 400 "Referenced job does not exist" | PASS |
+| 10 | Dashboard loads | HTTP 200 | PASS |
+| 11 | Dashboard CSP + security headers | All present | PASS |
+| 12 | Error sanitization (invalid tx hash) | Generic message, no stack trace | PASS |
+| 13 | Admin auth dev mode | 200, auth skipped | PASS |
+| 14 | Price quote (402) | HTTP 402 | SKIP (x402 testnet/mainnet mismatch — pre-existing) |

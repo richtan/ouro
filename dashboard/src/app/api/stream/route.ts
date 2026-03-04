@@ -26,11 +26,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { searchParams } = new URL(request.url);
     const url = new URL(`${agentUrl}/api/stream`);
-    searchParams.forEach((value, key) => {
-      url.searchParams.append(key, value);
-    });
 
     const headers: Record<string, string> = {
       Accept: "text/event-stream",

@@ -47,6 +47,7 @@ class BaseChainClient:
             abi=ERC20_BALANCE_OF_ABI,
         )
         self._tx_lock = asyncio.Lock()
+        self._local_nonce: int | None = None
 
     @staticmethod
     def _to_bytes(data: bytes | str) -> bytes:
@@ -69,6 +70,11 @@ class BaseChainClient:
             data_bytes = self._to_bytes(data)
             data_with_suffix = erc8021.append_builder_codes(data_bytes, codes)
 
+            # Use local nonce to avoid race conditions between rapid transactions
+            if self._local_nonce is None:
+                self._local_nonce = await self.w3.eth.get_transaction_count(self.account.address)
+            nonce = self._local_nonce
+
             tx = {
                 "to": self.w3.to_checksum_address(to),
                 "data": data_with_suffix,
@@ -76,12 +82,18 @@ class BaseChainClient:
                 "from": self.account.address,
                 "gas": await self._estimate_gas(to, data_with_suffix, value),
                 "gasPrice": await self.w3.eth.gas_price,
-                "nonce": await self.w3.eth.get_transaction_count(self.account.address),
+                "nonce": nonce,
                 "chainId": settings.CHAIN_ID,
             }
             signed = self.account.sign_transaction(tx)
             raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
-            tx_hash = await self.w3.eth.send_raw_transaction(raw)
+            try:
+                tx_hash = await self.w3.eth.send_raw_transaction(raw)
+                self._local_nonce = nonce + 1
+            except Exception:
+                # Reset local nonce on failure so next call re-fetches from network
+                self._local_nonce = None
+                raise
 
         receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash)
         gas_cost_wei = receipt.gasUsed * receipt.effectiveGasPrice

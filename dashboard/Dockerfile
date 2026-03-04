@@ -3,8 +3,8 @@ FROM node:20-alpine AS base
 FROM base AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
 
 FROM base AS builder
 WORKDIR /app

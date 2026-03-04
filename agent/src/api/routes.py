@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 import time
 import uuid
 from collections import OrderedDict
@@ -64,6 +65,8 @@ _resource_server = None
 
 MAX_SCRIPT_SIZE = 65_536
 MAX_ACTIVE_JOBS_PER_WALLET = 20
+_ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_BUILDER_CODE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 
 
 # ---------------------------------------------------------------------------
@@ -242,17 +245,16 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 
     if payment_header:
         logger.debug("x402 payment-signature header received (len=%d)", len(payment_header))
-        try:
-            from x402.http.utils import safe_base64_decode
-            decoded = safe_base64_decode(payment_header)
-            logger.debug("x402 decoded payload: %s", decoded[:500])
-        except Exception:
-            logger.debug("x402 could not decode payment-signature header")
 
     script = body.script
     nodes = body.nodes
     time_limit_min = body.time_limit_min
     submitter_address = body.submitter_address
+
+    if submitter_address and not _ETH_ADDRESS_RE.match(submitter_address):
+        raise HTTPException(422, "Invalid submitter_address format (expected 0x + 40 hex chars)")
+    if client_code and not _BUILDER_CODE_RE.match(client_code):
+        raise HTTPException(422, "Invalid builder code format (alphanumeric, 1-32 chars)")
 
     rate_key = submitter_address.lower() if submitter_address else None
     if not _rate_limiter.check(rate_key):
@@ -308,18 +310,18 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         facilitator_reason = _parse_facilitator_error(error_str)
         if facilitator_reason:
             logger.warning("x402 verification rejected: %s", facilitator_reason)
+            reason = facilitator_reason.get("invalidReason", "verification_failed")
             return JSONResponse(
                 status_code=403,
                 content={
-                    "error": facilitator_reason.get("invalidReason", "verification_failed"),
-                    "detail": facilitator_reason.get("invalidMessage", error_str),
-                    "payer": facilitator_reason.get("payer"),
+                    "error": reason,
+                    "detail": "Payment verification failed",
                 },
             )
         logger.error("x402 facilitator error: %s", e)
         return JSONResponse(
             status_code=503,
-            content={"error": "Payment verification temporarily unavailable", "detail": error_str},
+            content={"error": "Payment verification temporarily unavailable"},
             headers={"Retry-After": "30"},
         )
 
@@ -428,9 +430,11 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         except Exception:
             pass
 
+    from datetime import datetime, timedelta, timezone
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     jobs_last_hour_q = await db.execute(
         select(func.count(ActiveJob.id)).where(
-            ActiveJob.submitted_at >= text("now() - interval '1 hour'")
+            ActiveJob.submitted_at >= one_hour_ago
         )
     )
     jobs_last_hour = int(jobs_last_hour_q.scalar_one())
@@ -593,7 +597,8 @@ async def decode_attribution(tx_hash: str):
             "codes": codes,
         }
     except Exception as e:
-        raise HTTPException(400, f"Failed to decode transaction: {e}")
+        logger.error("Failed to decode transaction %s: %s", tx_hash, e)
+        raise HTTPException(400, "Failed to decode transaction")
 
 
 # ---------------------------------------------------------------------------
@@ -822,6 +827,11 @@ async def complete_session(session_id: str, request: Request, db: AsyncSession =
     # Only pending sessions can be completed
     if session.status != "pending":
         raise HTTPException(409, f"Session already {session.status}")
+
+    # Verify the job actually exists (prevents fake completion)
+    job = await db.get(ActiveJob, str(parsed_job_id))
+    if not job:
+        raise HTTPException(400, "Referenced job does not exist")
 
     session.status = "paid"
     session.job_id = parsed_job_id

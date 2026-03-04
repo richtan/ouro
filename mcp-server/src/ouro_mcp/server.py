@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
 import httpx
+
+logger = logging.getLogger("ouro_mcp")
 import uvicorn
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
@@ -85,7 +88,8 @@ async def _get_payment_requirements(
                 "payment_required_header": payment_header,
             }
         # Unexpected non-402 (e.g. validation error)
-        return {"error": f"Expected 402, got {resp.status_code}", "body": resp.text}
+        logger.error("get_payment_requirements: expected 402, got %d: %s", resp.status_code, resp.text[:500])
+        return {"error": f"Unexpected response (status {resp.status_code})"}
 
 
 async def _submit_with_payment(
@@ -227,6 +231,11 @@ async def run_compute_job(
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
     """
+    if not (1 <= nodes <= 16):
+        return {"error": "nodes must be between 1 and 16"}
+    if not (1 <= time_limit_min <= 60):
+        return {"error": "time_limit_min must be between 1 and 60"}
+
     quote = await _get_quote(nodes, time_limit_min)
     session = await _create_session_via_api(script, nodes, time_limit_min, quote["price"])
     url = _payment_url(session["id"])
@@ -352,38 +361,32 @@ async def submit_and_pay(
         return {
             "error": "payment_not_recognized",
             "message": "Payment signature not accepted. Re-run get_payment_requirements and sign again.",
-            "details": body,
         }
     if status == 403:
         reason = body.get("error", "verification_failed")
-        detail = body.get("detail", "")
-        payer = body.get("payer")
         msg = f"Payment verification failed: {reason}."
         if reason == "insufficient_funds":
-            msg = f"Insufficient USDC balance for payer {payer}. {detail}"
+            msg = "Insufficient USDC balance. Ensure your wallet has enough USDC on Base."
         elif reason == "invalid_payload":
             msg = "Payment payload structure is invalid. Ensure you're using the latest x402 signing format."
         return {
             "error": f"payment_{reason}",
             "message": msg,
-            "details": body,
         }
     if status == 429:
         return {
             "error": "rate_limited",
             "message": "Too many requests. Wait and retry.",
-            "details": body,
         }
     if status == 503:
         return {
             "error": "facilitator_unavailable",
             "message": "Payment facilitator is temporarily unavailable. Retry shortly.",
-            "details": body,
         }
+    logger.error("submit_and_pay: unexpected status %d: %s", status, body)
     return {
         "error": f"unexpected_status_{status}",
-        "message": f"Agent API returned {status}.",
-        "details": body,
+        "message": f"Agent API returned unexpected status {status}.",
     }
 
 
