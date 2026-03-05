@@ -33,6 +33,10 @@ done
 
 # 2. Install all packages
 gcloud compute ssh "$TEMP_VM" --project="$PROJECT" --zone="$ZONE" --command="
+  # Fix corrupted apt sources and enable universe/multiverse repos
+  sudo sed -i '/^[a-z]-/d' /etc/apt/sources.list
+  sudo add-apt-repository -y universe
+  sudo add-apt-repository -y multiverse
   sudo apt-get update -qq
   sudo apt-get install -y -qq munge slurmd slurm-client nfs-common software-properties-common
   sudo add-apt-repository -y ppa:apptainer/ppa

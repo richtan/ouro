@@ -74,7 +74,7 @@ for tier in sm:e2-medium md:e2-standard-4 lg:e2-standard-8; do
     --instance-termination-action=STOP \
     --service-account="$SA_EMAIL" \
     --scopes=cloud-platform \
-    --network-tags=slurm-worker \
+    --tags=slurm-worker \
     --no-address  # Internal IP only
 done
 
