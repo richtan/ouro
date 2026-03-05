@@ -89,7 +89,8 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
         {/* Row 1: ID + status + chevron */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
+            <span className="sm:hidden font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
+            <span className="hidden sm:inline font-mono text-sm text-o-blueText">{job.id.slice(0, 12)}</span>
             <StatusBadge status={job.status} />
             {job.mode && <ModeBadge mode={job.mode} />}
           </div>
@@ -179,7 +180,8 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
                   <polyline points="15 3 21 3 21 9" />
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
-                {hist.proof_tx_hash.slice(0, 14)}...{hist.proof_tx_hash.slice(-8)}
+                <span className="sm:hidden">{hist.proof_tx_hash.slice(0, 14)}...{hist.proof_tx_hash.slice(-8)}</span>
+                <span className="hidden sm:inline break-all">{hist.proof_tx_hash}</span>
               </a>
             </div>
           )}
@@ -276,11 +278,22 @@ export default function HistoryPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-o-textSecondary">
-              {jobs.length} job{jobs.length !== 1 ? "s" : ""} for {address?.slice(0, 6)}...{address?.slice(-4)}
+              {jobs.length} job{jobs.length !== 1 ? "s" : ""} for{" "}
+              <span className="md:hidden">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
+              <span className="hidden md:inline">{address}</span>
             </span>
             <span className="text-xs text-o-textSecondary">
               Total: ${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}
             </span>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-o-muted font-mono">
+            <span>{jobs.filter(j => j.status === "completed").length} completed</span>
+            {jobs.some(j => j.status === "failed") && (
+              <span className="text-o-red">{jobs.filter(j => j.status === "failed").length} failed</span>
+            )}
+            {jobs.some(j => ["pending", "processing", "running"].includes(j.status)) && (
+              <span className="text-o-amber">{jobs.filter(j => ["pending", "processing", "running"].includes(j.status)).length} active</span>
+            )}
           </div>
           {jobs.map((job) => (
             <JobCard key={job.id} job={job} expandId={expandId} />
