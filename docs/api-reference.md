@@ -1,0 +1,63 @@
+# API Endpoint Reference
+
+## Agent endpoints (defined in `agent/src/api/routes.py`)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Agent validates Dockerfile syntax (422 on invalid). Optional header: `X-BUILDER-CODE`. |
+| `POST` | `/api/compute/submit/from-session` | x402 payment | Session-based submit for pay page. Body: `{session_id, submitter_address}`. Reads job params from session's `job_payload`. |
+| `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
+| `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
+| `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
+| `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
+| `GET` | `/api/jobs` | Admin key | Recent active (20) + historical (50) jobs. |
+| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output, proof hash. UUID serves as capability token. |
+| `GET` | `/api/jobs/user?address=0x...` | Admin key | Jobs for a specific submitter wallet (50 active, 100 historical). |
+| `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
+| `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
+| `POST` | `/api/sessions` | None | Create payment session (called by MCP server). Body: `{script, nodes, time_limit_min, price}`. |
+| `GET` | `/api/sessions/{session_id}` | None | Get payment session details. 10-minute TTL; returns 404 if expired. |
+| `POST` | `/api/sessions/{session_id}/complete` | None | Mark session as paid. Body: `{job_id}`. Called by pay page after successful x402 payment. |
+| `GET` | `/health` | None | Liveness probe. Returns `{"status": "ok"}`. |
+| `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
+| `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
+| `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
+| `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
+| `GET` | `/api/reputation` | None | Aggregated trust signals: on-chain proofs, success rate, job counts, ERC-8004 agentId, on-chain feedback summary. |
+| `GET` | `/api/reputation/feedback-calldata` | None | Returns encoded calldata for `giveFeedback()` on the ERC-8004 Reputation Registry. Query params: `job_id`, `score` (1-5). |
+
+Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
+
+## Slurm proxy endpoints (defined in `deploy/slurm/slurm_proxy.py`, runs on controller:6820)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Always requires `workspace_path` + `entrypoint`. Accepts optional `sif_path` (pre-built image path from Dockerfile) and `entrypoint_cmd` (exec-form command). Has a transition fallback for legacy `script` payloads (converts to workspace internally). |
+| `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
+| `POST` | `/slurm/v0.0.38/image/build` | `X-SLURM-USER-TOKEN` header | Build Apptainer image from `.def` file content. Caches by SHA256 content hash at `/ouro-jobs/images/custom/`. Returns `{sif_path, cached, build_time_s}`. Per-hash locking prevents duplicate builds. 5-minute timeout. |
+| `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
+| `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |
+| `GET` | `/slurm/v0.0.38/job/{job_id}/output` | `X-SLURM-USER-TOKEN` header | Get stdout, stderr, and SHA-256 output hash. |
+| `GET` | `/slurm/v0.0.38/nodes` | `X-SLURM-USER-TOKEN` header | Cluster node status via sinfo. Returns node name, state, CPUs, memory. |
+| `GET` | `/health` | None | Cluster health check (calls sinfo). |
+
+Also supports v0.0.37 paths for backward compatibility.
+
+## Dashboard proxy routes (in `dashboard/src/app/api/`)
+
+These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Railway internal networking). Admin-protected routes verify a JWT cookie (obtained via wallet signature on `/admin` page) before forwarding the `X-Admin-Key` header.
+
+| Dashboard Route | Proxies To | Auth | Notes |
+|-----------------|-----------|------|-------|
+| `GET /api/stats` | `AGENT_URL/api/stats` | None | Public |
+| `GET /api/wallet` | `AGENT_URL/api/wallet` | None | Public |
+| `GET /api/jobs` | `AGENT_URL/api/jobs` | JWT cookie | Admin-only; forwards `X-Admin-Key` |
+| `GET /api/audit` | `AGENT_URL/api/audit` | JWT cookie | Admin-only; forwards `X-Admin-Key` |
+| `GET /api/attribution` | `AGENT_URL/api/attribution` | None | Public |
+| `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
+| `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
+| `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
+| `POST /api/proxy/submit/from-session` | `AGENT_URL/api/compute/submit/from-session` | None | Session-based submit, forwards `payment-signature` |
+| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
+| `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | None | Payment session lookup |
+| `POST /api/proxy/sessions/{id}/complete` | `AGENT_URL/api/sessions/{id}/complete` | Mark session paid |
