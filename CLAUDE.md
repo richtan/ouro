@@ -161,8 +161,10 @@ ouro/
 
 | Mode | Body Fields | Description |
 |------|-------------|-------------|
-| **Script** | `script` | Single shell script string (default, existing) |
+| **Script** | `script` | Single shell script string — internally normalized to a one-file workspace with `job.sh` as entrypoint |
 | **Multi-File** | `files: [{path, content}]`, `entrypoint`, `image` | Multiple files written to NFS workspace, executed via Apptainer |
+
+The API accepts either format, but internally all submissions are normalized to a unified workspace model via `to_workspace_files()`. A single `script` string becomes `[{path: "job.sh", content: script}]` with `entrypoint="job.sh"`. This means there is ONE code path through the entire pipeline — every job gets a workspace on NFS with an entrypoint.
 
 All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`. Container image selection via `image` field (default: `"base"` = Ubuntu 22.04). Allowed: `base`, `python312`, `node20`, `pytorch`, `r-base`.
 
@@ -171,10 +173,11 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 2. Dashboard sends POST to `/api/proxy/submit` with x402 payment signature
 3. Proxy forwards to agent's `POST /api/compute/submit`
 4. Agent verifies x402 payment via CDP facilitator
-5. For multi-file mode: agent calls `slurm_client.create_workspace()` → proxy writes files to NFS
-6. Job created in `active_jobs` table with status `pending` (payload contains `workspace_path` for multi-file)
-7. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → cleanup workspace → proof)
-8. On completion, job moved to `historical_data`, proof posted on-chain
+5. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
+6. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
+7. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
+8. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → cleanup workspace → proof)
+9. On completion, job moved to `historical_data`, proof posted on-chain
 
 ### Job Submission (via MCP — Browser Flow)
 1. AI agent calls `run_compute_job` MCP tool (with `script` or `files`+`entrypoint`)
@@ -182,7 +185,7 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 3. Returns payment URL: `https://dashboard.../pay/{sessionId}`
 4. User opens link, connects wallet — pay page shows mode-appropriate summary (script preview or file count/entrypoint/image)
 5. Pay page submits to `POST /api/proxy/submit/from-session` with just `{session_id, submitter_address}` + payment header (no large payload re-sent)
-6. Agent reads `session.job_payload`, creates workspace if needed, creates job, marks session paid
+6. Agent reads `session.job_payload`, normalizes via `to_workspace_files()`, creates workspace, creates job, marks session paid
 7. AI agent polls with `get_job_status(session_id)` to get results
 
 ### Job Submission (via MCP — Autonomous Flow)
@@ -196,7 +199,7 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 8. No private keys leave the calling agent — only the opaque payment signature is transmitted
 
 ### Payment Sessions
-Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API. Sessions now support `job_payload` JSONB for non-script modes (multi-file, etc.).
+Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API. Sessions support `job_payload` JSONB for storing submission parameters. On submit, payloads are normalized to workspace+entrypoint like all other submissions.
 
 ## Database Schema
 
@@ -206,7 +209,7 @@ See `db/01-init.sql` for full schema. Key tables:
 - **historical_data** — Completed jobs archive (partitioned by month via `completed_at`)
 - **agent_costs** — Cost ledger (gas, llm_inference entries)
 - **wallet_snapshots** — Periodic ETH/USDC balance records
-- **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min). `script` (nullable) for script mode, `job_payload` (JSONB) for multi-file/git modes
+- **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min). `script` (nullable, legacy) and `job_payload` (JSONB) store the submission parameters; both are normalized to workspace+entrypoint on submit
 - **attribution_log** — ERC-8021 builder code records per transaction
 - **credits** — USDC credits issued to wallets when jobs fail after payment (auto-redeemable)
 - **audit_log** — Structured audit trail for all financial events (payment_received, job_completed, credit_issued, errors)
@@ -384,10 +387,14 @@ Set the resulting address as `PROOF_CONTRACT_ADDRESS`.
 
 ### Oracle Agent Tools (PydanticAI)
 
-1. `validate_request` — Checks script non-empty, nodes 1-16, time 1-60min
-2. `submit_to_slurm` — Calls SlurmClient.submit_job(), updates DB status to `running`
+1. `validate_request` — Checks workspace_path + entrypoint non-empty, nodes 1-16, time 1-60min (no mode branching)
+2. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint, updates DB status to `running`
 3. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
 4. `submit_onchain_proof` — Hashes output, calls ProofOfCompute.submitProof(), logs gas cost + attribution
+
+### OracleDeps
+
+The `OracleDeps` dataclass passed to the oracle agent has been simplified for the unified workspace model. Removed fields: `submission_mode`, `script`, `workspace_cleanup_needed`. The `workspace_path` and `entrypoint` fields are now required strings (never None), since every submission creates a workspace.
 
 ### x402 Payment Flow
 
@@ -431,7 +438,7 @@ Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env va
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Supports `submission_mode`: `script` (default) or `multi_file` (requires `workspace_path` + `entrypoint`). Optional `image` field for custom container. |
+| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Always requires `workspace_path` + `entrypoint`. Has a transition fallback for legacy `script` payloads (converts to workspace internally). Optional `image` field for custom container. |
 | `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
 | `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |

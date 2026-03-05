@@ -139,21 +139,20 @@ def test_session_empty_raises():
 
 
 def test_job_summary_script():
-    result = _job_summary({"submission_mode": "script", "script": "echo hi"})
-    assert result["mode"] == "script"
+    """Legacy script payloads include the script key."""
+    result = _job_summary({"script": "echo hi"})
     assert result["script"] == "echo hi"
 
 
 def test_job_summary_multi_file():
     result = _job_summary({
-        "submission_mode": "multi_file",
         "entrypoint": "main.py",
         "file_count": 3,
         "image": "python312",
     })
-    assert result["mode"] == "multi_file"
     assert result["entrypoint"] == "main.py"
     assert result["file_count"] == 3
+    assert result["image"] == "python312"
 
 
 def test_job_summary_none():
@@ -162,17 +161,24 @@ def test_job_summary_none():
 
 
 def test_job_summary_legacy():
-    """Legacy payloads without submission_mode default to script."""
+    """Legacy payloads with script key are handled."""
     result = _job_summary({"script": "echo old"})
-    assert result["mode"] == "script"
     assert result["script"] == "echo old"
 
 
+def test_job_summary_new_format():
+    """New unified payloads have entrypoint + file_count."""
+    result = _job_summary({"entrypoint": "job.sh", "file_count": 1, "image": "base"})
+    assert result["entrypoint"] == "job.sh"
+    assert result["file_count"] == 1
+    assert "image" not in result  # base is excluded
+
+
 def test_job_summary_script_with_image():
-    """Script mode includes image when non-default."""
-    result = _job_summary({"submission_mode": "script", "script": "echo hi", "image": "python312"})
+    """Non-default image is included."""
+    result = _job_summary({"script": "echo hi", "image": "python312"})
     assert result["image"] == "python312"
 
     # Default image should not appear
-    result2 = _job_summary({"submission_mode": "script", "script": "echo hi", "image": "base"})
+    result2 = _job_summary({"script": "echo hi", "image": "base"})
     assert "image" not in result2
