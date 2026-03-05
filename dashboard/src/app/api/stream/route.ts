@@ -5,6 +5,7 @@ import {
   isAdminAuthEnabled,
   verifyAdminJWT,
 } from "@/lib/admin-auth";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,8 @@ export async function GET(request: NextRequest) {
       headers["x-admin-key"] = process.env.ADMIN_API_KEY;
     }
 
-    const upstream = await fetch(url.toString(), { headers });
+    // SSE connections are long-lived; use a longer timeout for initial connect only
+    const upstream = await fetchWithTimeout(url.toString(), { headers }, 10_000);
 
     if (!upstream.ok) {
       return NextResponse.json(

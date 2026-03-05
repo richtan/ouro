@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     const paymentSig = request.headers.get("payment-signature");
     if (paymentSig) headers["payment-signature"] = paymentSig;
 
-    const upstream = await fetch(`${agentUrl}/api/compute/submit/from-session`, {
+    const upstream = await fetchWithTimeout(`${agentUrl}/api/compute/submit/from-session`, {
       method: "POST",
       headers,
       body,

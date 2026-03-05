@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
     const builderCode = request.headers.get("X-BUILDER-CODE");
     if (builderCode) headers["X-BUILDER-CODE"] = builderCode;
 
-    const upstream = await fetch(`${agentUrl}/api/compute/submit`, {
+    const upstream = await fetchWithTimeout(`${agentUrl}/api/compute/submit`, {
       method: "POST",
       headers,
       body,

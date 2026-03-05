@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   const params = req.nextUrl.searchParams.toString();
   try {
-    const res = await fetch(`${agentUrl}/api/price?${params}`);
+    const res = await fetchWithTimeout(`${agentUrl}/api/price?${params}`);
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {

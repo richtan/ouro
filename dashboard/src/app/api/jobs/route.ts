@@ -5,6 +5,7 @@ import {
   isAdminAuthEnabled,
   verifyAdminJWT,
 } from "@/lib/admin-auth";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function GET() {
     if (process.env.ADMIN_API_KEY) {
       headers["x-admin-key"] = process.env.ADMIN_API_KEY;
     }
-    const res = await fetch(`${agentUrl}/api/jobs`, { headers });
+    const res = await fetchWithTimeout(`${agentUrl}/api/jobs`, { headers });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(`${agentUrl}/api/wallet`);
+    const res = await fetchWithTimeout(`${agentUrl}/api/wallet`);
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {

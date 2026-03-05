@@ -9,6 +9,9 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+MAX_SSE_CONNECTIONS = 5
+SSE_TIMEOUT_SECONDS = 3600  # 1 hour
+
 
 class Event(BaseModel):
     type: str
@@ -21,6 +24,16 @@ class EventBus:
         self._subscribers: list[asyncio.Queue[Event]] = []
         self._history: list[Event] = []
         self._max_history = max_history
+
+    @property
+    def subscriber_count(self) -> int:
+        return len(self._subscribers)
+
+    def check_connection_limit(self) -> None:
+        """Raise ConnectionError if the max SSE connection limit is reached."""
+        if len(self._subscribers) >= MAX_SSE_CONNECTIONS:
+            logger.warning("SSE connection limit reached (%d)", MAX_SSE_CONNECTIONS)
+            raise ConnectionError(f"Maximum SSE connections ({MAX_SSE_CONNECTIONS}) exceeded")
 
     def emit(self, event_type: str, message: str) -> None:
         event = Event(
@@ -49,9 +62,18 @@ class EventBus:
             await q.put(event)
 
         try:
+            deadline = asyncio.get_event_loop().time() + SSE_TIMEOUT_SECONDS
             while True:
-                event = await q.get()
-                yield event
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    logger.info("SSE connection timed out after %ds", SSE_TIMEOUT_SECONDS)
+                    break
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=remaining)
+                    yield event
+                except asyncio.TimeoutError:
+                    logger.info("SSE connection timed out after %ds", SSE_TIMEOUT_SECONDS)
+                    break
         finally:
             if q in self._subscribers:
                 self._subscribers.remove(q)

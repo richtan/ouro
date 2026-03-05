@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     if (process.env.ADMIN_API_KEY) {
       headers["x-admin-key"] = process.env.ADMIN_API_KEY;
     }
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${agentUrl}/api/jobs/user?address=${encodeURIComponent(address)}`,
       { headers },
     );

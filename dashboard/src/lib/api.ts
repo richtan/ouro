@@ -1,4 +1,21 @@
 const BASE = "";
+const PROXY_TIMEOUT_MS = 30_000;
+
+/**
+ * Server-side fetch with AbortController timeout for upstream proxy calls.
+ * Throws on timeout so the caller's catch block returns 502.
+ */
+export function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = PROXY_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
 
 async function jsonOrThrow(res: Response) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

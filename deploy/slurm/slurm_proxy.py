@@ -23,13 +23,16 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 _ALLOWED_CWD = {"/tmp"}
 MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_DEF_SIZE = 64 * 1024  # 64KB max .def content
+MAX_IMAGE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB max built image
+IMAGE_BUILD_TIMEOUT = 180  # seconds
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("slurm_proxy")
 
 JWT_TOKEN = os.environ.get("SLURM_PROXY_TOKEN", "")
 if not JWT_TOKEN:
-    logger.critical("SLURM_PROXY_TOKEN is empty — all endpoints will reject requests")
+    raise SystemExit("SLURM_PROXY_TOKEN is empty — refusing to start without auth token")
 
 app = FastAPI(title="Ouro Slurm Proxy")
 
@@ -499,7 +502,10 @@ async def build_image(
     if not def_content:
         raise HTTPException(400, "def_content required")
 
-    def_hash = hashlib.sha256(def_content.encode()).hexdigest()[:16]
+    if len(def_content.encode()) > MAX_DEF_SIZE:
+        raise HTTPException(400, f"Definition file too large (max {MAX_DEF_SIZE // 1024}KB)")
+
+    def_hash = hashlib.sha256(def_content.encode()).hexdigest()
     final_path = os.path.join(CUSTOM_IMAGES_DIR, f"{def_hash}.sif")
 
     # Fast path: already cached
@@ -536,10 +542,10 @@ async def build_image(
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=IMAGE_BUILD_TIMEOUT)
             except asyncio.TimeoutError:
                 proc.kill()
-                raise HTTPException(504, "Image build timed out (5 min limit)")
+                raise HTTPException(504, f"Image build timed out ({IMAGE_BUILD_TIMEOUT}s limit)")
 
             elapsed = time.monotonic() - start
 
@@ -553,9 +559,15 @@ async def build_image(
                     content={"error": "Build failed", "build_log": sanitized_log},
                 )
 
+            # Check built image size before moving to cache
+            image_size = os.path.getsize(temp_sif)
+            if image_size > MAX_IMAGE_SIZE:
+                os.unlink(temp_sif)
+                raise HTTPException(400, f"Built image too large ({image_size // (1024*1024)}MB, max {MAX_IMAGE_SIZE // (1024*1024*1024)}GB)")
+
             # Atomic move to final path
             os.rename(temp_sif, final_path)
-            logger.info("Image built: %s.sif in %.1fs", def_hash, elapsed)
+            logger.info("Image built: %s.sif in %.1fs (%dMB)", def_hash, elapsed, image_size // (1024*1024))
 
             return {"sif_path": final_path, "cached": False, "build_time_s": round(elapsed, 1)}
 

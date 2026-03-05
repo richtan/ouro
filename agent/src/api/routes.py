@@ -38,6 +38,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _get_client_ip(request: Request) -> str:
+    """Extract real client IP from X-Forwarded-For header (first entry), fall back to request.client.host."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # First IP in the chain is the original client
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -393,7 +402,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if body.entrypoint:
             _validate_workspace_file_path(body.entrypoint)
 
-    rate_key = submitter_address.lower() if submitter_address else f"ip:{request.client.host if request.client else 'unknown'}"
+    rate_key = submitter_address.lower() if submitter_address else f"ip:{_get_client_ip(request)}"
     if not _rate_limiter.check(rate_key):
         return JSONResponse(
             status_code=429,
@@ -409,7 +418,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
             raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
 
-    cache_key = (mode, nodes, time_limit_min)
+    cache_key = (mode, nodes, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
     quote = _price_cache.get(cache_key)
     if not quote:
         quote = await calculate_price(db, nodes, time_limit_min, mode)
@@ -554,6 +563,11 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/stream")
 async def event_stream(request: Request, _=Depends(require_admin_key)):
+    try:
+        _event_bus.check_connection_limit()
+    except ConnectionError as e:
+        raise HTTPException(429, str(e))
+
     async def generate():
         async for event in _event_bus.subscribe():
             yield f"data: {event.model_dump_json()}\n\n"
@@ -947,7 +961,7 @@ async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(422, detail=e.errors())
 
     # Rate limit by client IP
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     if not _rate_limiter.check(f"session:{client_ip}"):
         return JSONResponse(
             status_code=429,
@@ -1021,7 +1035,10 @@ async def complete_session(session_id: str, request: Request, db: AsyncSession =
     except ValueError:
         raise HTTPException(400, "Invalid job_id format (expected UUID)")
 
-    session = await db.get(PaymentSession, session_id)
+    result = await db.execute(
+        select(PaymentSession).where(PaymentSession.id == session_id).with_for_update()
+    )
+    session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(404, "Session not found or expired")
 
@@ -1085,8 +1102,11 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     except ValidationError as e:
         raise HTTPException(422, detail=e.errors())
 
-    # 1. Load session
-    session = await db.get(PaymentSession, body.session_id)
+    # 1. Load session with row lock to prevent concurrent submissions
+    result = await db.execute(
+        select(PaymentSession).where(PaymentSession.id == body.session_id).with_for_update()
+    )
+    session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(404, "Session not found")
     if (datetime.now(timezone.utc) - session.created_at).total_seconds() > SESSION_TTL_SECONDS:
@@ -1111,7 +1131,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         raise HTTPException(422, "Invalid submitter_address format")
 
     # 3. Calculate price and verify payment
-    cache_key = (mode, nodes, time_limit_min)
+    cache_key = (mode, nodes, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
     quote = _price_cache.get(cache_key)
     if not quote:
         quote = await calculate_price(db, nodes, time_limit_min, mode)
