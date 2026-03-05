@@ -24,51 +24,20 @@ type PayStatus = "loading" | "ready" | "submitting" | "paying" | "success" | "er
 
 function JobSummary({ session }: { session: Session }) {
   const payload = session.job_payload;
-  const mode = payload?.submission_mode as string | undefined;
+  const entrypoint = payload?.entrypoint as string | undefined;
+  const fileCount = (payload?.file_count as number) ?? (payload?.files as unknown[])?.length;
+  const dockerfileContent = payload?.dockerfile_content as string | undefined;
+  const image = (payload?.image as string) || "base";
 
-  if (mode === "multi_file") {
-    return (
-      <div className="card mb-6">
-        <label className="stat-label mb-3 block">Job Details</label>
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Mode</span>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-o-blue/20 text-o-blueText rounded">
-              Multi-File Workspace
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Files</span>
-            <span className="font-mono text-sm text-o-text">
-              {(payload?.file_count as number) ?? (payload?.files as unknown[])?.length ?? "?"}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Entrypoint</span>
-            <span className="font-mono text-sm text-o-text">{payload?.entrypoint as string}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Image</span>
-            <span className="font-mono text-sm text-o-text">{(payload?.image as string) || "base"}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Nodes</span>
-            <span className="font-mono text-sm text-o-text">{session.nodes}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Time Limit</span>
-            <span className="font-mono text-sm text-o-text">{session.time_limit_min} min</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Price</span>
-            <span className="font-mono text-sm font-semibold text-o-green">{session.price} USDC</span>
-          </div>
-        </div>
-      </div>
-    );
+  // Parse FROM line from dockerfile_content for display
+  let fromImage: string | null = null;
+  if (dockerfileContent) {
+    const fromMatch = dockerfileContent.match(/^FROM\s+(\S+)/im);
+    if (fromMatch) fromImage = fromMatch[1];
   }
 
-  // Default: script mode
+  const displayImage = fromImage ?? (image !== "base" ? image : null);
+
   return (
     <>
       <div className="card mb-6">
@@ -80,6 +49,30 @@ function JobSummary({ session }: { session: Session }) {
               Base Mainnet
             </span>
           </div>
+          {displayImage && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-o-textSecondary">Image</span>
+              <span className="font-mono text-sm text-o-text">{displayImage}</span>
+            </div>
+          )}
+          {entrypoint && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-o-textSecondary">Entrypoint</span>
+              <span className="font-mono text-sm text-o-text">{entrypoint}</span>
+            </div>
+          )}
+          {fileCount != null && fileCount > 1 && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-o-textSecondary">Files</span>
+              <span className="font-mono text-sm text-o-text">{fileCount}</span>
+            </div>
+          )}
+          {dockerfileContent && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-o-textSecondary">Environment</span>
+              <span className="font-mono text-xs text-o-blueText">Dockerfile</span>
+            </div>
+          )}
           <div className="flex justify-between items-center">
             <span className="text-xs text-o-textSecondary">Nodes</span>
             <span className="font-mono text-sm text-o-text">{session.nodes}</span>

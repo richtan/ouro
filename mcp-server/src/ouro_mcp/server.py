@@ -39,6 +39,13 @@ def _get_dashboard_url() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _has_dockerfile(files: list[dict] | None) -> bool:
+    """Check if files include a Dockerfile."""
+    if not files:
+        return False
+    return any(f.get("path", "").lower() == "dockerfile" for f in files)
+
+
 def _build_submit_body(
     *,
     script: str | None = None,
@@ -59,7 +66,9 @@ def _build_submit_body(
         body["script"] = script
     elif files:
         body["files"] = files
-        body["entrypoint"] = entrypoint
+        if entrypoint:
+            body["entrypoint"] = entrypoint
+        # When no entrypoint, the agent extracts it from the Dockerfile
     return body
 
 
@@ -201,9 +210,13 @@ mcp = FastMCP(
         "submit_and_pay with signature -> get_job_status with job_id\n\n"
         "SUBMISSION MODES:\n"
         "  - script: single shell script string (simplest)\n"
-        "  - files: list of {path, content} dicts + entrypoint (multi-file workspaces)\n\n"
-        "CONTAINER IMAGES: base (Ubuntu 22.04), python312, node20, pytorch, r-base\n"
-        "Use get_allowed_images to see available options.\n\n"
+        "  - files: list of {path, content} dicts (multi-file workspaces)\n\n"
+        "ENVIRONMENT CONFIGURATION:\n"
+        "  Include a file named 'Dockerfile' in files to configure the environment.\n"
+        "  FROM selects the base image, RUN installs deps, ENTRYPOINT defines what to run.\n"
+        "  Without a Dockerfile, use 'image' and 'entrypoint' params directly.\n"
+        "  Prebuilt aliases (instant): base, python312, node20, pytorch, r-base.\n"
+        "  Any Docker Hub image also works via Dockerfile (e.g. FROM python:3.12-slim).\n\n"
         "Use get_price_quote to check pricing before committing.\n"
         "Use get_api_endpoint for direct HTTP access without MCP."
     ),
@@ -254,22 +267,25 @@ async def run_compute_job(
 
     Provide ONE of: script or files.
     - script: shell script string (simplest)
-    - files: list of {path, content} dicts + entrypoint (for multi-file workspaces)
+    - files: list of {path, content} dicts for multi-file workspaces
+
+    Include a Dockerfile in files to configure the environment (FROM, RUN, ENTRYPOINT).
+    Without a Dockerfile, provide entrypoint and image params.
 
     IMPORTANT: Always show the payment_url to the user so they can open it.
 
     Args:
         script: Shell script to execute (e.g. "echo hello" or "python3 -c 'print(42)'")
         files: List of {path, content} file dicts for multi-file workspace
-        entrypoint: File to execute (required with files)
+        entrypoint: File to execute (required with files unless a Dockerfile is included)
         image: Container image (default "base"). Options: base, python312, node20, pytorch, r-base
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
     """
     if not script and not files:
         return {"error": "Provide one of: script or files"}
-    if files and not entrypoint:
-        return {"error": "entrypoint required when using files"}
+    if files and not entrypoint and not _has_dockerfile(files):
+        return {"error": "entrypoint required when using files (or include a Dockerfile)"}
     if not (1 <= nodes <= 16):
         return {"error": "nodes must be between 1 and 16"}
     if not (1 <= time_limit_min <= 60):
@@ -340,7 +356,8 @@ async def get_payment_requirements(
     Returns the price breakdown and the raw PAYMENT-REQUIRED header that your
     x402 library needs to construct and sign a USDC payment on Base.
 
-    Provide ONE of: script or files.
+    Provide ONE of: script or files. Include a Dockerfile in files to configure
+    the environment (FROM, RUN, ENTRYPOINT).
 
     This is step 1 of the autonomous payment flow:
       1. Call get_payment_requirements to get the payment header
@@ -352,7 +369,7 @@ async def get_payment_requirements(
     Args:
         script: Shell script to execute
         files: List of {path, content} file dicts for multi-file workspace
-        entrypoint: File to execute (required with files)
+        entrypoint: File to execute (required with files unless a Dockerfile is included)
         image: Container image (default "base")
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
@@ -399,13 +416,14 @@ async def submit_and_pay(
     with your wallet, then pass the signature here.
 
     Provide ONE of: script or files (must match get_payment_requirements call).
+    Include a Dockerfile in files to configure the environment.
 
     Args:
         payment_signature: The signed x402 payment string from your wallet
         script: Shell script to execute (must match get_payment_requirements call)
         files: List of {path, content} file dicts (must match)
-        entrypoint: File to execute (must match)
-        image: Container image (must match)
+        entrypoint: File to execute (must match, not needed if Dockerfile included)
+        image: Container image (must match, not needed if Dockerfile included)
         nodes: Number of compute nodes (must match)
         time_limit_min: Maximum runtime in minutes (must match)
         submitter_address: Your wallet address (optional)
@@ -499,9 +517,9 @@ async def get_api_endpoint() -> dict:
         "currency": "USDC",
         "body_schema": {
             "script": "string (optional) - shell script to execute",
-            "files": "array (optional) - [{path, content}] for multi-file workspace",
-            "entrypoint": "string (optional) - file to execute (required with files)",
-            "image": "string (optional) - container image (default: base)",
+            "files": "array (optional) - [{path, content}] for multi-file workspace. Include a Dockerfile to configure the environment.",
+            "entrypoint": "string (optional) - file to execute (required with files unless Dockerfile included)",
+            "image": "string (optional) - container image (default: base, ignored if Dockerfile present)",
             "nodes": "int (default 1) - number of compute nodes",
             "time_limit_min": "int (default 1) - max runtime in minutes",
             "submitter_address": "string (optional) - your wallet address for job tracking",

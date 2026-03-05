@@ -47,6 +47,16 @@ class WorkspaceFile(BaseModel):
     content: str = Field(..., max_length=65_536)
 
 
+def _extract_dockerfile(files: list[WorkspaceFile] | None) -> str | None:
+    """Return Dockerfile content if present in files, else None."""
+    if not files:
+        return None
+    for f in files:
+        if f.path.lower() == "dockerfile":
+            return f.content
+    return None
+
+
 class ComputeSubmitRequest(BaseModel):
     # Mode 1: Script (existing — now optional)
     script: Optional[str] = Field(None, min_length=1, max_length=65_536)
@@ -77,8 +87,13 @@ class ComputeSubmitRequest(BaseModel):
             raise ValueError("Provide one of: script, files")
         if modes > 1:
             raise ValueError("Only one submission mode allowed")
-        if self.files and not self.entrypoint:
-            raise ValueError("entrypoint required for multi-file mode")
+
+        has_dockerfile = _extract_dockerfile(self.files) is not None
+
+        # entrypoint required for multi-file ONLY if no Dockerfile
+        if self.files and not self.entrypoint and not has_dockerfile:
+            raise ValueError("entrypoint required for multi-file mode (or include a Dockerfile)")
+
         if self.files:
             if len(self.files) > 100:
                 raise ValueError("Max 100 files per workspace")
@@ -86,6 +101,13 @@ class ComputeSubmitRequest(BaseModel):
             if total > 10 * 1024 * 1024:
                 raise ValueError("Total workspace size exceeds 10MB")
         return self
+
+    def to_workspace_files(self) -> tuple[list[dict[str, str]], str]:
+        """Normalize any submission mode into (files, entrypoint) for workspace creation."""
+        if self.files:
+            return [{"path": f.path, "content": f.content} for f in self.files], self.entrypoint or ""
+        # Script mode → single-file workspace
+        return [{"path": "job.sh", "content": self.script}], "job.sh"
 
 
 class SessionSubmitRequest(BaseModel):
@@ -143,25 +165,20 @@ def _validate_image(image: str | None) -> None:
 
 
 def _job_summary(payload: dict | None) -> dict:
-    """Mode-aware job summary for API responses."""
+    """Job summary for API responses. Handles both legacy (script key) and new (entrypoint) payloads."""
     if not payload:
         return {}
-    mode = payload.get("submission_mode", "script")
-    base = {"mode": mode}
-    if mode == "script":
-        base["script"] = payload.get("script")
-        img = payload.get("image")
-        if img and img != "base":
-            base["image"] = img
-    elif mode == "multi_file":
-        base["entrypoint"] = payload.get("entrypoint")
-        base["file_count"] = payload.get("file_count")
-        base["image"] = payload.get("image")
-    elif mode == "git":
-        base["git_url"] = payload.get("git_url")
-        base["branch"] = payload.get("branch")
-        base["entrypoint"] = payload.get("entrypoint")
-        base["image"] = payload.get("image")
+    base: dict = {}
+    # Legacy payloads have a "script" key directly
+    if "script" in payload:
+        base["script"] = payload["script"]
+    if "entrypoint" in payload:
+        base["entrypoint"] = payload["entrypoint"]
+    if "file_count" in payload:
+        base["file_count"] = payload["file_count"]
+    img = payload.get("image")
+    if img and img != "base":
+        base["image"] = img
     return base
 
 
@@ -354,12 +371,27 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(422, "Invalid submitter_address format (expected 0x + 40 hex chars)")
     if client_code and not _BUILDER_CODE_RE.match(client_code):
         raise HTTPException(422, "Invalid builder code format (alphanumeric, 1-32 chars)")
-    _validate_image(body.image)
+
+    dockerfile_content = _extract_dockerfile(body.files)
+
+    # Skip image validation when Dockerfile is present (FROM line replaces image field)
+    if not dockerfile_content:
+        _validate_image(body.image)
+
+    # Validate Dockerfile syntax early if present
+    if dockerfile_content:
+        from src.agent.dockerfile import parse_dockerfile
+        try:
+            parse_dockerfile(dockerfile_content)
+        except ValueError as e:
+            raise HTTPException(422, f"Invalid Dockerfile: {e}")
 
     # Validate file paths for multi-file mode
     if body.files:
         for f in body.files:
             _validate_workspace_file_path(f.path)
+        if body.entrypoint:
+            _validate_workspace_file_path(body.entrypoint)
 
     rate_key = submitter_address.lower() if submitter_address else None
     if not _rate_limiter.check(rate_key):
@@ -465,25 +497,23 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 
     job_id = str(uuid.uuid4())
 
-    # Build mode-aware payload
+    # Unified workspace creation — every submission becomes a workspace
+    if not _slurm_client:
+        raise HTTPException(503, "Slurm client not available for workspace creation")
+
+    files_data, entrypoint = body.to_workspace_files()
+    workspace_path = await _slurm_client.create_workspace(job_id, files_data)
+
     job_payload: dict = {
-        "submission_mode": mode,
         "nodes": nodes,
         "time_limit_min": time_limit_min,
         "image": body.image or "base",
+        "entrypoint": entrypoint,
+        "file_count": len(files_data),
+        "workspace_path": workspace_path,
     }
-    if mode == "script":
-        job_payload["script"] = body.script
-    elif mode == "multi_file":
-        job_payload["entrypoint"] = body.entrypoint
-        job_payload["file_count"] = len(body.files)
-        # Create workspace on NFS via Slurm proxy
-        if _slurm_client:
-            files_data = [{"path": f.path, "content": f.content} for f in body.files]
-            workspace_path = await _slurm_client.create_workspace(job_id, files_data)
-            job_payload["workspace_path"] = workspace_path
-        else:
-            raise HTTPException(503, "Slurm client not available for workspace creation")
+    if dockerfile_content:
+        job_payload["dockerfile_content"] = dockerfile_content
 
     job = ActiveJob(
         id=job_id,
@@ -1067,10 +1097,11 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     # 2. Extract job params from session
     if session.job_payload:
         job_params = dict(session.job_payload)
-        mode = job_params.get("submission_mode", "script")
     else:
-        job_params = {"script": session.script, "submission_mode": "script"}
-        mode = "script"
+        job_params = {}
+
+    # Determine submission_mode for pricing (still relevant for cost calculation)
+    mode = job_params.get("submission_mode", "script")
 
     nodes = session.nodes
     time_limit_min = session.time_limit_min
@@ -1125,23 +1156,44 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     if not result.is_valid:
         raise HTTPException(403, "Payment verification failed")
 
-    # 4. Validate entrypoint + image for multi-file mode
-    if mode == "multi_file":
-        ep = job_params.get("entrypoint")
-        if ep:
-            _validate_workspace_file_path(ep)
-        img = job_params.get("image")
-        _validate_image(img)
+    # 4. Validate entrypoint + image
+    session_dockerfile = job_params.get("dockerfile_content")
+    ep = job_params.get("entrypoint")
+    if ep:
+        _validate_workspace_file_path(ep)
+    if not session_dockerfile:
+        _validate_image(job_params.get("image"))
 
-    # 5. Create workspace if needed
+    # 5. Create workspace — unified path for all modes
     job_id = str(uuid.uuid4())
-    if mode == "multi_file" and job_params.get("files"):
-        if not _slurm_client:
-            raise HTTPException(503, "Slurm client not available")
+    if not _slurm_client:
+        raise HTTPException(503, "Slurm client not available")
+
+    # Normalize session data into files + entrypoint
+    if job_params.get("files"):
         files_list = job_params.pop("files")
-        job_params["file_count"] = len(files_list)
-        workspace_path = await _slurm_client.create_workspace(job_id, files_list)
-        job_params["workspace_path"] = workspace_path
+        # Extract dockerfile_content from files if present
+        if not session_dockerfile:
+            for f in files_list:
+                if isinstance(f, dict) and f.get("path", "").lower() == "dockerfile":
+                    session_dockerfile = f.get("content")
+                    break
+        entrypoint = job_params.get("entrypoint", "") if session_dockerfile else job_params.get("entrypoint", "job.sh")
+    elif session.script:
+        files_list = [{"path": "job.sh", "content": session.script}]
+        entrypoint = "job.sh"
+    elif job_params.get("script"):
+        files_list = [{"path": "job.sh", "content": job_params.pop("script")}]
+        entrypoint = "job.sh"
+    else:
+        raise HTTPException(422, "Session has no executable content")
+
+    workspace_path = await _slurm_client.create_workspace(job_id, files_list)
+    job_params["workspace_path"] = workspace_path
+    job_params["entrypoint"] = entrypoint
+    job_params["file_count"] = len(files_list)
+    if session_dockerfile:
+        job_params["dockerfile_content"] = session_dockerfile
 
     # 6. Create job
     job_params["nodes"] = nodes

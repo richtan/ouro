@@ -21,20 +21,34 @@ class SlurmClient:
             timeout=30.0,
         )
 
+    async def build_image(self, def_content: str) -> dict:
+        """Build container image from Apptainer .def content.
+
+        Returns dict with keys: sif_path, cached, build_time_s.
+        """
+        resp = await self.client.post(
+            "/slurm/v0.0.38/image/build",
+            json={"def_content": def_content},
+            timeout=360.0,  # 6 min to cover slow Docker pulls
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def submit_job(
         self,
         *,
-        submission_mode: str = "script",
-        script: str = "",
-        workspace_path: str | None = None,
-        entrypoint: str | None = None,
+        workspace_path: str,
+        entrypoint: str = "",
         image: str | None = None,
+        sif_path: str | None = None,
+        entrypoint_cmd: list[str] | None = None,
         partition: str = "compute",
         nodes: int = 1,
         time_limit_min: int = 1,
     ) -> int:
         body: dict = {
-            "submission_mode": submission_mode,
+            "workspace_path": workspace_path,
+            "entrypoint": entrypoint,
             "image": image,
             "job": {
                 "environment": ["PATH=/usr/bin:/bin"],
@@ -46,18 +60,16 @@ class SlurmClient:
                 "current_working_directory": "/tmp",
             },
         }
-
-        if submission_mode == "script":
-            body["script"] = f"#!/bin/bash\n{script}"
-        elif submission_mode == "multi_file":
-            body["workspace_path"] = workspace_path
-            body["entrypoint"] = entrypoint
+        if sif_path:
+            body["sif_path"] = sif_path
+        if entrypoint_cmd:
+            body["entrypoint_cmd"] = entrypoint_cmd
 
         resp = await self.client.post("/slurm/v0.0.38/job/submit", json=body)
         resp.raise_for_status()
         data = resp.json()
         job_id = data.get("job_id") or data.get("result", [{}])[0].get("job_id")
-        logger.info("slurm_job_submitted job_id=%s mode=%s", job_id, submission_mode)
+        logger.info("slurm_job_submitted job_id=%s", job_id)
         return int(job_id)
 
     async def create_workspace(self, workspace_id: str, files: list[dict]) -> str:

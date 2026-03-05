@@ -54,7 +54,7 @@ def make_active_job():
             "retry_count": 0,
             "price_usdc": Decimal("0.05"),
             "submitter_address": "0x1234abcd",
-            "payload": {"script": "echo hello", "nodes": 1, "time_limit_min": 1},
+            "payload": {"workspace_path": "/ouro-jobs/workspaces/test", "entrypoint": "job.sh", "nodes": 1, "time_limit_min": 1},
             "slurm_job_id": None,
             "x402_tx_hash": None,
             "client_builder_code": None,

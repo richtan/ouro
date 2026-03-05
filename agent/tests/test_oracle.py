@@ -8,6 +8,7 @@ import pytest
 
 from src.agent.oracle import (
     OracleDeps,
+    build_image_if_needed,
     poll_slurm_status_impl,
     process_job_fast,
     submit_onchain_proof_impl,
@@ -21,10 +22,8 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
     def _factory(**overrides):
         defaults = dict(
             job_id="test-job-1",
-            submission_mode="script",
-            script="echo hello",
-            workspace_path=None,
-            entrypoint=None,
+            workspace_path="/ouro-jobs/workspaces/test",
+            entrypoint="job.sh",
             image="base",
             partition="default",
             nodes=1,
@@ -34,6 +33,9 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
             chain_client=mock_chain_client,
             db=AsyncMock(),
             event_bus=event_bus,
+            dockerfile_content=None,
+            sif_path=None,
+            entrypoint_cmd=None,
         )
         defaults.update(overrides)
         return OracleDeps(**defaults)
@@ -49,10 +51,16 @@ async def test_validate_valid(make_deps):
     assert result.startswith("VALID")
 
 
-async def test_validate_empty_script(make_deps):
-    result = await validate_request_impl(make_deps(script=""))
+async def test_validate_empty_entrypoint(make_deps):
+    result = await validate_request_impl(make_deps(entrypoint=""))
     assert "INVALID" in result
-    assert "empty" in result
+    assert "entrypoint" in result
+
+
+async def test_validate_empty_workspace_path(make_deps):
+    result = await validate_request_impl(make_deps(workspace_path=""))
+    assert "INVALID" in result
+    assert "workspace_path" in result
 
 
 async def test_validate_nodes_too_high(make_deps):
@@ -78,10 +86,12 @@ async def test_fast_path_happy(make_deps, mock_slurm_client, mock_chain_client):
     assert result.output_hash is not None
     mock_slurm_client.submit_job.assert_awaited_once()
     mock_chain_client.submit_proof.assert_awaited_once()
+    # Workspace should always be cleaned up
+    mock_slurm_client.delete_workspace.assert_awaited_once()
 
 
 async def test_fast_path_validation_fail(make_deps, mock_slurm_client):
-    deps = make_deps(script="")
+    deps = make_deps(entrypoint="")
     result = await process_job_fast(deps)
     assert result.status == "failed"
     mock_slurm_client.submit_job.assert_not_awaited()
@@ -131,10 +141,22 @@ async def test_validate_time_boundary_valid(make_deps):
     assert result60.startswith("VALID")
 
 
-async def test_validate_whitespace_script(make_deps):
-    result = await validate_request_impl(make_deps(script="  \n\t "))
+async def test_validate_missing_entrypoint(make_deps):
+    result = await validate_request_impl(make_deps(
+        workspace_path="/ouro-jobs/workspaces/test",
+        entrypoint="",
+    ))
     assert "INVALID" in result
-    assert "empty" in result
+    assert "entrypoint" in result
+
+
+async def test_validate_missing_workspace(make_deps):
+    result = await validate_request_impl(make_deps(
+        workspace_path="",
+        entrypoint="main.py",
+    ))
+    assert "INVALID" in result
+    assert "workspace_path" in result
 
 
 # --- submit_to_slurm_impl ---
@@ -188,50 +210,89 @@ async def test_submit_proof_success(make_deps, mock_chain_client):
     mock_chain_client.submit_proof.assert_awaited_once()
 
 
-# --- Multi-file mode validation ---
+# --- Dockerfile integration ---
 
 
-async def test_validate_multi_file_valid(make_deps):
-    result = await validate_request_impl(make_deps(
-        submission_mode="multi_file",
-        script="",
-        workspace_path="/ouro-jobs/workspaces/test",
-        entrypoint="main.py",
-    ))
+async def test_validate_with_dockerfile_no_entrypoint(make_deps):
+    """When dockerfile_content is set, entrypoint is not required (comes from Dockerfile)."""
+    deps = make_deps(
+        entrypoint="",
+        dockerfile_content='FROM base\nENTRYPOINT ["bash", "job.sh"]',
+    )
+    result = await validate_request_impl(deps)
     assert result.startswith("VALID")
 
 
-async def test_validate_multi_file_missing_entrypoint(make_deps):
-    result = await validate_request_impl(make_deps(
-        submission_mode="multi_file",
-        script="",
-        workspace_path="/ouro-jobs/workspaces/test",
-        entrypoint=None,
-    ))
-    assert "INVALID" in result
-    assert "entrypoint" in result
-
-
-async def test_validate_multi_file_missing_workspace(make_deps):
-    result = await validate_request_impl(make_deps(
-        submission_mode="multi_file",
-        script="",
-        workspace_path=None,
-        entrypoint="main.py",
-    ))
-    assert "INVALID" in result
-    assert "workspace_path" in result
-
-
-async def test_fast_path_multi_file(make_deps, mock_slurm_client, mock_chain_client):
+async def test_build_image_prebuilt(make_deps, mock_slurm_client):
+    """Prebuilt alias with no RUN → use prebuilt .sif directly, no build call."""
     deps = make_deps(
-        submission_mode="multi_file",
-        script="",
-        workspace_path="/ouro-jobs/workspaces/test",
-        entrypoint="main.py",
-        workspace_cleanup_needed=True,
+        dockerfile_content='FROM base\nENTRYPOINT ["bash", "job.sh"]',
+    )
+    await build_image_if_needed(deps)
+    assert deps.sif_path is not None
+    assert "base.sif" in deps.sif_path
+    assert deps.entrypoint_cmd == ["bash", "job.sh"]
+    mock_slurm_client.build_image.assert_not_awaited()
+
+
+async def test_build_image_needs_build(make_deps, mock_slurm_client):
+    """Prebuilt alias with RUN → calls build_image, uses returned sif_path."""
+    mock_slurm_client.build_image.return_value = {
+        "sif_path": "/ouro-jobs/images/custom/abc123.sif",
+        "cached": False,
+        "build_time_s": 5.0,
+    }
+    deps = make_deps(
+        dockerfile_content='FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]',
+    )
+    await build_image_if_needed(deps)
+    assert deps.sif_path == "/ouro-jobs/images/custom/abc123.sif"
+    assert deps.entrypoint_cmd == ["python", "main.py"]
+    mock_slurm_client.build_image.assert_awaited_once()
+
+
+async def test_build_image_failure(make_deps, mock_slurm_client):
+    """Build failure should propagate as exception."""
+    mock_slurm_client.build_image.side_effect = RuntimeError("build failed")
+    deps = make_deps(
+        dockerfile_content='FROM python312\nRUN pip install broken\nENTRYPOINT ["python", "main.py"]',
+    )
+    with pytest.raises(RuntimeError, match="build failed"):
+        await build_image_if_needed(deps)
+
+
+async def test_fast_path_with_dockerfile_prebuilt(make_deps, mock_slurm_client, mock_chain_client):
+    """Full fast path with prebuilt Dockerfile — no build, uses sif_path."""
+    deps = make_deps(
+        entrypoint="",
+        dockerfile_content='FROM base\nENTRYPOINT ["bash", "job.sh"]',
     )
     result = await process_job_fast(deps)
     assert result.status == "completed"
-    mock_slurm_client.submit_job.assert_awaited_once()
-    mock_slurm_client.delete_workspace.assert_awaited_once()
+    assert result.proof_tx == "0xabc123"
+    # submit_job should have been called with sif_path and entrypoint_cmd
+    call_kwargs = mock_slurm_client.submit_job.call_args.kwargs
+    assert call_kwargs["sif_path"] is not None
+    assert call_kwargs["entrypoint_cmd"] == ["bash", "job.sh"]
+    mock_slurm_client.build_image.assert_not_awaited()
+
+
+async def test_fast_path_build_failure_fails_job(make_deps, mock_slurm_client, mock_chain_client):
+    """Build failure should fail the job."""
+    mock_slurm_client.build_image.side_effect = RuntimeError("build failed")
+    deps = make_deps(
+        entrypoint="",
+        dockerfile_content='FROM python312\nRUN pip install broken\nENTRYPOINT ["python", "main.py"]',
+    )
+    result = await process_job_fast(deps)
+    assert result.status == "failed"
+    mock_slurm_client.submit_job.assert_not_awaited()
+
+
+async def test_no_dockerfile_legacy_path(make_deps, mock_slurm_client):
+    """Without dockerfile_content, build_image_if_needed is a no-op."""
+    deps = make_deps(dockerfile_content=None)
+    await build_image_if_needed(deps)
+    assert deps.sif_path is None
+    assert deps.entrypoint_cmd is None
+    mock_slurm_client.build_image.assert_not_awaited()

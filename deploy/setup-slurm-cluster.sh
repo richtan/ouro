@@ -277,6 +277,26 @@ ssh_cmd "$CONTROLLER" "
 "
 
 # ------------------------------------------------------------------
+# Phase 9b: Custom image cache dir + sudoers for apptainer build
+# ------------------------------------------------------------------
+echo ""
+echo "[Phase 9b] Setting up custom image cache and build permissions..."
+
+ssh_cmd "$CONTROLLER" "
+    sudo mkdir -p /ouro-jobs/images/custom
+    sudo chmod 755 /ouro-jobs/images/custom
+
+    # Allow the proxy service user to run apptainer build without a password
+    if [ ! -f /etc/sudoers.d/ouro-apptainer ]; then
+        echo 'ALL ALL=(root) NOPASSWD: /usr/bin/apptainer build *' | sudo tee /etc/sudoers.d/ouro-apptainer > /dev/null
+        sudo chmod 440 /etc/sudoers.d/ouro-apptainer
+        echo 'sudoers entry for apptainer build added'
+    else
+        echo 'sudoers entry already exists'
+    fi
+"
+
+# ------------------------------------------------------------------
 # Phase 10: Update proxy on controller
 # ------------------------------------------------------------------
 echo ""

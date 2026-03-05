@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
@@ -20,10 +21,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OracleDeps:
     job_id: str
-    submission_mode: str  # "script" | "multi_file" | "archive" | "git"
-    script: str
-    workspace_path: str | None
-    entrypoint: str | None
+    workspace_path: str
+    entrypoint: str
     image: str  # default "base"
     partition: str
     nodes: int
@@ -35,7 +34,10 @@ class OracleDeps:
     event_bus: EventBus
     captured_output: str = ""
     captured_gas_cost_usd: float = 0.0
-    workspace_cleanup_needed: bool = False
+    # Dockerfile-based fields
+    dockerfile_content: str | None = None
+    sif_path: str | None = None
+    entrypoint_cmd: list[str] | None = field(default=None)
 
 
 class JobResult(BaseModel):
@@ -51,41 +53,35 @@ class JobResult(BaseModel):
 
 
 async def validate_request_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id} (mode={deps.submission_mode})")
+    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id}")
 
-    if deps.submission_mode == "script":
-        if not deps.script or not deps.script.strip():
-            return "INVALID: script is empty"
-    elif deps.submission_mode in ("multi_file", "archive"):
-        if not deps.entrypoint:
-            return "INVALID: entrypoint required"
-        if not deps.workspace_path:
-            return "INVALID: workspace_path required"
-    elif deps.submission_mode == "git":
-        if not deps.entrypoint:
-            return "INVALID: entrypoint required"
+    # Entrypoint comes from Dockerfile when dockerfile_content is set
+    if not deps.dockerfile_content and not deps.entrypoint:
+        return "INVALID: entrypoint required"
+    if not deps.workspace_path:
+        return "INVALID: workspace_path required"
 
     if deps.nodes < 1 or deps.nodes > 16:
         return "INVALID: nodes must be between 1 and 16"
     if deps.time_limit_min < 1 or deps.time_limit_min > 60:
         return "INVALID: time_limit_min must be between 1 and 60"
 
-    return f"VALID: mode={deps.submission_mode}, nodes={deps.nodes}, time={deps.time_limit_min}min"
+    return f"VALID: nodes={deps.nodes}, time={deps.time_limit_min}min"
 
 
 async def submit_to_slurm_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm (mode={deps.submission_mode})")
+    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm")
 
     try:
         from sqlalchemy import update as sql_update
         from src.db.models import ActiveJob
 
         slurm_job_id = await deps.slurm_client.submit_job(
-            submission_mode=deps.submission_mode,
-            script=deps.script,
             workspace_path=deps.workspace_path,
             entrypoint=deps.entrypoint,
             image=deps.image,
+            sif_path=deps.sif_path,
+            entrypoint_cmd=deps.entrypoint_cmd,
             partition=deps.partition,
             nodes=deps.nodes,
             time_limit_min=deps.time_limit_min,
@@ -101,7 +97,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
         deps.event_bus.emit(
             "slurm",
             f"Job {deps.job_id} submitted as Slurm job {slurm_job_id} "
-            f"(partition={deps.partition}, nodes={deps.nodes}, mode={deps.submission_mode})",
+            f"(partition={deps.partition}, nodes={deps.nodes})",
         )
         return f"SUBMITTED: slurm_job_id={slurm_job_id}"
     except Exception as e:
@@ -172,14 +168,51 @@ async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dockerfile image build step
+# ---------------------------------------------------------------------------
+
+
+async def build_image_if_needed(deps: OracleDeps) -> None:
+    """Parse Dockerfile and build image if needed. Mutates deps in place."""
+    if not deps.dockerfile_content:
+        return  # Legacy path — use image/entrypoint fields as-is
+
+    from src.agent.dockerfile import (
+        IMAGES_DIR,
+        PREBUILT_ALIASES,
+        dockerfile_to_def,
+        parse_dockerfile,
+    )
+
+    parsed = parse_dockerfile(deps.dockerfile_content)
+    deps.entrypoint_cmd = parsed.entrypoint_cmd
+
+    if not parsed.needs_build:
+        # Prebuilt alias, no RUN → use prebuilt .sif directly
+        sif_file = PREBUILT_ALIASES[parsed.from_image]
+        deps.sif_path = os.path.join(IMAGES_DIR, sif_file)
+        deps.event_bus.emit("agent", f"Using prebuilt image: {parsed.from_image}")
+        return
+
+    # Needs build → convert to .def and send to proxy
+    def_content = dockerfile_to_def(parsed)
+    deps.event_bus.emit("agent", f"Building image from Dockerfile (FROM {parsed.from_image})...")
+
+    result = await deps.slurm_client.build_image(def_content)
+    deps.sif_path = result["sif_path"]
+    if result.get("cached"):
+        deps.event_bus.emit("agent", "Image found in cache")
+    else:
+        deps.event_bus.emit("agent", f"Image built in {result.get('build_time_s', 0):.1f}s")
+
+
+# ---------------------------------------------------------------------------
 # Deterministic fast path — no LLM, direct tool execution
 # ---------------------------------------------------------------------------
 
 
 async def _cleanup_workspace(deps: OracleDeps) -> None:
     """Clean up NFS workspace after job completion."""
-    if not deps.workspace_cleanup_needed:
-        return
     try:
         await deps.slurm_client.delete_workspace(deps.job_id)
     except Exception as e:
@@ -190,6 +223,14 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     """Execute the standard validate -> submit -> poll -> prove pipeline without an LLM."""
     validation = await validate_request_impl(deps)
     if validation.startswith("INVALID"):
+        await _cleanup_workspace(deps)
+        return JobResult(job_id=deps.job_id, status="failed")
+
+    # Build image from Dockerfile if present (before Slurm submit, outside time_limit)
+    try:
+        await build_image_if_needed(deps)
+    except Exception as e:
+        deps.event_bus.emit("agent_error", f"Image build failed: {e}")
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 

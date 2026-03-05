@@ -31,8 +31,12 @@ OUTPUT_DIR = "/ouro-jobs/output"
 SCRIPTS_DIR = "/ouro-jobs/scripts"
 WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
 IMAGES_DIR = "/ouro-jobs/images"
+CUSTOM_IMAGES_DIR = "/ouro-jobs/images/custom"
 BASE_IMAGE = "/ouro-jobs/images/base.sif"
 APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/usr/local/bin/apptainer")
+
+# Locks for concurrent image builds (keyed by def hash)
+_build_locks: dict[str, asyncio.Lock] = {}
 
 ALLOWED_IMAGES = {
     "base":      "base.sif",
@@ -112,52 +116,45 @@ def _validate_and_write_file(workspace_path: str, rel_path: str, content: str) -
         f.write(content)
 
 
-def wrap_in_apptainer(user_script: str, job_name: str, image_name: str | None = None) -> tuple[str, str]:
-    """Wrap user script in Apptainer container for isolation.
-
-    Returns (wrapper_script, user_script_path) tuple.  The caller must
-    clean up *both* temp files.
-
-    Raises HTTPException(503) if Apptainer or the container image is missing —
-    we must never fall back to running user code on the bare host.
-    """
-    if not APPTAINER_AVAILABLE:
-        raise HTTPException(503, "Container isolation unavailable (Apptainer missing)")
-
-    image_path = resolve_image(image_name)
-
-    # Write user script to a temp file via Python — avoids heredoc injection
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".sh", delete=False, dir=SCRIPTS_DIR, prefix=f"{job_name}-",
-    ) as uf:
-        uf.write(user_script)
-        user_script_path = uf.name
-    os.chmod(user_script_path, 0o755)
-
-    wrapper = f"""#!/bin/bash
-apptainer exec \\
-    --contain --writable-tmpfs --no-home \\
-    --bind "{user_script_path}":/job.sh:ro \\
-    --env HOME=/tmp \\
-    {image_path} \\
-    bash /job.sh
-exit $?
-"""
-    return wrapper, user_script_path
-
-
-def wrap_in_apptainer_workspace(
-    workspace_path: str, entrypoint: str, job_name: str, image_name: str | None = None
+def wrap_in_apptainer(
+    workspace_path: str,
+    entrypoint: str,
+    job_name: str,
+    image_name: str | None = None,
+    sif_path: str | None = None,
+    entrypoint_cmd: list[str] | None = None,
 ) -> str:
-    """Wrap a multi-file workspace execution in Apptainer container.
+    """Wrap workspace execution in Apptainer container.
 
     Returns wrapper script string. Workspace is bind-mounted read-only at /workspace.
+
+    Args:
+        sif_path: Direct path to .sif image (from Dockerfile build). Takes priority over image_name.
+        entrypoint_cmd: Exec-form command from Dockerfile (e.g. ["python", "main.py"]).
+            When set, --pwd /workspace is added so relative paths resolve to workspace files.
+            Falls back to extension-based inference from entrypoint when not set.
     """
     if not APPTAINER_AVAILABLE:
         raise HTTPException(503, "Container isolation unavailable (Apptainer missing)")
 
-    image_path = resolve_image(image_name)
+    image_path = sif_path or resolve_image(image_name)
 
+    if entrypoint_cmd:
+        # Dockerfile-based: use explicit command with --pwd /workspace
+        import shlex
+        cmd_str = " ".join(shlex.quote(part) for part in entrypoint_cmd)
+        return f"""#!/bin/bash
+set -euo pipefail
+apptainer exec \\
+    --contain --writable-tmpfs --home /tmp \\
+    --pwd /workspace \\
+    --bind "{workspace_path}":/workspace:ro \\
+    {image_path} \\
+    {cmd_str}
+exit $?
+"""
+
+    # Legacy path: infer executor from entrypoint file extension
     normalized = os.path.normpath(entrypoint)
     if normalized.startswith("..") or normalized.startswith("/") or "\x00" in entrypoint:
         raise HTTPException(400, "Invalid entrypoint path")
@@ -168,9 +165,8 @@ def wrap_in_apptainer_workspace(
     return f"""#!/bin/bash
 set -euo pipefail
 apptainer exec \\
-    --contain --writable-tmpfs --no-home \\
+    --contain --writable-tmpfs --home /tmp \\
     --bind "{workspace_path}":/workspace:ro \\
-    --env HOME=/tmp \\
     {image_path} \\
     {executor} /workspace/{normalized}
 exit $?
@@ -186,7 +182,6 @@ async def submit_job(
     body = await request.json()
     logger.info("Job submit payload: %s", json.dumps(body)[:500])
 
-    submission_mode = body.get("submission_mode", "script")
     image_name = body.get("image")
 
     job = body.get("job", {})
@@ -196,21 +191,34 @@ async def submit_job(
     time_limit = parse_time_limit(job.get("time_limit", "5"))
     cwd = job.get("current_working_directory", "/tmp")
 
-    cleanup_paths = []
+    workspace_path = body.get("workspace_path")
+    entrypoint = body.get("entrypoint")
 
-    if submission_mode == "multi_file":
-        workspace_path = body.get("workspace_path")
-        entrypoint = body.get("entrypoint")
-        if not workspace_path or not entrypoint:
-            raise HTTPException(400, "workspace_path and entrypoint required for multi_file mode")
-        wrapper_script = wrap_in_apptainer_workspace(workspace_path, entrypoint, name, image_name)
-    else:
-        # Default script mode
-        script = body.get("script", "#!/bin/bash\necho hello")
+    # Transition fallback: old agent may still send script-only payloads
+    # until it's redeployed with the unified workspace model.
+    if not workspace_path and body.get("script"):
+        logger.warning("Legacy script-mode submission — creating inline workspace")
+        script = body["script"]
         if not script.startswith("#!"):
             script = "#!/bin/bash\n" + script
-        wrapper_script, user_script_path = wrap_in_apptainer(script, name, image_name)
-        cleanup_paths.append(user_script_path)
+        ws_id = str(uuid.uuid4())
+        workspace_path = os.path.join(WORKSPACE_BASE_DIR, ws_id)
+        os.makedirs(workspace_path, exist_ok=True)
+        script_path = os.path.join(workspace_path, "job.sh")
+        with open(script_path, "w") as sf:
+            sf.write(script)
+        entrypoint = "job.sh"
+
+    sif_path = body.get("sif_path")
+    entrypoint_cmd = body.get("entrypoint_cmd")
+
+    if not workspace_path or (not entrypoint and not entrypoint_cmd):
+        raise HTTPException(400, "workspace_path and entrypoint (or entrypoint_cmd) required")
+
+    wrapper_script = wrap_in_apptainer(
+        workspace_path, entrypoint or "", name, image_name,
+        sif_path=sif_path, entrypoint_cmd=entrypoint_cmd,
+    )
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".sh", delete=False, dir="/tmp"
@@ -218,11 +226,10 @@ async def submit_job(
         f.write(wrapper_script)
         wrapper_path = f.name
     os.chmod(wrapper_path, 0o755)
-    cleanup_paths.append(wrapper_path)
 
     logger.info(
-        "Submitting: partition=%s name=%s nodes=%s time=%s mode=%s isolation=apptainer",
-        partition, name, nodes, time_limit, submission_mode,
+        "Submitting: partition=%s name=%s nodes=%s time=%s isolation=apptainer",
+        partition, name, nodes, time_limit,
     )
 
     try:
@@ -241,17 +248,16 @@ async def submit_job(
             ]
         )
         job_id = int(result.strip())
-        logger.info("Job submitted: %d (mode=%s, isolation: apptainer)", job_id, submission_mode)
+        logger.info("Job submitted: %d (isolation: apptainer)", job_id)
         return {"job_id": job_id, "step_id": "batch", "error_code": 0, "error": ""}
     except Exception as e:
         logger.error("Submit failed: %s", e)
         raise
     finally:
-        for path in cleanup_paths:
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
+        try:
+            os.unlink(wrapper_path)
+        except Exception:
+            pass
 
 
 @app.get("/slurm/v0.0.37/job/{job_id}")
@@ -459,6 +465,93 @@ async def delete_workspace(
     shutil.rmtree(path, ignore_errors=True)
     logger.info("Workspace deleted: %s", workspace_id)
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Image build (for custom Dockerfiles converted to .def)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/slurm/v0.0.38/image/build")
+async def build_image(
+    request: Request, x_slurm_user_token: str | None = Header(None)
+):
+    """Build an Apptainer image from a .def file. Caches by content hash."""
+    check_auth(x_slurm_user_token)
+
+    if not APPTAINER_AVAILABLE:
+        raise HTTPException(503, "Apptainer not available")
+
+    body = await request.json()
+    def_content = body.get("def_content")
+    if not def_content:
+        raise HTTPException(400, "def_content required")
+
+    def_hash = hashlib.sha256(def_content.encode()).hexdigest()[:16]
+    final_path = os.path.join(CUSTOM_IMAGES_DIR, f"{def_hash}.sif")
+
+    # Fast path: already cached
+    if os.path.exists(final_path):
+        return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
+
+    # Acquire per-hash lock to prevent duplicate builds
+    if def_hash not in _build_locks:
+        _build_locks[def_hash] = asyncio.Lock()
+    lock = _build_locks[def_hash]
+
+    async with lock:
+        # Double-check after acquiring lock
+        if os.path.exists(final_path):
+            return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
+
+        # Write .def to temp file
+        os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
+        temp_def = os.path.join("/tmp", f"{uuid.uuid4().hex}.def")
+        temp_sif = os.path.join("/tmp", f"{uuid.uuid4().hex}.sif")
+
+        try:
+            with open(temp_def, "w") as f:
+                f.write(def_content)
+
+            logger.info("Building image: %s.sif from .def (%d bytes)", def_hash, len(def_content))
+            import time
+            start = time.monotonic()
+
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "apptainer", "build", temp_sif, temp_def,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise HTTPException(504, "Image build timed out (5 min limit)")
+
+            elapsed = time.monotonic() - start
+
+            if proc.returncode != 0:
+                build_log = stderr.decode()[-2000:]  # Last 2KB of build log
+                logger.error("Image build failed (rc=%d): %s", proc.returncode, build_log[:500])
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": "Build failed", "build_log": build_log},
+                )
+
+            # Atomic move to final path
+            os.rename(temp_sif, final_path)
+            logger.info("Image built: %s.sif in %.1fs", def_hash, elapsed)
+
+            return {"sif_path": final_path, "cached": False, "build_time_s": round(elapsed, 1)}
+
+        finally:
+            # Clean up temp files
+            for p in (temp_def, temp_sif):
+                try:
+                    os.unlink(p)
+                except FileNotFoundError:
+                    pass
 
 
 @app.get("/health")

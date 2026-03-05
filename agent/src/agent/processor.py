@@ -217,13 +217,22 @@ async def _process_one_job(
 
         async with session_maker() as db:
             payload = job.payload or {}
-            mode = payload.get("submission_mode", "script")
+
+            # Legacy normalization: old script-mode jobs have no workspace_path.
+            # Create workspace at processing time so the unified path works.
+            workspace_path = payload.get("workspace_path")
+            entrypoint = payload.get("entrypoint")
+            if not workspace_path and payload.get("script"):
+                script = payload["script"]
+                files = [{"path": "job.sh", "content": script}]
+                workspace_path = await slurm_client.create_workspace(str(job.id), files)
+                entrypoint = "job.sh"
+                event_bus.emit("agent", f"Legacy job {str(job.id)[:8]}: created workspace from inline script")
+
             deps = OracleDeps(
                 job_id=str(job.id),
-                submission_mode=mode,
-                script=payload.get("script", ""),
-                workspace_path=payload.get("workspace_path"),
-                entrypoint=payload.get("entrypoint"),
+                workspace_path=workspace_path or "",
+                entrypoint=entrypoint or "",
                 image=payload.get("image", "base"),
                 partition=payload.get("partition", "default"),
                 nodes=payload.get("nodes", 1),
@@ -233,7 +242,7 @@ async def _process_one_job(
                 chain_client=chain_client,
                 db=db,
                 event_bus=event_bus,
-                workspace_cleanup_needed=mode in ("multi_file", "archive"),
+                dockerfile_content=payload.get("dockerfile_content"),
             )
 
             job_result = await asyncio.wait_for(
