@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import json
 import logging
 import re
@@ -42,8 +43,12 @@ def _get_client_ip(request: Request) -> str:
     """Extract real client IP from X-Forwarded-For header (first entry), fall back to request.client.host."""
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        # First IP in the chain is the original client
-        return forwarded.split(",")[0].strip()
+        first = forwarded.split(",")[0].strip()
+        try:
+            ipaddress.ip_address(first)
+            return first
+        except ValueError:
+            pass
     return request.client.host if request.client else "unknown"
 
 

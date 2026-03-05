@@ -153,6 +153,7 @@ def wrap_in_apptainer(
         cmd_str = " ".join(shlex.quote(part) for part in entrypoint_cmd)
         return f"""#!/bin/bash
 set -euo pipefail
+ulimit -u 4096
 apptainer exec \\
     --contain --cleanenv --writable-tmpfs --no-home \\
     --net --network none \\
@@ -173,6 +174,7 @@ exit $?
 
     return f"""#!/bin/bash
 set -euo pipefail
+ulimit -u 4096
 apptainer exec \\
     --contain --cleanenv --writable-tmpfs --no-home \\
     --net --network none \\
@@ -259,6 +261,7 @@ async def submit_job(
                 f"--job-name={name}",
                 f"--nodes={nodes}",
                 f"--time={time_limit}",
+                "--mem=3200M",
                 f"--output={OUTPUT_DIR}/slurm-%j.out",
                 f"--error={OUTPUT_DIR}/slurm-%j.err",
                 f"--chdir={cwd}",

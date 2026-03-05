@@ -168,16 +168,21 @@ done
 echo ""
 echo "[Phase 5] Setting up NFS shared filesystem..."
 
+NFS_EXPORTS="/ouro-jobs"
+for w in "${WORKERS[@]}"; do
+    NFS_EXPORTS="$NFS_EXPORTS ${WORKER_IPS[$w]}(rw,sync,no_subtree_check,root_squash)"
+done
+
 ssh_cmd "$CONTROLLER" "
     sudo mkdir -p /ouro-jobs/output /ouro-jobs/scripts /ouro-jobs/images /ouro-jobs/workspaces
     sudo chown -R nobody:nogroup /ouro-jobs
     sudo chmod -R 755 /ouro-jobs
     sudo chmod 700 /ouro-jobs/workspaces
 
-    if ! grep -q '/ouro-jobs' /etc/exports 2>/dev/null; then
-        echo '/ouro-jobs 10.128.0.0/9(rw,sync,no_subtree_check,root_squash)' | sudo tee -a /etc/exports
-        sudo exportfs -ra
-    fi
+    # Replace any existing /ouro-jobs export line with worker-specific IPs
+    sudo sed -i '\|^/ouro-jobs|d' /etc/exports 2>/dev/null || true
+    echo '$NFS_EXPORTS' | sudo tee -a /etc/exports
+    sudo exportfs -ra
     sudo systemctl restart nfs-kernel-server
 "
 
@@ -287,14 +292,11 @@ ssh_cmd "$CONTROLLER" "
     sudo mkdir -p /ouro-jobs/images/custom
     sudo chmod 755 /ouro-jobs/images/custom
 
-    # Allow the proxy service user to run apptainer build without a password
-    if [ ! -f /etc/sudoers.d/ouro-apptainer ]; then
-        echo 'ALL ALL=(root) NOPASSWD: /usr/bin/apptainer build *' | sudo tee /etc/sudoers.d/ouro-apptainer > /dev/null
-        sudo chmod 440 /etc/sudoers.d/ouro-apptainer
-        echo 'sudoers entry for apptainer build added'
-    else
-        echo 'sudoers entry already exists'
-    fi
+    # Allow the proxy service user (nobody) to run apptainer build with constrained paths
+    echo 'nobody ALL=(root) NOPASSWD: /usr/bin/apptainer build /ouro-jobs/images/custom/*.sif /tmp/*.def' \
+        | sudo tee /etc/sudoers.d/ouro-apptainer > /dev/null
+    sudo chmod 440 /etc/sudoers.d/ouro-apptainer
+    echo 'sudoers entry for apptainer build updated'
 "
 
 # ------------------------------------------------------------------
