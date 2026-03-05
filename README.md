@@ -50,6 +50,22 @@ curl -X POST https://api.ourocompute.com/api/compute/submit \
 # Body: { "job_id": "a1b2c3d4-...", "status": "pending", "price": "$0.0841" }
 ```
 
+**Multi-file with Dockerfile:**
+
+```bash
+curl -X POST https://api.ourocompute.com/api/compute/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "files": [
+      {"path": "Dockerfile", "content": "FROM python312\nRUN pip install requests\nENTRYPOINT [\"python\", \"main.py\"]"},
+      {"path": "main.py", "content": "import requests\nprint(requests.get(\"https://httpbin.org/ip\").json())"}
+    ],
+    "nodes": 1, "time_limit_min": 1
+  }'
+```
+
+Include a `Dockerfile` in `files` to configure the environment — `FROM` picks the base image (prebuilt alias or Docker Hub), `RUN` installs deps (cached by content hash), `ENTRYPOINT`/`CMD` defines what to execute.
+
 **3. Poll for results:**
 
 ```bash
@@ -77,7 +93,7 @@ async with OuroClient() as ouro:
 
 ## How It Works
 
-1. **No signup** — POST your script to the API
+1. **No signup** — POST your code with a Dockerfile that defines the environment (or just a script)
 2. **Pay per job** — the 402 response tells you the price, sign one USDC payment on Base
 3. **Proven results** — SHA-256 proof posted on-chain, verifiable by anyone
 

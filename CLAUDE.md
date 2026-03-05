@@ -56,6 +56,7 @@ ouro/
 │       ├── config.py       # pydantic-settings (all env vars)
 │       ├── agent/
 │       │   ├── oracle.py   # PydanticAI agent + _impl functions + process_job_fast (deterministic fast path)
+│       │   ├── dockerfile.py # Dockerfile parser → Apptainer .def converter, prebuilt alias map, content hashing
 │       │   ├── processor.py # Background job loop with fast path, retry logic, credit issuance
 │       │   ├── loop.py     # Autonomous monitoring loop (wallet, pricing, heartbeat)
 │       │   └── event_bus.py # Pub/sub for SSE events
@@ -114,7 +115,8 @@ ouro/
 │       │   └── OutputDisplay.tsx
 │       └── lib/
 │           ├── api.ts          # Client-side fetch helpers
-│           └── admin-auth.ts   # JWT sign/verify helpers, cookie name constant
+│           ├── admin-auth.ts   # JWT sign/verify helpers, cookie name constant
+│           └── dockerfile.ts   # Lightweight Dockerfile parser for UI validation and display
 ├── contracts/              # Foundry Solidity project
 │   ├── foundry.toml
 │   ├── src/ProofOfCompute.sol
@@ -154,6 +156,7 @@ ouro/
 - **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
 - **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Apptainer container isolation.
 - **Apptainer** — Container isolation for user scripts on Slurm workers. Base image is ubuntu:22.04 stored at `/ouro-jobs/images/base.sif`.
+- **Dockerfile → Apptainer** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`), converts to Apptainer `.def` files, and builds/caches images. Prebuilt aliases (`base`, `python312`, `node20`, `pytorch`, `r-base`) run instantly; custom images from Docker Hub are pulled and cached by SHA256 at `/ouro-jobs/images/custom/`.
 
 ## Data Flow
 
@@ -161,35 +164,45 @@ ouro/
 
 | Mode | Body Fields | Description |
 |------|-------------|-------------|
-| **Script** | `script` | Single shell script string — internally normalized to a one-file workspace with `job.sh` as entrypoint |
-| **Multi-File** | `files: [{path, content}]`, `entrypoint`, `image` | Multiple files written to NFS workspace, executed via Apptainer |
+| **Script** | `script` | Single shell script string — normalized to workspace with `job.sh` |
+| **Multi-File** | `files: [{path, content}]` | Multiple files including a `Dockerfile` that defines the environment (FROM, RUN, ENTRYPOINT). If no Dockerfile, `entrypoint` and `image` fields required. |
 
 The API accepts either format, but internally all submissions are normalized to a unified workspace model via `to_workspace_files()`. A single `script` string becomes `[{path: "job.sh", content: script}]` with `entrypoint="job.sh"`. This means there is ONE code path through the entire pipeline — every job gets a workspace on NFS with an entrypoint.
 
-All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`. Container image selection via `image` field (default: `"base"` = Ubuntu 22.04). Allowed: `base`, `python312`, `node20`, `pytorch`, `r-base`.
+All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`.
+
+**Dockerfile-based environments:** Include a file named `Dockerfile` in `files` to configure the compute environment:
+- `FROM` selects the base image (prebuilt alias or Docker Hub image)
+- `RUN` installs dependencies (built once, cached by content hash)
+- `ENTRYPOINT` or `CMD` defines what to execute
+- Build time is infrastructure overhead, doesn't count toward `time_limit_min`
+- `COPY`/`ADD` are silently ignored (workspace is bind-mounted read-only at `/workspace`)
+- Prebuilt aliases: `base` (Ubuntu 22.04), `python312`, `node20`, `pytorch`, `r-base`
+- Without a Dockerfile, use `entrypoint` and `image` fields directly (backward compat for MCP/SDK)
 
 ### Job Submission (via Dashboard)
-1. User writes script on `/submit` (Script tab) or adds multiple files (Multi-File tab), connects wallet via RainbowKit
-2. Dashboard sends POST to `/api/proxy/submit` with x402 payment signature
-3. Proxy forwards to agent's `POST /api/compute/submit`
-4. Agent verifies x402 payment via CDP facilitator
-5. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
-6. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
-7. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
-8. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → cleanup workspace → proof)
-9. On completion, job moved to `historical_data`, proof posted on-chain
+1. User picks a template on `/submit` (each ships a Dockerfile + source files) or writes files from scratch, connects wallet via RainbowKit
+2. Dockerfile defines FROM image, RUN deps, and ENTRYPOINT/CMD. Dashboard validates Dockerfile (must have FROM + ENTRYPOINT/CMD) before enabling submit
+3. Dashboard sends POST to `/api/proxy/submit` with x402 payment signature
+4. Proxy forwards to agent's `POST /api/compute/submit`
+5. Agent verifies x402 payment via CDP facilitator
+6. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
+7. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
+8. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
+9. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace → proof)
+10. On completion, job moved to `historical_data`, proof posted on-chain
 
 ### Job Submission (via MCP — Browser Flow)
-1. AI agent calls `run_compute_job` MCP tool (with `script` or `files`+`entrypoint`)
+1. AI agent calls `run_compute_job` MCP tool (with `script` or `files` — `files` can include a Dockerfile; `entrypoint`/`image` optional when Dockerfile present)
 2. MCP server creates payment session via `POST {AGENT_URL}/api/sessions` (stores `job_payload` JSONB for non-script modes)
 3. Returns payment URL: `https://dashboard.../pay/{sessionId}`
-4. User opens link, connects wallet — pay page shows mode-appropriate summary (script preview or file count/entrypoint/image)
+4. User opens link, connects wallet — pay page shows FROM image from Dockerfile if present, or file count/entrypoint summary
 5. Pay page submits to `POST /api/proxy/submit/from-session` with just `{session_id, submitter_address}` + payment header (no large payload re-sent)
 6. Agent reads `session.job_payload`, normalizes via `to_workspace_files()`, creates workspace, creates job, marks session paid
 7. AI agent polls with `get_job_status(session_id)` to get results
 
 ### Job Submission (via MCP — Autonomous Flow)
-1. AI agent calls `get_payment_requirements` MCP tool with job details (script or files)
+1. AI agent calls `get_payment_requirements` MCP tool with job details (script or files — `files` can include a Dockerfile)
 2. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` without payment → receives 402 + `PAYMENT-REQUIRED` header
 3. Returns price + raw payment header to calling agent
 4. Calling agent decodes header with its x402 library, signs USDC payment locally
@@ -259,7 +272,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
-ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Comma-separated image allowlist
+ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Prebuilt Apptainer image aliases for instant use. Custom Docker Hub images also supported via Dockerfile FROM (built/cached on demand)
 ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
@@ -388,13 +401,14 @@ Set the resulting address as `PROOF_CONTRACT_ADDRESS`.
 ### Oracle Agent Tools (PydanticAI)
 
 1. `validate_request` — Checks workspace_path + entrypoint non-empty, nodes 1-16, time 1-60min (no mode branching)
-2. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint, updates DB status to `running`
-3. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
-4. `submit_onchain_proof` — Hashes output, calls ProofOfCompute.submitProof(), logs gas cost + attribution
+2. `build_image_if_needed` — Parses Dockerfile (if present in `deps.dockerfile_content`), resolves image via three paths: (a) prebuilt alias → use `/ouro-jobs/images/{alias}.sif` instantly, (b) Dockerfile with RUN/ENV → convert to `.def`, send to proxy `POST /image/build`, cache by SHA256, (c) Docker Hub image → proxy pulls and builds. Mutates `deps.sif_path` and `deps.entrypoint_cmd`. Skips if no Dockerfile (legacy path).
+3. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint (and optional `sif_path` + `entrypoint_cmd` from Dockerfile), updates DB status to `running`
+4. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
+5. `submit_onchain_proof` — Hashes output, calls ProofOfCompute.submitProof(), logs gas cost + attribution
 
 ### OracleDeps
 
-The `OracleDeps` dataclass passed to the oracle agent has been simplified for the unified workspace model. Removed fields: `submission_mode`, `script`, `workspace_cleanup_needed`. The `workspace_path` and `entrypoint` fields are now required strings (never None), since every submission creates a workspace.
+The `OracleDeps` dataclass passed to the oracle agent has been simplified for the unified workspace model. Removed fields: `submission_mode`, `script`, `workspace_cleanup_needed`. The `workspace_path` and `entrypoint` fields are now required strings (never None), since every submission creates a workspace. Dockerfile-related fields: `dockerfile_content: str | None` (raw Dockerfile text), `sif_path: str | None` (built image path, set by `build_image_if_needed`), `entrypoint_cmd: list[str] | None` (exec-form command extracted from Dockerfile ENTRYPOINT/CMD).
 
 ### x402 Payment Flow
 
@@ -410,7 +424,7 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], entrypoint, image, nodes, time_limit_min}` (multi-file mode). Optional header: `X-BUILDER-CODE`. |
+| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Agent validates Dockerfile syntax (422 on invalid). Optional header: `X-BUILDER-CODE`. |
 | `POST` | `/api/compute/submit/from-session` | x402 payment | Session-based submit for pay page. Body: `{session_id, submitter_address}`. Reads job params from session's `job_payload`. |
 | `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
@@ -438,8 +452,9 @@ Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env va
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Always requires `workspace_path` + `entrypoint`. Has a transition fallback for legacy `script` payloads (converts to workspace internally). Optional `image` field for custom container. |
+| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Always requires `workspace_path` + `entrypoint`. Accepts optional `sif_path` (pre-built image path from Dockerfile) and `entrypoint_cmd` (exec-form command). Has a transition fallback for legacy `script` payloads (converts to workspace internally). |
 | `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
+| `POST` | `/slurm/v0.0.38/image/build` | `X-SLURM-USER-TOKEN` header | Build Apptainer image from `.def` file content. Caches by SHA256 content hash at `/ouro-jobs/images/custom/`. Returns `{sif_path, cached, build_time_s}`. Per-hash locking prevents duplicate builds. 5-minute timeout. |
 | `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}/output` | `X-SLURM-USER-TOKEN` header | Get stdout, stderr, and SHA-256 output hash. |
@@ -532,10 +547,10 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 ```
 
 MCP tools:
-- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`+`entrypoint`.
+- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`. Include a `Dockerfile` in `files` for custom environments; `entrypoint`/`image` optional when Dockerfile present.
 - `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
 - `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
-- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing
+- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing. `files` can include a Dockerfile.
 - `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)
 - `get_allowed_images()` → Returns available container images (base, python312, node20, pytorch, r-base)
 - `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access
@@ -612,6 +627,10 @@ Ouro is discoverable by autonomous agents through multiple channels:
 - **Oracle agent timeout**: Wrapped in `asyncio.wait_for(..., timeout=900)` to prevent infinite hangs.
 - **Slurm poll errors**: `poll_slurm_status` wraps `get_job_status()` in try/except so transient network errors don't crash the run.
 - **Dashboard Docker build needs native toolchain**: `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
+- **Dockerfile COPY/ADD silently ignored** — user workspace is bind-mounted at `/workspace`, not built into the image. Files must be in the workspace `files` list.
+- **ARG substitution not supported** in user Dockerfiles — only FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD are processed.
+- **Build time for custom images** doesn't count toward `time_limit_min` — it's infrastructure overhead handled before Slurm submission.
+- **Custom image cache** at `/ouro-jobs/images/custom/` has no automatic cleanup yet — images accumulate.
 
 ## Companion Documentation
 

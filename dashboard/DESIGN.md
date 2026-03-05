@@ -193,6 +193,20 @@ Status color mapping:
 - `completed` → green
 - `failed` → red
 
+### Submit Page (`/submit`)
+
+The submit page uses a file-based workspace model with Dockerfiles for environment configuration.
+
+**Templates**: Each template is `{name, desc, files: [{path, content}]}` where files always include a Dockerfile. Templates define FROM image, RUN deps, and ENTRYPOINT/CMD. Users can modify templates or start from scratch.
+
+**FileExplorer**: Tree sidebar listing workspace files. Dockerfile gets a container icon (blue). Dockerfile cannot be renamed or deleted. Double-click other files to rename. New files added via button.
+
+**CodeEditor**: Monaco editor with custom Ouro dark theme. Detects `Dockerfile` filename → `dockerfile` language mode for syntax highlighting. Other files get language detection by extension.
+
+**StickySubmitBar**: Bottom bar showing FROM image + entrypoint parsed from Dockerfile (via `dashboard/src/lib/dockerfile.ts`), node count, time limit, and live price estimate. `canSubmit` requires: wallet connected + valid Dockerfile (must have FROM + ENTRYPOINT/CMD). Submit triggers x402 payment flow.
+
+**Configuration card**: Nodes slider (1-16), time limit slider (1-60 min), optional builder code input. No image dropdown — the environment is configured entirely via the Dockerfile's FROM line.
+
 ### Empty States
 
 Centered in card with descriptive text and a CTA button:

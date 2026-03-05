@@ -23,7 +23,7 @@ Restart Cursor. Ask the agent to run a compute job. It returns a one-time paymen
 ## How It Works
 
 1. You ask your AI agent: *"Run `echo hello world` on the Ouro cluster"*
-2. Agent calls `run_compute_job` — gets back a payment link + price
+2. Agent calls `run_compute_job` — gets back a payment link + price. The `files` list can include a Dockerfile that defines the environment (base image, dependencies, entrypoint).
 3. Agent shows you the link. You open it in your browser.
 4. Payment page: connect MetaMask, approve USDC payment on Base
 5. Job runs on the Slurm cluster. Agent gets stdout, stderr, and an on-chain proof.
@@ -35,7 +35,7 @@ AI agents with their own wallets can skip the browser entirely — see [Autonomo
 
 | Tool | Description |
 |---|---|
-| **run_compute_job** | Submit a job. Returns payment link + session_id. User pays in browser. |
+| **run_compute_job** | Submit a job with `script` or `files` (include a Dockerfile for custom environments). Returns payment link + session_id. User pays in browser. |
 | **get_job_status** | Poll a job or session by ID. Returns output + proof when complete. |
 | **get_price_quote** | Check pricing without paying. |
 | **get_payment_requirements** | Get x402 payment header for autonomous signing (step 1 of agent flow). |
@@ -55,9 +55,9 @@ AI agents with their own wallets can skip the browser entirely — see [Autonomo
 
 For AI agents with their own x402-capable wallets (no human in the loop):
 
-1. Agent calls `get_payment_requirements(script, nodes, time_limit_min)` — gets price + `payment_required_header`
+1. Agent calls `get_payment_requirements(script, nodes, time_limit_min)` (or `files=[...]` with a Dockerfile — no separate `image`/`entrypoint` needed) — gets price + `payment_required_header`
 2. Agent decodes the header with its x402 library and signs the USDC payment locally
-3. Agent calls `submit_and_pay(script, payment_signature, nodes, time_limit_min)` — job is created
+3. Agent calls `submit_and_pay(payment_signature, ...)` with the same job params — job is created
 4. Agent calls `get_job_status(job_id)` to poll for results
 5. **No private keys are sent to the MCP server — only the opaque payment signature.**
 
