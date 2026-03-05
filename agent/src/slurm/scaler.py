@@ -49,11 +49,11 @@ class ScalingEvent:
 class AutoScaler:
     """Decides when to boot/terminate GCP spot instances based on demand."""
 
-    # Tier definitions: (prefix, max_cpus, template_name)
+    # Tier definitions: (prefix, max_cpus, count, template_name)
     TIERS = [
-        ("ouro-spot-sm-", 2, "ouro-spot-sm-template"),
-        ("ouro-spot-md-", 4, "ouro-spot-md-template"),
-        ("ouro-spot-lg-", 8, "ouro-spot-lg-template"),
+        ("ouro-spot-sm-", 2, 10, "ouro-spot-sm-template"),
+        ("ouro-spot-md-", 4, 5, "ouro-spot-md-template"),
+        ("ouro-spot-lg-", 8, 3, "ouro-spot-lg-template"),
     ]
 
     def __init__(self) -> None:
@@ -86,11 +86,10 @@ class AutoScaler:
                 self._booting.pop(name)
 
         # --- Scale OUT ---
-        # Enforce max spot nodes cap
+        # Enforce max spot nodes cap (count only visible, non-DOWN spot nodes)
         active_spot = sum(
             1 for n in cloud_nodes
             if n["name"].startswith("ouro-spot-")
-            and "CLOUD" not in n.get("state", [])
             and "DOWN" not in n.get("state", [])
         ) + len(self._booting)
         if active_spot >= settings.SCALING_MAX_SPOT_NODES:
@@ -144,22 +143,23 @@ class AutoScaler:
     def _pick_node_for_cpus(
         self, cpus_needed: int, all_nodes: list[dict]
     ) -> tuple[str | None, str | None]:
-        """Find the smallest CLOUD node that fits the CPU request."""
-        for prefix, max_cpus, template in self.TIERS:
+        """Find the smallest unprovisioned spot node that fits the CPU request.
+
+        FUTURE nodes are invisible to sinfo, so we enumerate all possible nodes
+        from TIERS config and exclude any already visible in the cluster info.
+        """
+        visible_names = {n["name"] for n in all_nodes}
+        for prefix, max_cpus, count, template in self.TIERS:
             if cpus_needed <= max_cpus:
-                candidates = [
-                    n["name"] for n in all_nodes
-                    if n["name"].startswith(prefix)
-                    and "CLOUD" in n.get("state", [])
-                ]
-                candidates.sort(key=lambda n: int(re.search(r"\d+$", n).group()))
-                if candidates:
-                    return candidates[0], template
+                for i in range(1, count + 1):
+                    name = f"{prefix}{i}"
+                    if name not in visible_names and name not in self._booting:
+                        return name, template
         return None, None
 
     def _cpus_for_node(self, node_name: str) -> int:
         """Return expected CPU count for a node based on its tier prefix."""
-        for prefix, max_cpus, _ in self.TIERS:
+        for prefix, max_cpus, _count, _template in self.TIERS:
             if node_name.startswith(prefix):
                 return max_cpus
         return 2

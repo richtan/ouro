@@ -43,7 +43,7 @@ class DockerfileParsed:
     needs_build: bool = False
 
 
-def parse_dockerfile(content: str) -> DockerfileParsed:
+def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> DockerfileParsed:
     """Parse Dockerfile content into a structured representation.
 
     Supports: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD.
@@ -107,8 +107,8 @@ def parse_dockerfile(content: str) -> DockerfileParsed:
     if not from_image:
         raise ValueError("Dockerfile must have a FROM instruction")
 
-    # Resolve entrypoint
-    resolved_entrypoint = _resolve_entrypoint(entrypoint, cmd)
+    # Resolve entrypoint (skip if caller provides external entrypoint)
+    resolved_entrypoint = _resolve_entrypoint(entrypoint, cmd, require=require_entrypoint)
 
     # Determine needs_build
     is_alias = from_image in PREBUILT_ALIASES
@@ -227,15 +227,20 @@ def _parse_env(args: str, env_vars: dict[str, str]) -> None:
 def _resolve_entrypoint(
     entrypoint: list[str] | None,
     cmd: list[str] | None,
+    *,
+    require: bool = True,
 ) -> list[str]:
     """Resolve the effective entrypoint command.
 
     - If ENTRYPOINT is set, use it (ignore CMD)
     - If only CMD is set, use CMD as entrypoint
-    - If neither → raise ValueError
+    - If neither and require=True → raise ValueError
+    - If neither and require=False → return [] (caller provides external entrypoint)
     """
     if entrypoint:
         return entrypoint
     if cmd:
         return cmd
-    raise ValueError("Dockerfile must specify ENTRYPOINT or CMD")
+    if require:
+        raise ValueError("Dockerfile must specify ENTRYPOINT or CMD")
+    return []

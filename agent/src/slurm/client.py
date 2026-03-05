@@ -130,13 +130,11 @@ class SlurmClient:
             total = len(nodes)
             idle = sum(1 for n in nodes if "IDLE" in n.get("state", []))
             allocated = sum(1 for n in nodes if "ALLOCATED" in n.get("state", []))
-            cloud = sum(1 for n in nodes if "CLOUD" in n.get("state", []))
 
-            # CPU-level capacity (for core-level allocation)
+            # CPU-level capacity (only count non-DOWN nodes; FUTURE nodes are invisible)
             total_cpus = sum(
                 n.get("cpus", 0) for n in nodes
-                if "CLOUD" not in n.get("state", [])
-                and "DOWN" not in n.get("state", [])
+                if "DOWN" not in n.get("state", [])
             )
             available_cpus = sum(
                 n.get("cpus", 0) for n in nodes if "IDLE" in n.get("state", [])
@@ -149,7 +147,6 @@ class SlurmClient:
                 "total_nodes": total,
                 "idle_nodes": idle,
                 "allocated_nodes": allocated,
-                "cloud_nodes": cloud,
                 "total_cpus": total_cpus,
                 "available_cpus": available_cpus,
                 "nodes_detail": nodes,
@@ -159,7 +156,7 @@ class SlurmClient:
             logger.warning("slurm_cluster_info_failed: %s", e)
             return {
                 "total_nodes": 0, "idle_nodes": 0, "allocated_nodes": 0,
-                "cloud_nodes": 0, "total_cpus": 0, "available_cpus": 0,
+                "total_cpus": 0, "available_cpus": 0,
                 "nodes_detail": [], "status": "unreachable",
             }
 

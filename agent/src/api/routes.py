@@ -396,7 +396,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if dockerfile_content:
         from src.agent.dockerfile import parse_dockerfile
         try:
-            parse_dockerfile(dockerfile_content)
+            parse_dockerfile(dockerfile_content, require_entrypoint=not body.entrypoint)
         except ValueError as e:
             raise HTTPException(422, f"Invalid Dockerfile: {e}")
 

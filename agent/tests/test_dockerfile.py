@@ -107,6 +107,13 @@ class TestParseEntrypoint:
         with pytest.raises(ValueError, match="ENTRYPOINT or CMD"):
             parse_dockerfile("FROM base")
 
+    def test_no_entrypoint_no_cmd_not_required(self):
+        """When require_entrypoint=False, missing ENTRYPOINT/CMD returns empty list."""
+        parsed = parse_dockerfile("FROM python:3.12-slim\nRUN pip install cowsay\nWORKDIR /workspace", require_entrypoint=False)
+        assert parsed.from_image == "python:3.12-slim"
+        assert parsed.entrypoint_cmd == []
+        assert parsed.needs_build
+
     def test_no_from(self):
         with pytest.raises(ValueError, match="FROM"):
             parse_dockerfile('ENTRYPOINT ["bash", "job.sh"]')

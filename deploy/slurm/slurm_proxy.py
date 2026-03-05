@@ -120,9 +120,12 @@ def _validate_workspace_file_path(workspace_path: str, rel_path: str) -> str:
 def _validate_and_write_file(workspace_path: str, rel_path: str, content: str) -> None:
     """Validate path and write file content to workspace."""
     abs_path = _validate_workspace_file_path(workspace_path, rel_path)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    parent = os.path.dirname(abs_path)
+    os.makedirs(parent, exist_ok=True)
+    os.chmod(parent, 0o755)
     with open(abs_path, "w") as f:
         f.write(content)
+    os.chmod(abs_path, 0o644)
 
 
 def wrap_in_apptainer(
@@ -222,11 +225,12 @@ async def submit_job(
             script = "#!/bin/bash\n" + script
         ws_id = str(uuid.uuid4())
         workspace_path = os.path.join(WORKSPACE_BASE_DIR, ws_id)
-        os.makedirs(workspace_path, mode=0o700, exist_ok=True)
-        os.chmod(workspace_path, 0o700)
+        os.makedirs(workspace_path, mode=0o755, exist_ok=True)
+        os.chmod(workspace_path, 0o755)
         script_path = os.path.join(workspace_path, "job.sh")
         with open(script_path, "w") as sf:
             sf.write(script)
+        os.chmod(script_path, 0o644)
         entrypoint = "job.sh"
 
     sif_path = body.get("sif_path")
@@ -453,8 +457,8 @@ async def create_workspace(
     if os.path.exists(workspace_path):
         return {"workspace_path": workspace_path, "reused": True}
 
-    os.makedirs(workspace_path, mode=0o700, exist_ok=True)
-    os.chmod(workspace_path, 0o700)
+    os.makedirs(workspace_path, mode=0o755, exist_ok=True)
+    os.chmod(workspace_path, 0o755)
 
     try:
         if mode == "multi_file":

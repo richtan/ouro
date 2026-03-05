@@ -82,7 +82,6 @@ async def test_scale_out_when_no_capacity(scaler):
     cluster = _make_cluster_info(
         nodes=[
             _make_node("ouro-worker-1", "ALLOCATED"),
-            _make_node("ouro-spot-sm-1", "CLOUD"),
         ],
         available_cpus=0,
     )
@@ -140,34 +139,43 @@ async def test_idle_tracking_cleanup(scaler, mock_db):
 
 
 def test_pick_node_small_cpu(scaler):
-    nodes = [_make_node("ouro-spot-sm-1", "CLOUD")]
+    """FUTURE nodes are invisible; pick first unprovisioned sm node."""
+    nodes = [_make_node("ouro-worker-1", "IDLE")]  # Only static nodes visible
     name, template = scaler._pick_node_for_cpus(1, nodes)
     assert name == "ouro-spot-sm-1"
     assert template == "ouro-spot-sm-template"
 
 
 def test_pick_node_medium_cpu(scaler):
-    nodes = [
-        _make_node("ouro-spot-sm-1", "CLOUD"),
-        _make_node("ouro-spot-md-1", "CLOUD", cpus=4),
-    ]
+    """3 CPUs need a medium node; all sm nodes are too small."""
+    nodes = [_make_node("ouro-worker-1", "IDLE")]
     name, template = scaler._pick_node_for_cpus(3, nodes)
     assert name == "ouro-spot-md-1"
     assert template == "ouro-spot-md-template"
 
 
 def test_pick_node_large_cpu(scaler):
-    nodes = [_make_node("ouro-spot-lg-1", "CLOUD", cpus=8)]
+    """6 CPUs need a large node."""
+    nodes = [_make_node("ouro-worker-1", "IDLE")]
     name, template = scaler._pick_node_for_cpus(6, nodes)
     assert name == "ouro-spot-lg-1"
     assert template == "ouro-spot-lg-template"
 
 
 def test_pick_node_no_candidates(scaler):
-    nodes = [_make_node("ouro-spot-sm-1", "ALLOCATED")]
-    name, template = scaler._pick_node_for_cpus(1, nodes)
+    """When CPU request exceeds all tier capacities, return None."""
+    nodes = [_make_node("ouro-worker-1", "IDLE")]
+    name, template = scaler._pick_node_for_cpus(16, nodes)  # No tier has 16 CPUs
     assert name is None
     assert template is None
+
+
+def test_pick_node_skips_visible(scaler):
+    """When all sm nodes are already visible, falls through to md tier."""
+    nodes = [_make_node(f"ouro-spot-sm-{i}", "ALLOCATED") for i in range(1, 11)]
+    name, template = scaler._pick_node_for_cpus(1, nodes)
+    assert name == "ouro-spot-md-1"
+    assert template == "ouro-spot-md-template"
 
 
 # --- Max spot cap ---

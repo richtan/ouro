@@ -184,8 +184,9 @@ async def build_image_if_needed(deps: OracleDeps) -> None:
         parse_dockerfile,
     )
 
-    parsed = parse_dockerfile(deps.dockerfile_content)
-    deps.entrypoint_cmd = parsed.entrypoint_cmd
+    has_external_entrypoint = bool(deps.entrypoint)
+    parsed = parse_dockerfile(deps.dockerfile_content, require_entrypoint=not has_external_entrypoint)
+    deps.entrypoint_cmd = parsed.entrypoint_cmd or None
 
     if not parsed.needs_build:
         # Prebuilt alias, no RUN → use prebuilt .sif directly
