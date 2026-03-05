@@ -18,6 +18,10 @@ interface Job {
   output_text: string | null;
   submitter_address: string | null;
   retry_count: number | null;
+  mode?: string;
+  entrypoint?: string;
+  file_count?: number;
+  image?: string;
 }
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
@@ -26,6 +30,14 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
+};
+
+const IMAGE_LABELS: Record<string, string> = {
+  base: "Ubuntu 22.04",
+  python312: "Python 3.12",
+  node20: "Node.js 20",
+  pytorch: "PyTorch",
+  "r-base": "R 4.4",
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -53,7 +65,12 @@ function JobRow({ job }: { job: Job }) {
       >
         <span className="font-mono text-xs text-o-blueText truncate">{job.id.slice(0, 12)}</span>
         <span className="font-mono text-xs text-o-muted">{job.slurm_job_id ?? "—"}</span>
-        <StatusBadge status={job.status} />
+        <span className="flex items-center gap-1.5">
+          <StatusBadge status={job.status} />
+          {job.mode === "multi_file" && (
+            <span className="text-[10px] text-o-blueText bg-o-blue/10 px-1 py-0.5 rounded">MF</span>
+          )}
+        </span>
         <span className="font-mono text-xs text-o-green text-right">${(job.price_usdc ?? 0).toFixed(4)}</span>
         <span className="font-mono text-xs text-o-textSecondary text-right">
           {job.compute_duration_s != null ? `${job.compute_duration_s.toFixed(1)}s` : "—"}
@@ -81,6 +98,11 @@ function JobRow({ job }: { job: Job }) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-mono text-xs text-o-blueText">{job.id.slice(0, 8)}</span>
             <StatusBadge status={job.status} />
+            {job.mode === "multi_file" && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider bg-o-blue/10 text-o-blueText">
+                multi-file
+              </span>
+            )}
           </div>
           <svg
             width="14"
@@ -100,6 +122,9 @@ function JobRow({ job }: { job: Job }) {
             <span className="font-mono text-xs text-o-textSecondary">{job.compute_duration_s.toFixed(1)}s</span>
           )}
           <span className="text-xs text-o-muted">{ts}</span>
+          {job.image && job.image !== "base" && (
+            <span className="text-xs text-o-muted">{IMAGE_LABELS[job.image] ?? job.image}</span>
+          )}
         </div>
       </button>
 
@@ -123,6 +148,31 @@ function JobRow({ job }: { job: Job }) {
               <div className="font-mono text-xs text-o-red">${(job.gas_paid_usd ?? 0).toFixed(6)}</div>
             </div>
           </div>
+
+          {/* Mode-specific details */}
+          {job.mode === "multi_file" && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {job.entrypoint && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Entrypoint</div>
+                  <div className="font-mono text-xs text-o-text">{job.entrypoint}</div>
+                </div>
+              )}
+              {job.file_count != null && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Files</div>
+                  <div className="font-mono text-xs text-o-text">{job.file_count}</div>
+                </div>
+              )}
+              {job.image && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Image</div>
+                  <div className="font-mono text-xs text-o-text">{IMAGE_LABELS[job.image] ?? job.image}</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {job.retry_count != null && job.retry_count > 0 && (
             <div className="text-xs text-o-amber">
               Retries: {job.retry_count}

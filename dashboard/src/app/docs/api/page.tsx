@@ -23,6 +23,25 @@ const CURL_SUBMIT = `${CURL_SUBMIT_CMD}
 # Response: 200 OK
 # Body: { "job_id": "a1b2c3d4-...", "status": "pending", "price": "$0.0841" }`;
 
+const CURL_MULTIFILE_CMD = `curl -X POST https://api.ourocompute.com/api/compute/submit \\
+  -H "Content-Type: application/json" \\
+  -H "payment-signature: <your-signed-x402-payment>" \\
+  -d '{
+    "files": [
+      {"path": "main.py", "content": "from utils import greet\\ngreet()"},
+      {"path": "utils.py", "content": "def greet():\\n    print(\\"hello\\")"}
+    ],
+    "entrypoint": "python main.py",
+    "image": "python312",
+    "nodes": 1,
+    "time_limit_min": 5
+  }'`;
+
+const CURL_MULTIFILE = `${CURL_MULTIFILE_CMD}
+
+# Response: 200 OK
+# Body: { "job_id": "e5f6g7h8-...", "status": "pending", "price": "$0.0841" }`;
+
 const CURL_STATUS_CMD = `curl https://api.ourocompute.com/api/jobs/{job_id}`;
 
 const CURL_STATUS = `${CURL_STATUS_CMD}
@@ -68,10 +87,16 @@ export default function ApiPage() {
               {CURL_402}
             </CodeBlock>
           </StepCard>
-          <StepCard number={2} title="Sign and submit">
+          <StepCard number={2} title="Sign and submit (script mode)">
             <CodeBlock filename="terminal" language="bash" copyText={CURL_SUBMIT_CMD}>
               {CURL_SUBMIT}
             </CodeBlock>
+            <div className="mt-4">
+              <p className="text-xs text-o-muted uppercase tracking-wider mb-2">Or use multi-file mode</p>
+              <CodeBlock filename="terminal" language="bash" copyText={CURL_MULTIFILE_CMD}>
+                {CURL_MULTIFILE}
+              </CodeBlock>
+            </div>
           </StepCard>
           <StepCard number={3} title="Poll for results" last>
             <CodeBlock filename="terminal" language="bash" copyText={CURL_STATUS_CMD}>
@@ -91,15 +116,23 @@ export default function ApiPage() {
             method="POST"
             path="/api/compute/submit"
             auth="x402"
-            description="Submit a compute job"
+            description="Submit a compute job (script or multi-file mode)"
           >
+            <p className="text-xs text-o-textSecondary mb-4">
+              Supports two submission modes: <strong className="text-o-text">script mode</strong> (single shell script string)
+              and <strong className="text-o-text">multi-file mode</strong> (array of files with an entrypoint command).
+              Provide either <code className="text-o-blueText">script</code> or <code className="text-o-blueText">files</code> + <code className="text-o-blueText">entrypoint</code>.
+            </p>
             <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Request Body</h4>
             <ParamTable
               params={[
-                { name: "script", type: "string", description: "Shell script to execute", required: true },
+                { name: "script", type: "string", description: "Shell script to execute (script mode)" },
+                { name: "files", type: "array", description: 'Array of {path, content} objects written to a workspace (multi-file mode)' },
+                { name: "entrypoint", type: "string", description: 'Command to run inside the workspace, e.g. "python main.py" (multi-file mode)' },
+                { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
                 { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-                { name: "submitter_address", type: "string", description: "Your wallet address for tracking (optional)" },
+                { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
               ]}
             />
             <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>
@@ -107,6 +140,49 @@ export default function ApiPage() {
               params={[
                 { name: "payment-signature", type: "string", description: "Signed x402 payment (omit for price quote)" },
                 { name: "X-BUILDER-CODE", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
+              ]}
+            />
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
+            path="/api/price"
+            description="Get a price quote without submitting a job"
+          >
+            <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Query Parameters</h4>
+            <ParamTable
+              params={[
+                { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+                { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
+                { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, or git (default: script)" },
+              ]}
+            />
+            <p className="text-xs text-o-textSecondary mt-3">
+              Returns <code className="text-o-blueText">price</code> (formatted string) and <code className="text-o-blueText">breakdown</code> (gas, LLM, compute cost components). Public endpoint, no authentication required.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="POST"
+            path="/api/compute/submit/from-session"
+            auth="x402"
+            description="Submit a job from a payment session"
+          >
+            <p className="text-xs text-o-textSecondary mb-4">
+              Used by the pay page for session-based payment flow. Job parameters are read from the
+              session&apos;s stored payload, so only the session ID is needed.
+            </p>
+            <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Request Body</h4>
+            <ParamTable
+              params={[
+                { name: "session_id", type: "string", description: "Payment session ID from MCP flow", required: true },
+                { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
+              ]}
+            />
+            <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>
+            <ParamTable
+              params={[
+                { name: "payment-signature", type: "string", description: "Signed x402 payment", required: true },
               ]}
             />
           </EndpointCard>
@@ -176,12 +252,17 @@ export default function ApiPage() {
           >
             <ParamTable
               params={[
-                { name: "script", type: "string", description: "Shell script to execute", required: true },
+                { name: "script", type: "string", description: "Shell script to execute (script mode, optional)" },
+                { name: "job_payload", type: "object", description: "Job parameters for non-script modes (files, entrypoint, image, etc.)" },
                 { name: "nodes", type: "int", description: "Number of compute nodes", required: true },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes", required: true },
                 { name: "price", type: "string", description: "Price string from quote", required: true },
               ]}
             />
+            <p className="text-xs text-o-textSecondary mt-3">
+              Provide either <code className="text-o-blueText">script</code> for script mode
+              or <code className="text-o-blueText">job_payload</code> for multi-file and other modes.
+            </p>
           </EndpointCard>
 
           <EndpointCard

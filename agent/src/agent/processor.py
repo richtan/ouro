@@ -216,17 +216,24 @@ async def _process_one_job(
         llm_cost_usd = 0.0
 
         async with session_maker() as db:
+            payload = job.payload or {}
+            mode = payload.get("submission_mode", "script")
             deps = OracleDeps(
                 job_id=str(job.id),
-                script=job.payload.get("script", ""),
-                partition=job.payload.get("partition", "default"),
-                nodes=job.payload.get("nodes", 1),
-                time_limit_min=job.payload.get("time_limit_min", 1),
+                submission_mode=mode,
+                script=payload.get("script", ""),
+                workspace_path=payload.get("workspace_path"),
+                entrypoint=payload.get("entrypoint"),
+                image=payload.get("image", "base"),
+                partition=payload.get("partition", "default"),
+                nodes=payload.get("nodes", 1),
+                time_limit_min=payload.get("time_limit_min", 1),
                 client_builder_code=job.client_builder_code,
                 slurm_client=slurm_client,
                 chain_client=chain_client,
                 db=db,
                 event_bus=event_bus,
+                workspace_cleanup_needed=mode in ("multi_file", "archive"),
             )
 
             job_result = await asyncio.wait_for(

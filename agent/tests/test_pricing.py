@@ -183,3 +183,37 @@ async def test_calculate_price_min_price_floor():
 
     quote = await calculate_price(db, requested_nodes=1, time_limit_min=1)
     assert quote.price_usd >= pricing.MIN_PRICE_USD
+
+
+async def test_calculate_price_multi_file_setup_cost():
+    """Multi-file mode includes setup cost in breakdown."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from src.api.pricing import SETUP_COST_BY_MODE, calculate_price
+
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    db.execute.return_value = mock_result
+
+    quote_script = await calculate_price(db, 1, 1, "script")
+    quote_multi = await calculate_price(db, 1, 1, "multi_file")
+
+    assert quote_multi.breakdown["setup_cost"] == pytest.approx(SETUP_COST_BY_MODE["multi_file"])
+    assert quote_multi.breakdown["submission_mode"] == "multi_file"
+    assert quote_multi.cost_floor_usd > quote_script.cost_floor_usd
+
+
+async def test_calculate_price_git_setup_cost():
+    """Git mode has higher setup cost than multi_file."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from src.api.pricing import SETUP_COST_BY_MODE, calculate_price
+
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    db.execute.return_value = mock_result
+
+    quote_git = await calculate_price(db, 1, 1, "git")
+    assert quote_git.breakdown["setup_cost"] == pytest.approx(SETUP_COST_BY_MODE["git"])

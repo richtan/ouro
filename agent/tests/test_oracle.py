@@ -21,7 +21,11 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
     def _factory(**overrides):
         defaults = dict(
             job_id="test-job-1",
+            submission_mode="script",
             script="echo hello",
+            workspace_path=None,
+            entrypoint=None,
+            image="base",
             partition="default",
             nodes=1,
             time_limit_min=1,
@@ -182,3 +186,52 @@ async def test_submit_proof_success(make_deps, mock_chain_client):
     assert "tx_hash=0xabc123" in result
     assert deps.captured_gas_cost_usd == 0.001
     mock_chain_client.submit_proof.assert_awaited_once()
+
+
+# --- Multi-file mode validation ---
+
+
+async def test_validate_multi_file_valid(make_deps):
+    result = await validate_request_impl(make_deps(
+        submission_mode="multi_file",
+        script="",
+        workspace_path="/ouro-jobs/workspaces/test",
+        entrypoint="main.py",
+    ))
+    assert result.startswith("VALID")
+
+
+async def test_validate_multi_file_missing_entrypoint(make_deps):
+    result = await validate_request_impl(make_deps(
+        submission_mode="multi_file",
+        script="",
+        workspace_path="/ouro-jobs/workspaces/test",
+        entrypoint=None,
+    ))
+    assert "INVALID" in result
+    assert "entrypoint" in result
+
+
+async def test_validate_multi_file_missing_workspace(make_deps):
+    result = await validate_request_impl(make_deps(
+        submission_mode="multi_file",
+        script="",
+        workspace_path=None,
+        entrypoint="main.py",
+    ))
+    assert "INVALID" in result
+    assert "workspace_path" in result
+
+
+async def test_fast_path_multi_file(make_deps, mock_slurm_client, mock_chain_client):
+    deps = make_deps(
+        submission_mode="multi_file",
+        script="",
+        workspace_path="/ouro-jobs/workspaces/test",
+        entrypoint="main.py",
+        workspace_cleanup_needed=True,
+    )
+    result = await process_job_fast(deps)
+    assert result.status == "completed"
+    mock_slurm_client.submit_job.assert_awaited_once()
+    mock_slurm_client.delete_workspace.assert_awaited_once()

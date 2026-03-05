@@ -66,7 +66,8 @@ class PaymentSession(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     status = Column(Text, nullable=False, server_default="pending")
-    script = Column(Text, nullable=False)
+    script = Column(Text, nullable=True)
+    job_payload = Column(JSONB)
     nodes = Column(Integer, nullable=False)
     time_limit_min = Column(Integer, nullable=False)
     price = Column(Text, nullable=False)

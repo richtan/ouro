@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     CDP_API_KEY_ID: str = ""
     CDP_API_KEY_SECRET: str = ""
 
+    # Container images
+    ALLOWED_IMAGES: str = "base,python312,node20,pytorch,r-base"
+
+    @property
+    def allowed_images_set(self) -> set[str]:
+        return {s.strip() for s in self.ALLOWED_IMAGES.split(",") if s.strip()}
+
     # Pricing
     PRICE_MARGIN_MULTIPLIER: float = 1.5
     MIN_PROFIT_PCT: float = 0.20

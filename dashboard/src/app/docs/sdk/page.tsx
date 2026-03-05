@@ -13,7 +13,7 @@ async def main():
         print(f"Price: {quote.price}")
 
         # Submit and wait for results (requires x402-capable HTTP client)
-        result = await ouro.run("echo hello world")
+        result = await ouro.run(script="echo hello world")
         print(f"Output: {result.output}")
         print(f"Proof: {result.proof_tx_hash}")
 
@@ -28,7 +28,39 @@ x402_client = httpx.AsyncClient(...)  # your x402-wrapped client
 
 async with OuroClient(client=x402_client) as ouro:
     # Payment is handled transparently by the x402 client
-    result = await ouro.run("python3 train.py --epochs 50", nodes=2, time_limit_min=30)`;
+    result = await ouro.run(script="python3 train.py --epochs 50", nodes=2, time_limit_min=30)`;
+
+const MULTIFILE_EXAMPLE = `from ouro_sdk import OuroClient
+
+async with OuroClient(client=x402_client) as ouro:
+    result = await ouro.run(
+        files=[
+            {"path": "train.py", "content": """
+import torch
+import torch.nn as nn
+from model import SimpleNet
+
+net = SimpleNet()
+print(f"Parameters: {sum(p.numel() for p in net.parameters())}")
+"""},
+            {"path": "model.py", "content": """
+import torch.nn as nn
+
+class SimpleNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(784, 10)
+
+    def forward(self, x):
+        return self.fc(x)
+"""},
+        ],
+        entrypoint="train.py",
+        image="pytorch",
+        nodes=1,
+        time_limit_min=5,
+    )
+    print(result.output)`;
 
 export default function SdkPage() {
   return (
@@ -70,6 +102,50 @@ export default function SdkPage() {
         </div>
       </section>
 
+      {/* Multi-file */}
+      <section className="mb-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">Multi-File Jobs</h2>
+        <p className="text-sm text-o-textSecondary mb-4">
+          For projects with multiple files, pass a{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            files
+          </span>{" "}
+          list and an{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            entrypoint
+          </span>{" "}
+          instead of a script. Each file is a dict with{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            path
+          </span>{" "}
+          and{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            content
+          </span>{" "}
+          keys. Use the{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            image
+          </span>{" "}
+          parameter to select a container environment.
+        </p>
+        <CodeBlock filename="multi_file.py" language="python" copyText={MULTIFILE_EXAMPLE}>
+          {MULTIFILE_EXAMPLE}
+        </CodeBlock>
+        <div className="mt-4">
+          <p className="text-xs text-o-textSecondary">
+            Available images:{" "}
+            {["base", "python312", "node20", "pytorch", "r-base"].map((img) => (
+              <span
+                key={img}
+                className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text mr-1.5"
+              >
+                {img}
+              </span>
+            ))}
+          </p>
+        </div>
+      </section>
+
       {/* Constructor */}
       <section className="border-t border-o-border pt-10 mb-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-4">
@@ -92,20 +168,40 @@ export default function SdkPage() {
         <div className="space-y-8">
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.run(script, nodes=1, time_limit_min=1)</span>
+              <span className="font-mono">await ouro.run(*, script?, files?, entrypoint?, image, nodes, time_limit_min)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
-              Submit a job and wait for completion. Returns a{" "}
+              Submit a job and wait for completion. Provide{" "}
+              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">script</span>{" "}
+              or{" "}
+              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">files</span>
+              {" "}+{" "}
+              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">entrypoint</span>.
+              Returns a{" "}
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">JobResult</span>.
             </p>
+            <ParamTable
+              params={[
+                { name: "script", type: "str | None", description: "Shell script string (mutually exclusive with files)" },
+                { name: "files", type: "list[dict] | None", description: 'List of {path, content} dicts (mutually exclusive with script)' },
+                { name: "entrypoint", type: "str | None", description: "File to execute when using files mode" },
+                { name: "image", type: "str", description: 'Container image (default: "base")' },
+                { name: "nodes", type: "int", description: "Number of nodes (default: 1)" },
+                { name: "time_limit_min", type: "int", description: "Time limit in minutes (default: 1)" },
+                { name: "submitter_address", type: "str | None", description: "Wallet address of the submitter" },
+                { name: "builder_code", type: "str | None", description: "ERC-8021 builder code for attribution" },
+              ]}
+            />
           </div>
 
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.submit(script, nodes=1, time_limit_min=1)</span>
+              <span className="font-mono">await ouro.submit(*, script?, files?, entrypoint?, image, nodes, time_limit_min)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
-              Submit a job without waiting. Returns the{" "}
+              Submit a job without waiting. Same parameters as{" "}
+              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">run()</span>.
+              Returns the{" "}
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">job_id</span> string.
             </p>
           </div>
@@ -132,10 +228,13 @@ export default function SdkPage() {
 
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.quote(nodes=1, time_limit_min=1)</span>
+              <span className="font-mono">await ouro.quote(nodes=1, time_limit_min=1, submission_mode=&quot;script&quot;)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
-              Get a price quote without submitting. Returns a{" "}
+              Get a price quote without submitting. Use{" "}
+              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">submission_mode</span>{" "}
+              to specify the job type ({`"script"`}, {`"multi_file"`}, {`"archive"`}, or {`"git"`}).
+              Returns a{" "}
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">Quote</span>.
             </p>
           </div>

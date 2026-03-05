@@ -10,8 +10,10 @@ import hmac
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
+import uuid
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -27,8 +29,18 @@ app = FastAPI(title="Ouro Slurm Proxy")
 
 OUTPUT_DIR = "/ouro-jobs/output"
 SCRIPTS_DIR = "/ouro-jobs/scripts"
+WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
+IMAGES_DIR = "/ouro-jobs/images"
 BASE_IMAGE = "/ouro-jobs/images/base.sif"
 APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/usr/local/bin/apptainer")
+
+ALLOWED_IMAGES = {
+    "base":      "base.sif",
+    "python312": "python312.sif",
+    "node20":    "node20.sif",
+    "pytorch":   "pytorch.sif",
+    "r-base":    "r-base.sif",
+}
 
 
 def check_auth(token: str | None):
@@ -62,20 +74,57 @@ def parse_time_limit(tl) -> str:
     return str(tl)
 
 
-def wrap_in_apptainer(user_script: str, job_name: str) -> tuple[str, str]:
+def resolve_image(name: str | None) -> str:
+    """Map image name to .sif path. Validates against allowlist and checks file exists."""
+    if not name or name == "base":
+        if not os.path.exists(BASE_IMAGE):
+            raise HTTPException(503, "Base container image missing")
+        return BASE_IMAGE
+    sif_file = ALLOWED_IMAGES.get(name)
+    if not sif_file:
+        raise HTTPException(400, f"Unknown image: {name}. Allowed: {', '.join(sorted(ALLOWED_IMAGES))}")
+    path = os.path.join(IMAGES_DIR, sif_file)
+    if not os.path.exists(path):
+        raise HTTPException(503, f"Container image '{name}' not available on this cluster")
+    return path
+
+
+def _validate_workspace_file_path(workspace_path: str, rel_path: str) -> str:
+    """Validate and return the absolute path for a workspace file. Raises HTTPException on violation."""
+    if "\x00" in rel_path:
+        raise HTTPException(400, "Null bytes in file path")
+    normalized = os.path.normpath(rel_path)
+    if normalized.startswith("..") or normalized.startswith("/"):
+        raise HTTPException(400, f"Invalid file path: {rel_path}")
+    if normalized.count(os.sep) > 5:
+        raise HTTPException(400, f"File path too deep: {rel_path}")
+    abs_path = os.path.realpath(os.path.join(workspace_path, normalized))
+    if not abs_path.startswith(os.path.realpath(workspace_path)):
+        raise HTTPException(400, f"Path traversal detected: {rel_path}")
+    return abs_path
+
+
+def _validate_and_write_file(workspace_path: str, rel_path: str, content: str) -> None:
+    """Validate path and write file content to workspace."""
+    abs_path = _validate_workspace_file_path(workspace_path, rel_path)
+    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    with open(abs_path, "w") as f:
+        f.write(content)
+
+
+def wrap_in_apptainer(user_script: str, job_name: str, image_name: str | None = None) -> tuple[str, str]:
     """Wrap user script in Apptainer container for isolation.
 
     Returns (wrapper_script, user_script_path) tuple.  The caller must
     clean up *both* temp files.
 
-    Raises HTTPException(503) if Apptainer or the base image is missing —
+    Raises HTTPException(503) if Apptainer or the container image is missing —
     we must never fall back to running user code on the bare host.
     """
-    if not APPTAINER_AVAILABLE or not os.path.exists(BASE_IMAGE):
-        raise HTTPException(
-            503,
-            "Container isolation unavailable (Apptainer or base image missing)",
-        )
+    if not APPTAINER_AVAILABLE:
+        raise HTTPException(503, "Container isolation unavailable (Apptainer missing)")
+
+    image_path = resolve_image(image_name)
 
     # Write user script to a temp file via Python — avoids heredoc injection
     with tempfile.NamedTemporaryFile(
@@ -89,11 +138,43 @@ def wrap_in_apptainer(user_script: str, job_name: str) -> tuple[str, str]:
 apptainer exec \\
     --contain --writable-tmpfs --no-home \\
     --bind "{user_script_path}":/job.sh:ro \\
-    {BASE_IMAGE} \\
+    --env HOME=/tmp \\
+    {image_path} \\
     bash /job.sh
 exit $?
 """
     return wrapper, user_script_path
+
+
+def wrap_in_apptainer_workspace(
+    workspace_path: str, entrypoint: str, job_name: str, image_name: str | None = None
+) -> str:
+    """Wrap a multi-file workspace execution in Apptainer container.
+
+    Returns wrapper script string. Workspace is bind-mounted read-only at /workspace.
+    """
+    if not APPTAINER_AVAILABLE:
+        raise HTTPException(503, "Container isolation unavailable (Apptainer missing)")
+
+    image_path = resolve_image(image_name)
+
+    normalized = os.path.normpath(entrypoint)
+    if normalized.startswith("..") or normalized.startswith("/") or "\x00" in entrypoint:
+        raise HTTPException(400, "Invalid entrypoint path")
+
+    ext = os.path.splitext(normalized)[1].lower()
+    executor = {".py": "python3", ".r": "Rscript", ".jl": "julia"}.get(ext, "bash")
+
+    return f"""#!/bin/bash
+set -euo pipefail
+apptainer exec \\
+    --contain --writable-tmpfs --no-home \\
+    --bind "{workspace_path}":/workspace:ro \\
+    --env HOME=/tmp \\
+    {image_path} \\
+    {executor} /workspace/{normalized}
+exit $?
+"""
 
 
 @app.post("/slurm/v0.0.37/job/submit")
@@ -105,9 +186,8 @@ async def submit_job(
     body = await request.json()
     logger.info("Job submit payload: %s", json.dumps(body)[:500])
 
-    script = body.get("script", "#!/bin/bash\necho hello")
-    if not script.startswith("#!"):
-        script = "#!/bin/bash\n" + script
+    submission_mode = body.get("submission_mode", "script")
+    image_name = body.get("image")
 
     job = body.get("job", {})
     partition = "compute"
@@ -116,7 +196,21 @@ async def submit_job(
     time_limit = parse_time_limit(job.get("time_limit", "5"))
     cwd = job.get("current_working_directory", "/tmp")
 
-    wrapper_script, user_script_path = wrap_in_apptainer(script, name)
+    cleanup_paths = []
+
+    if submission_mode == "multi_file":
+        workspace_path = body.get("workspace_path")
+        entrypoint = body.get("entrypoint")
+        if not workspace_path or not entrypoint:
+            raise HTTPException(400, "workspace_path and entrypoint required for multi_file mode")
+        wrapper_script = wrap_in_apptainer_workspace(workspace_path, entrypoint, name, image_name)
+    else:
+        # Default script mode
+        script = body.get("script", "#!/bin/bash\necho hello")
+        if not script.startswith("#!"):
+            script = "#!/bin/bash\n" + script
+        wrapper_script, user_script_path = wrap_in_apptainer(script, name, image_name)
+        cleanup_paths.append(user_script_path)
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".sh", delete=False, dir="/tmp"
@@ -124,10 +218,11 @@ async def submit_job(
         f.write(wrapper_script)
         wrapper_path = f.name
     os.chmod(wrapper_path, 0o755)
+    cleanup_paths.append(wrapper_path)
 
     logger.info(
-        "Submitting: partition=%s name=%s nodes=%s time=%s isolation=apptainer",
-        partition, name, nodes, time_limit,
+        "Submitting: partition=%s name=%s nodes=%s time=%s mode=%s isolation=apptainer",
+        partition, name, nodes, time_limit, submission_mode,
     )
 
     try:
@@ -146,13 +241,13 @@ async def submit_job(
             ]
         )
         job_id = int(result.strip())
-        logger.info("Job submitted: %d (isolation: apptainer)", job_id)
+        logger.info("Job submitted: %d (mode=%s, isolation: apptainer)", job_id, submission_mode)
         return {"job_id": job_id, "step_id": "batch", "error_code": 0, "error": ""}
     except Exception as e:
         logger.error("Submit failed: %s", e)
         raise
     finally:
-        for path in (wrapper_path, user_script_path):
+        for path in cleanup_paths:
             try:
                 os.unlink(path)
             except Exception:
@@ -295,6 +390,75 @@ async def get_nodes(x_slurm_user_token: str | None = Header(None)):
                 }
             )
     return {"nodes": nodes}
+
+
+# ---------------------------------------------------------------------------
+# Workspace management (for multi-file mode)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/slurm/v0.0.38/workspace")
+async def create_workspace(
+    request: Request, x_slurm_user_token: str | None = Header(None)
+):
+    """Create workspace on NFS from files. Called by agent before job submission."""
+    check_auth(x_slurm_user_token)
+    body = await request.json()
+
+    workspace_id = body.get("workspace_id")
+    if not workspace_id:
+        raise HTTPException(400, "workspace_id required")
+    try:
+        uuid.UUID(workspace_id)
+    except ValueError:
+        raise HTTPException(400, "workspace_id must be a valid UUID")
+
+    mode = body.get("mode", "multi_file")
+    workspace_path = os.path.join(WORKSPACE_BASE_DIR, workspace_id)
+
+    if os.path.exists(workspace_path):
+        return {"workspace_path": workspace_path, "reused": True}
+
+    os.makedirs(workspace_path, exist_ok=True)
+
+    try:
+        if mode == "multi_file":
+            files = body.get("files", [])
+            if not files:
+                raise HTTPException(400, "No files provided")
+            for f in files:
+                _validate_and_write_file(workspace_path, f["path"], f["content"])
+        else:
+            raise HTTPException(400, f"Unsupported workspace mode: {mode}")
+    except HTTPException:
+        shutil.rmtree(workspace_path, ignore_errors=True)
+        raise
+    except Exception as e:
+        shutil.rmtree(workspace_path, ignore_errors=True)
+        logger.error("Workspace creation failed: %s", e)
+        raise HTTPException(500, "Workspace creation failed")
+
+    logger.info("Workspace created: %s (%d files)", workspace_id, len(body.get("files", [])))
+    return {"workspace_path": workspace_path, "reused": False}
+
+
+@app.delete("/slurm/v0.0.38/workspace/{workspace_id}")
+async def delete_workspace(
+    workspace_id: str, x_slurm_user_token: str | None = Header(None)
+):
+    """Delete a workspace from NFS. Called by agent after job completion."""
+    check_auth(x_slurm_user_token)
+    try:
+        uuid.UUID(workspace_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid UUID")
+
+    path = os.path.join(WORKSPACE_BASE_DIR, workspace_id)
+    if not os.path.exists(path):
+        return {"deleted": False}
+    shutil.rmtree(path, ignore_errors=True)
+    logger.info("Workspace deleted: %s", workspace_id)
+    return {"deleted": True}
 
 
 @app.get("/health")

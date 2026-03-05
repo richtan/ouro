@@ -6,7 +6,7 @@ const FORMULA = `price = max(
   $0.01                   // absolute floor
 )
 
-cost_floor = max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/node-min`;
+cost_floor = max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/node-min + setup_cost`;
 
 export default function PricingPage() {
   return (
@@ -50,6 +50,35 @@ export default function PricingPage() {
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Compute</div>
             <div className="font-display text-lg font-semibold text-o-text mt-1">$0.0006</div>
             <p className="text-xs text-o-muted mt-1">Per node-minute of Slurm cluster time</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Setup costs by mode */}
+      <section className="mb-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
+          Setup Costs by Mode
+        </h2>
+        <p className="text-sm text-o-textSecondary leading-relaxed mb-4">
+          The <code className="font-mono text-o-accent">setup_cost</code> component varies by submission mode,
+          covering workspace provisioning overhead on the Slurm cluster.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Script</div>
+            <div className="font-mono text-xs text-o-text mt-1">$0.00</div>
+          </div>
+          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Multi-File</div>
+            <div className="font-mono text-xs text-o-text mt-1">$0.005 workspace provisioning</div>
+          </div>
+          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Archive</div>
+            <div className="font-mono text-xs text-o-text mt-1">$0.008 extraction + provisioning</div>
+          </div>
+          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Git</div>
+            <div className="font-mono text-xs text-o-text mt-1">$0.01 clone + provisioning</div>
           </div>
         </div>
       </section>

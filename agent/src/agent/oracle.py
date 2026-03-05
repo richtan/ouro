@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OracleDeps:
     job_id: str
+    submission_mode: str  # "script" | "multi_file" | "archive" | "git"
     script: str
+    workspace_path: str | None
+    entrypoint: str | None
+    image: str  # default "base"
     partition: str
     nodes: int
     time_limit_min: int
@@ -31,6 +35,7 @@ class OracleDeps:
     event_bus: EventBus
     captured_output: str = ""
     captured_gas_cost_usd: float = 0.0
+    workspace_cleanup_needed: bool = False
 
 
 class JobResult(BaseModel):
@@ -46,27 +51,41 @@ class JobResult(BaseModel):
 
 
 async def validate_request_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id}")
+    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id} (mode={deps.submission_mode})")
 
-    if not deps.script or not deps.script.strip():
-        return "INVALID: script is empty"
+    if deps.submission_mode == "script":
+        if not deps.script or not deps.script.strip():
+            return "INVALID: script is empty"
+    elif deps.submission_mode in ("multi_file", "archive"):
+        if not deps.entrypoint:
+            return "INVALID: entrypoint required"
+        if not deps.workspace_path:
+            return "INVALID: workspace_path required"
+    elif deps.submission_mode == "git":
+        if not deps.entrypoint:
+            return "INVALID: entrypoint required"
+
     if deps.nodes < 1 or deps.nodes > 16:
         return "INVALID: nodes must be between 1 and 16"
     if deps.time_limit_min < 1 or deps.time_limit_min > 60:
         return "INVALID: time_limit_min must be between 1 and 60"
 
-    return f"VALID: script={len(deps.script)} chars, nodes={deps.nodes}, time={deps.time_limit_min}min"
+    return f"VALID: mode={deps.submission_mode}, nodes={deps.nodes}, time={deps.time_limit_min}min"
 
 
 async def submit_to_slurm_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm")
+    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm (mode={deps.submission_mode})")
 
     try:
         from sqlalchemy import update as sql_update
         from src.db.models import ActiveJob
 
         slurm_job_id = await deps.slurm_client.submit_job(
+            submission_mode=deps.submission_mode,
             script=deps.script,
+            workspace_path=deps.workspace_path,
+            entrypoint=deps.entrypoint,
+            image=deps.image,
             partition=deps.partition,
             nodes=deps.nodes,
             time_limit_min=deps.time_limit_min,
@@ -82,7 +101,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
         deps.event_bus.emit(
             "slurm",
             f"Job {deps.job_id} submitted as Slurm job {slurm_job_id} "
-            f"(partition={deps.partition}, nodes={deps.nodes})",
+            f"(partition={deps.partition}, nodes={deps.nodes}, mode={deps.submission_mode})",
         )
         return f"SUBMITTED: slurm_job_id={slurm_job_id}"
     except Exception as e:
@@ -157,19 +176,35 @@ async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+async def _cleanup_workspace(deps: OracleDeps) -> None:
+    """Clean up NFS workspace after job completion."""
+    if not deps.workspace_cleanup_needed:
+        return
+    try:
+        await deps.slurm_client.delete_workspace(deps.job_id)
+    except Exception as e:
+        logger.warning("Workspace cleanup failed for %s: %s", deps.job_id, e)
+
+
 async def process_job_fast(deps: OracleDeps) -> JobResult:
     """Execute the standard validate -> submit -> poll -> prove pipeline without an LLM."""
     validation = await validate_request_impl(deps)
     if validation.startswith("INVALID"):
+        await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 
     submission = await submit_to_slurm_impl(deps)
     if submission.startswith("ERROR"):
+        await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 
     slurm_job_id = int(submission.split("slurm_job_id=")[1])
 
     poll_result = await poll_slurm_status_impl(deps, slurm_job_id)
+
+    # Cleanup workspace AFTER output is captured
+    await _cleanup_workspace(deps)
+
     if not poll_result.startswith("COMPLETED"):
         return JobResult(job_id=deps.job_id, status="failed")
 

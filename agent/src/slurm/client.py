@@ -22,10 +22,20 @@ class SlurmClient:
         )
 
     async def submit_job(
-        self, script: str, partition: str, nodes: int, time_limit_min: int
+        self,
+        *,
+        submission_mode: str = "script",
+        script: str = "",
+        workspace_path: str | None = None,
+        entrypoint: str | None = None,
+        image: str | None = None,
+        partition: str = "compute",
+        nodes: int = 1,
+        time_limit_min: int = 1,
     ) -> int:
-        body = {
-            "script": f"#!/bin/bash\n{script}",
+        body: dict = {
+            "submission_mode": submission_mode,
+            "image": image,
             "job": {
                 "environment": ["PATH=/usr/bin:/bin"],
                 "name": f"ouro-{uuid4().hex[:8]}",
@@ -36,12 +46,46 @@ class SlurmClient:
                 "current_working_directory": "/tmp",
             },
         }
+
+        if submission_mode == "script":
+            body["script"] = f"#!/bin/bash\n{script}"
+        elif submission_mode == "multi_file":
+            body["workspace_path"] = workspace_path
+            body["entrypoint"] = entrypoint
+
         resp = await self.client.post("/slurm/v0.0.38/job/submit", json=body)
         resp.raise_for_status()
         data = resp.json()
         job_id = data.get("job_id") or data.get("result", [{}])[0].get("job_id")
-        logger.info("slurm_job_submitted job_id=%s", job_id)
+        logger.info("slurm_job_submitted job_id=%s mode=%s", job_id, submission_mode)
         return int(job_id)
+
+    async def create_workspace(self, workspace_id: str, files: list[dict]) -> str:
+        """Send files to proxy, which writes them to NFS. Returns workspace_path."""
+        resp = await self.client.post(
+            "/slurm/v0.0.38/workspace",
+            json={
+                "workspace_id": workspace_id,
+                "mode": "multi_file",
+                "files": files,
+            },
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["workspace_path"]
+
+    async def delete_workspace(self, workspace_id: str) -> bool:
+        """Delete workspace from NFS after job completion."""
+        try:
+            resp = await self.client.delete(
+                f"/slurm/v0.0.38/workspace/{workspace_id}",
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            return resp.json().get("deleted", False)
+        except Exception as e:
+            logger.warning("delete_workspace failed for %s: %s", workspace_id, e)
+            return False
 
     async def get_job_status(self, job_id: int) -> dict:
         resp = await self.client.get(f"/slurm/v0.0.38/job/{job_id}")

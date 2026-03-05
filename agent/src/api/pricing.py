@@ -16,6 +16,13 @@ DEFAULT_GAS_COST_USD = 0.002
 DEFAULT_LLM_COST_USD = 0.008
 COST_SAFETY_FACTOR = 1.25
 
+SETUP_COST_BY_MODE = {
+    "script": 0.0,
+    "multi_file": 0.001,
+    "archive": 0.001,
+    "git": 0.003,
+}
+
 current_margin: float = settings.PRICE_MARGIN_MULTIPLIER
 current_phase: str = "OPTIMAL"
 heartbeat_interval_min: int = 60
@@ -105,6 +112,7 @@ async def calculate_price(
     db: AsyncSession,
     requested_nodes: int,
     time_limit_min: int,
+    submission_mode: str = "script",
 ) -> PriceQuote:
     max_gas = await get_cost_upper_bound(db, "gas") or DEFAULT_GAS_COST_USD
     max_llm = await get_cost_upper_bound(db, "llm_inference") or DEFAULT_LLM_COST_USD
@@ -112,8 +120,9 @@ async def calculate_price(
     gas_ub = max_gas * COST_SAFETY_FACTOR
     llm_ub = max_llm * COST_SAFETY_FACTOR
     compute_cost = requested_nodes * time_limit_min * settings.INFRA_COST_PER_NODE_MINUTE
+    setup_cost = SETUP_COST_BY_MODE.get(submission_mode, 0.0)
 
-    cost_floor = gas_ub + llm_ub + compute_cost
+    cost_floor = gas_ub + llm_ub + compute_cost + setup_cost
 
     margin_price = cost_floor * current_margin * demand_multiplier
     min_profit_price = cost_floor * (1 + settings.MIN_PROFIT_PCT)
@@ -133,6 +142,8 @@ async def calculate_price(
             "gas_upper_bound": round(gas_ub, 6),
             "llm_upper_bound": round(llm_ub, 6),
             "compute_cost": round(compute_cost, 6),
+            "setup_cost": round(setup_cost, 6),
+            "submission_mode": submission_mode,
             "cost_floor": round(cost_floor, 6),
             "margin_multiplier": current_margin,
             "demand_multiplier": demand_multiplier,

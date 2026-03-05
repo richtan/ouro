@@ -40,45 +40,65 @@ class OuroClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def quote(self, nodes: int = 1, time_limit_min: int = 1) -> Quote:
+    async def quote(
+        self,
+        nodes: int = 1,
+        time_limit_min: int = 1,
+        submission_mode: str = "script",
+    ) -> Quote:
         """Get a price quote without submitting."""
-        resp = await self._client.post(
-            f"{self._api_url}/api/compute/submit",
-            json={"script": "echo quote", "nodes": nodes, "time_limit_min": time_limit_min},
+        resp = await self._client.get(
+            f"{self._api_url}/api/price",
+            params={"nodes": nodes, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
         )
-        if resp.status_code == 402:
-            data = resp.json()
-            return Quote(
-                price=data.get("price", "unknown"),
-                breakdown=data.get("breakdown", {}),
-                guaranteed_profitable=True,
-            )
         resp.raise_for_status()
-        return Quote(price="unknown")
+        data = resp.json()
+        return Quote(
+            price=data.get("price", "unknown"),
+            breakdown=data.get("breakdown", {}),
+            guaranteed_profitable=True,
+        )
 
     async def submit(
         self,
-        script: str,
+        *,
+        script: str | None = None,
+        files: list[dict] | None = None,
+        entrypoint: str | None = None,
+        image: str = "base",
         nodes: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,
+        builder_code: str | None = None,
     ) -> str:
         """Submit a compute job. Returns the job_id.
+
+        Provide ONE of: script or files.
+        - script: shell script string
+        - files: list of {path, content} dicts + entrypoint
 
         With a plain httpx client this will raise on 402.
         With an x402-wrapped client, payment is handled automatically.
         """
-        body: dict = {
-            "script": script,
-            "nodes": nodes,
-            "time_limit_min": time_limit_min,
-        }
+        body: dict = {"nodes": nodes, "time_limit_min": time_limit_min}
+        if script:
+            body["script"] = script
+        elif files:
+            body["files"] = files
+            body["entrypoint"] = entrypoint
+        if image and image != "base":
+            body["image"] = image
         if submitter_address:
             body["submitter_address"] = submitter_address
+
+        headers: dict[str, str] = {}
+        if builder_code:
+            headers["X-BUILDER-CODE"] = builder_code
 
         resp = await self._client.post(
             f"{self._api_url}/api/compute/submit",
             json=body,
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -117,13 +137,22 @@ class OuroClient:
 
     async def run(
         self,
-        script: str,
+        *,
+        script: str | None = None,
+        files: list[dict] | None = None,
+        entrypoint: str | None = None,
+        image: str = "base",
         nodes: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,
+        builder_code: str | None = None,
     ) -> JobResult:
         """Submit and wait for completion in one call."""
-        job_id = await self.submit(script, nodes, time_limit_min, submitter_address)
+        job_id = await self.submit(
+            script=script, files=files, entrypoint=entrypoint,
+            image=image, nodes=nodes, time_limit_min=time_limit_min,
+            submitter_address=submitter_address, builder_code=builder_code,
+        )
         return await self.wait(job_id)
 
     async def capabilities(self) -> dict:

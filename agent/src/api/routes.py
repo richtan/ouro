@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,19 +42,69 @@ router = APIRouter()
 # Request models
 # ---------------------------------------------------------------------------
 
+class WorkspaceFile(BaseModel):
+    path: str = Field(..., min_length=1, max_length=255)
+    content: str = Field(..., max_length=65_536)
+
+
 class ComputeSubmitRequest(BaseModel):
-    script: str = Field(..., min_length=1, max_length=65_536)
+    # Mode 1: Script (existing — now optional)
+    script: Optional[str] = Field(None, min_length=1, max_length=65_536)
+    # Mode 2: Multi-file
+    files: Optional[list[WorkspaceFile]] = None
+    # Shared for modes 2/4
+    entrypoint: Optional[str] = Field(None, max_length=255)
+    # Container image (all modes)
+    image: Optional[str] = None
+    # Existing shared fields
     nodes: int = Field(default=1, ge=1, le=16)
     time_limit_min: int = Field(default=1, ge=1, le=60)
     submitter_address: Optional[str] = None
     builder_code: Optional[str] = None
 
+    @property
+    def submission_mode(self) -> str:
+        if self.files:
+            return "multi_file"
+        if self.script:
+            return "script"
+        return "unknown"
+
+    @model_validator(mode="after")
+    def validate_mode(self):
+        modes = sum([bool(self.script), bool(self.files)])
+        if modes == 0:
+            raise ValueError("Provide one of: script, files")
+        if modes > 1:
+            raise ValueError("Only one submission mode allowed")
+        if self.files and not self.entrypoint:
+            raise ValueError("entrypoint required for multi-file mode")
+        if self.files:
+            if len(self.files) > 100:
+                raise ValueError("Max 100 files per workspace")
+            total = sum(len(f.content.encode()) for f in self.files)
+            if total > 10 * 1024 * 1024:
+                raise ValueError("Total workspace size exceeds 10MB")
+        return self
+
+
+class SessionSubmitRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    submitter_address: Optional[str] = None
+
 
 class CreateSessionRequest(BaseModel):
-    script: str = Field(..., min_length=1, max_length=65_536)
+    script: Optional[str] = Field(None, max_length=65_536)
+    job_payload: Optional[dict] = None
     nodes: int = Field(default=1, ge=1, le=16)
     time_limit_min: int = Field(default=1, ge=1, le=60)
     price: str = "unknown"
+
+    @model_validator(mode="after")
+    def validate_has_content(self):
+        if not self.script and not self.job_payload:
+            raise ValueError("Either script or job_payload required")
+        return self
 
 
 class CompleteSessionRequest(BaseModel):
@@ -63,11 +113,56 @@ class CompleteSessionRequest(BaseModel):
 _event_bus: EventBus | None = None
 _chain_client: BaseChainClient | None = None
 _resource_server = None
+_slurm_client = None
 
 MAX_SCRIPT_SIZE = 65_536
 MAX_ACTIVE_JOBS_PER_WALLET = 20
 _ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _BUILDER_CODE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
+_WORKSPACE_PATH_RE = re.compile(r"^[a-zA-Z0-9._/ -]+$")
+
+
+def _validate_workspace_file_path(path: str) -> None:
+    """Reject dangerous file paths."""
+    import os
+    if "\x00" in path:
+        raise HTTPException(422, "Null bytes in file path")
+    normalized = os.path.normpath(path)
+    if normalized.startswith("..") or normalized.startswith("/"):
+        raise HTTPException(422, f"Invalid file path: {path}")
+    if normalized.count(os.sep) > 5:
+        raise HTTPException(422, f"File path too deep: {path}")
+    if not _WORKSPACE_PATH_RE.match(normalized):
+        raise HTTPException(422, f"Invalid characters in file path: {path}")
+
+
+def _validate_image(image: str | None) -> None:
+    """Validate image name against allowlist."""
+    if image and image not in settings.allowed_images_set:
+        raise HTTPException(422, f"Unknown image: {image}. Allowed: {', '.join(sorted(settings.allowed_images_set))}")
+
+
+def _job_summary(payload: dict | None) -> dict:
+    """Mode-aware job summary for API responses."""
+    if not payload:
+        return {}
+    mode = payload.get("submission_mode", "script")
+    base = {"mode": mode}
+    if mode == "script":
+        base["script"] = payload.get("script")
+        img = payload.get("image")
+        if img and img != "base":
+            base["image"] = img
+    elif mode == "multi_file":
+        base["entrypoint"] = payload.get("entrypoint")
+        base["file_count"] = payload.get("file_count")
+        base["image"] = payload.get("image")
+    elif mode == "git":
+        base["git_url"] = payload.get("git_url")
+        base["branch"] = payload.get("branch")
+        base["entrypoint"] = payload.get("entrypoint")
+        base["image"] = payload.get("image")
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -183,11 +278,12 @@ async def require_admin_key(request: Request):
         raise HTTPException(403, "Invalid admin key")
 
 
-def init_routes(event_bus: EventBus, chain_client: BaseChainClient, resource_server) -> None:
-    global _event_bus, _chain_client, _resource_server
+def init_routes(event_bus: EventBus, chain_client: BaseChainClient, resource_server, slurm_client=None) -> None:
+    global _event_bus, _chain_client, _resource_server, _slurm_client
     _event_bus = event_bus
     _chain_client = chain_client
     _resource_server = resource_server
+    _slurm_client = slurm_client
 
 
 # ---------------------------------------------------------------------------
@@ -249,15 +345,21 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if payment_header:
         logger.debug("x402 payment-signature header received (len=%d)", len(payment_header))
 
-    script = body.script
     nodes = body.nodes
     time_limit_min = body.time_limit_min
     submitter_address = body.submitter_address
+    mode = body.submission_mode
 
     if submitter_address and not _ETH_ADDRESS_RE.match(submitter_address):
         raise HTTPException(422, "Invalid submitter_address format (expected 0x + 40 hex chars)")
     if client_code and not _BUILDER_CODE_RE.match(client_code):
         raise HTTPException(422, "Invalid builder code format (alphanumeric, 1-32 chars)")
+    _validate_image(body.image)
+
+    # Validate file paths for multi-file mode
+    if body.files:
+        for f in body.files:
+            _validate_workspace_file_path(f.path)
 
     rate_key = submitter_address.lower() if submitter_address else None
     if not _rate_limiter.check(rate_key):
@@ -275,10 +377,10 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
             raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
 
-    cache_key = (nodes, time_limit_min)
+    cache_key = (mode, nodes, time_limit_min)
     quote = _price_cache.get(cache_key)
     if not quote:
-        quote = await calculate_price(db, nodes, time_limit_min)
+        quote = await calculate_price(db, nodes, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
     config = ResourceConfig(
@@ -362,9 +464,30 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     )
 
     job_id = str(uuid.uuid4())
+
+    # Build mode-aware payload
+    job_payload: dict = {
+        "submission_mode": mode,
+        "nodes": nodes,
+        "time_limit_min": time_limit_min,
+        "image": body.image or "base",
+    }
+    if mode == "script":
+        job_payload["script"] = body.script
+    elif mode == "multi_file":
+        job_payload["entrypoint"] = body.entrypoint
+        job_payload["file_count"] = len(body.files)
+        # Create workspace on NFS via Slurm proxy
+        if _slurm_client:
+            files_data = [{"path": f.path, "content": f.content} for f in body.files]
+            workspace_path = await _slurm_client.create_workspace(job_id, files_data)
+            job_payload["workspace_path"] = workspace_path
+        else:
+            raise HTTPException(503, "Slurm client not available for workspace creation")
+
     job = ActiveJob(
         id=job_id,
-        payload=raw_body,
+        payload=job_payload,
         price_usdc=quote.price_usd,
         client_builder_code=client_code,
         submitter_address=submitter_address,
@@ -567,7 +690,7 @@ async def get_jobs(db: AsyncSession = Depends(get_db), _=Depends(require_admin_k
                 "status": j.status,
                 "price_usdc": float(j.price_usdc),
                 "submitted_at": j.submitted_at.isoformat(),
-                "script": j.payload.get("script") if j.payload else None,
+                **_job_summary(j.payload),
             }
             for j in active
         ],
@@ -581,8 +704,8 @@ async def get_jobs(db: AsyncSession = Depends(get_db), _=Depends(require_admin_k
                 "proof_tx_hash": h.proof_tx_hash,
                 "compute_duration_s": h.compute_duration_s,
                 "completed_at": h.completed_at.isoformat(),
-                "script": h.payload.get("script") if h.payload else None,
                 "output_text": h.payload.get("output_text") if h.payload else None,
+                **_job_summary(h.payload),
             }
             for h in historical
         ],
@@ -682,7 +805,7 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
                 "status": j.status,
                 "price_usdc": float(j.price_usdc),
                 "submitted_at": j.submitted_at.isoformat(),
-                "script": j.payload.get("script") if j.payload else None,
+                **_job_summary(j.payload),
             }
             for j in active
         ],
@@ -696,8 +819,8 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
                 "proof_tx_hash": h.proof_tx_hash,
                 "compute_duration_s": h.compute_duration_s,
                 "completed_at": h.completed_at.isoformat(),
-                "script": h.payload.get("script") if h.payload else None,
                 "output_text": h.payload.get("output_text") if h.payload else None,
+                **_job_summary(h.payload),
             }
             for h in historical
         ],
@@ -738,7 +861,7 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
             "price_usdc": float(active.price_usdc),
             "submitted_at": active.submitted_at.isoformat(),
             "completed_at": None,
-            "script": active.payload.get("script") if active.payload else None,
+            **_job_summary(active.payload),
             "output": parsed["output"],
             "error_output": parsed["error_output"],
             "output_hash": parsed["output_hash"],
@@ -763,7 +886,7 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
             "price_usdc": float(hist.price_usdc),
             "submitted_at": hist.submitted_at.isoformat(),
             "completed_at": hist.completed_at.isoformat(),
-            "script": hist.payload.get("script") if hist.payload else None,
+            **_job_summary(hist.payload),
             "output": parsed["output"],
             "error_output": parsed["error_output"],
             "output_hash": parsed["output_hash"],
@@ -805,6 +928,7 @@ async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
     session = PaymentSession(
         status="pending",
         script=body.script,
+        job_payload=body.job_payload,
         nodes=body.nodes,
         time_limit_min=body.time_limit_min,
         price=body.price,
@@ -817,6 +941,7 @@ async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
         "id": str(session.id),
         "status": session.status,
         "script": session.script,
+        "job_payload": session.job_payload,
         "nodes": session.nodes,
         "time_limit_min": session.time_limit_min,
         "price": session.price,
@@ -839,6 +964,7 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
         "id": str(session.id),
         "status": session.status,
         "script": session.script,
+        "job_payload": session.job_payload,
         "nodes": session.nodes,
         "time_limit_min": session.time_limit_min,
         "price": session.price,
@@ -889,6 +1015,166 @@ async def complete_session(session_id: str, request: Request, db: AsyncSession =
 
 
 # ---------------------------------------------------------------------------
+# GET /api/price — dedicated pricing endpoint
+# ---------------------------------------------------------------------------
+
+@router.get("/api/price")
+async def get_price(
+    nodes: int = 1,
+    time_limit_min: int = 1,
+    submission_mode: str = "script",
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a price quote without submitting a job."""
+    if submission_mode not in ("script", "multi_file", "archive", "git"):
+        raise HTTPException(422, "Invalid submission_mode")
+    quote = await calculate_price(db, nodes, time_limit_min, submission_mode)
+    return {"price": quote.price_str, "breakdown": quote.breakdown}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/compute/submit/from-session — session-based payment endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/api/compute/submit/from-session")
+async def submit_from_session(request: Request, db: AsyncSession = Depends(get_db)):
+    """Submit a job using a pre-created payment session. Used by the pay page
+    to avoid re-sending large payloads (files, archives) to the browser."""
+    from datetime import datetime, timezone
+    from x402 import ResourceConfig
+    from x402.http.utils import (
+        decode_payment_signature_header,
+        encode_payment_required_header,
+    )
+
+    payment_header = request.headers.get("payment-signature")
+    raw_body = await request.json()
+
+    try:
+        body = SessionSubmitRequest(**raw_body)
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors())
+
+    # 1. Load session
+    session = await db.get(PaymentSession, body.session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if (datetime.now(timezone.utc) - session.created_at).total_seconds() > SESSION_TTL_SECONDS:
+        raise HTTPException(404, "Session expired")
+    if session.status != "pending":
+        raise HTTPException(409, f"Session already {session.status}")
+
+    # 2. Extract job params from session
+    if session.job_payload:
+        job_params = dict(session.job_payload)
+        mode = job_params.get("submission_mode", "script")
+    else:
+        job_params = {"script": session.script, "submission_mode": "script"}
+        mode = "script"
+
+    nodes = session.nodes
+    time_limit_min = session.time_limit_min
+    submitter_address = body.submitter_address
+
+    if submitter_address and not _ETH_ADDRESS_RE.match(submitter_address):
+        raise HTTPException(422, "Invalid submitter_address format")
+
+    # 3. Calculate price and verify payment
+    cache_key = (mode, nodes, time_limit_min)
+    quote = _price_cache.get(cache_key)
+    if not quote:
+        quote = await calculate_price(db, nodes, time_limit_min, mode)
+        _price_cache.set(cache_key, quote)
+
+    config = ResourceConfig(
+        scheme="exact",
+        network=settings.CHAIN_CAIP2,
+        pay_to=settings.WALLET_ADDRESS,
+        price=quote.price_str,
+    )
+    requirements = _resource_server.build_payment_requirements(config)
+
+    if not payment_header:
+        from x402.schemas import ResourceInfo
+        resource_info = ResourceInfo(
+            url="/api/compute/submit/from-session",
+            description="Submit compute job via payment session",
+            mimeType="application/json",
+        )
+        encoded_header = encode_payment_required_header(
+            _resource_server.create_payment_required_response(
+                requirements, resource_info, "Payment required",
+            )
+        )
+        return JSONResponse(
+            status_code=402,
+            content={"error": "Payment required", "price": quote.price_str},
+            headers={"PAYMENT-REQUIRED": encoded_header},
+        )
+
+    try:
+        payload = decode_payment_signature_header(payment_header)
+        result = await _resource_server.verify_payment(payload, requirements[0])
+    except Exception as e:
+        error_str = str(e)
+        facilitator_reason = _parse_facilitator_error(error_str)
+        if facilitator_reason:
+            return JSONResponse(status_code=403, content={"error": facilitator_reason.get("invalidReason", "verification_failed")})
+        return JSONResponse(status_code=503, content={"error": "Payment verification temporarily unavailable"}, headers={"Retry-After": "30"})
+
+    if not result.is_valid:
+        raise HTTPException(403, "Payment verification failed")
+
+    # 4. Validate entrypoint + image for multi-file mode
+    if mode == "multi_file":
+        ep = job_params.get("entrypoint")
+        if ep:
+            _validate_workspace_file_path(ep)
+        img = job_params.get("image")
+        _validate_image(img)
+
+    # 5. Create workspace if needed
+    job_id = str(uuid.uuid4())
+    if mode == "multi_file" and job_params.get("files"):
+        if not _slurm_client:
+            raise HTTPException(503, "Slurm client not available")
+        files_list = job_params.pop("files")
+        job_params["file_count"] = len(files_list)
+        workspace_path = await _slurm_client.create_workspace(job_id, files_list)
+        job_params["workspace_path"] = workspace_path
+
+    # 6. Create job
+    job_params["nodes"] = nodes
+    job_params["time_limit_min"] = time_limit_min
+    job = ActiveJob(
+        id=job_id,
+        payload=job_params,
+        price_usdc=quote.price_usd,
+        submitter_address=submitter_address,
+        status="pending",
+    )
+    db.add(job)
+
+    # 6. Mark session paid
+    session.status = "paid"
+    session.job_id = uuid.UUID(job_id)
+    await db.commit()
+
+    await log_audit(
+        db,
+        event_type="payment_received",
+        job_id=uuid.UUID(job_id),
+        wallet_address=submitter_address,
+        amount_usdc=quote.price_usd,
+        detail={"price_str": quote.price_str, "via_session": body.session_id},
+    )
+
+    _event_bus.emit("job", f"Job {job_id[:8]} created via session {body.session_id[:8]}")
+
+    return {"job_id": job_id, "status": "pending", "price": quote.price_str}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/capabilities — machine-readable service description for agents
 # ---------------------------------------------------------------------------
 
@@ -917,6 +1203,9 @@ async def get_capabilities():
             "max_nodes": 16,
             "max_time_min": 60,
             "max_script_bytes": MAX_SCRIPT_SIZE,
+            "max_workspace_bytes": 10 * 1024 * 1024,
+            "submission_modes": ["script", "multi_file"],
+            "allowed_images": sorted(settings.allowed_images_set),
         },
         "trust": {
             "proof_contract": settings.PROOF_CONTRACT_ADDRESS,

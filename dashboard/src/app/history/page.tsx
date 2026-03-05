@@ -13,6 +13,10 @@ interface ActiveJob {
   price_usdc: number;
   submitted_at: string;
   script: string | null;
+  mode?: string;
+  entrypoint?: string;
+  file_count?: number;
+  image?: string;
 }
 
 interface HistoricalJob {
@@ -26,6 +30,10 @@ interface HistoricalJob {
   completed_at: string;
   script: string | null;
   output_text: string | null;
+  mode?: string;
+  entrypoint?: string;
+  file_count?: number;
+  image?: string;
 }
 
 type AnyJob =
@@ -40,12 +48,29 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
+const IMAGE_LABELS: Record<string, string> = {
+  base: "Ubuntu 22.04",
+  python312: "Python 3.12",
+  node20: "Node.js 20",
+  pytorch: "PyTorch",
+  "r-base": "R 4.4",
+};
+
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider ${s.bg} ${s.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${status === "running" || status === "processing" ? "animate-pulse" : ""}`} />
       {status}
+    </span>
+  );
+}
+
+function ModeBadge({ mode }: { mode: string }) {
+  if (mode !== "multi_file") return null;
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider bg-o-blue/10 text-o-blueText">
+      multi-file
     </span>
   );
 }
@@ -66,6 +91,7 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
           <div className="flex items-center gap-3 min-w-0">
             <span className="font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
             <StatusBadge status={job.status} />
+            {job.mode && <ModeBadge mode={job.mode} />}
           </div>
           <svg
             width="14"
@@ -86,6 +112,9 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
             <span className="font-mono text-xs text-o-textSecondary">{hist.compute_duration_s.toFixed(1)}s</span>
           )}
           <span className="text-xs text-o-muted">{ts}</span>
+          {job.image && job.image !== "base" && (
+            <span className="text-xs text-o-muted">{IMAGE_LABELS[job.image] ?? job.image}</span>
+          )}
         </div>
       </button>
 
@@ -111,6 +140,30 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
               </div>
             )}
           </div>
+
+          {/* Mode-specific details */}
+          {job.mode === "multi_file" && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {job.entrypoint && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Entrypoint</div>
+                  <div className="font-mono text-xs text-o-text">{job.entrypoint}</div>
+                </div>
+              )}
+              {job.file_count != null && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Files</div>
+                  <div className="font-mono text-xs text-o-text">{job.file_count}</div>
+                </div>
+              )}
+              {job.image && (
+                <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                  <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Image</div>
+                  <div className="font-mono text-xs text-o-text">{IMAGE_LABELS[job.image] ?? job.image}</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {hist?.proof_tx_hash && (
             <div>

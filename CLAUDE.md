@@ -157,25 +157,36 @@ ouro/
 
 ## Data Flow
 
+### Submission Modes
+
+| Mode | Body Fields | Description |
+|------|-------------|-------------|
+| **Script** | `script` | Single shell script string (default, existing) |
+| **Multi-File** | `files: [{path, content}]`, `entrypoint`, `image` | Multiple files written to NFS workspace, executed via Apptainer |
+
+All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`. Container image selection via `image` field (default: `"base"` = Ubuntu 22.04). Allowed: `base`, `python312`, `node20`, `pytorch`, `r-base`.
+
 ### Job Submission (via Dashboard)
-1. User writes script on `/submit`, connects wallet via RainbowKit
+1. User writes script on `/submit` (Script tab) or adds multiple files (Multi-File tab), connects wallet via RainbowKit
 2. Dashboard sends POST to `/api/proxy/submit` with x402 payment signature
 3. Proxy forwards to agent's `POST /api/compute/submit`
 4. Agent verifies x402 payment via CDP facilitator
-5. Job created in `active_jobs` table with status `pending`
-6. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → proof)
-7. On completion, job moved to `historical_data`, proof posted on-chain
+5. For multi-file mode: agent calls `slurm_client.create_workspace()` → proxy writes files to NFS
+6. Job created in `active_jobs` table with status `pending` (payload contains `workspace_path` for multi-file)
+7. Background processor picks it up, runs oracle agent (validate → submit to Slurm → poll → cleanup workspace → proof)
+8. On completion, job moved to `historical_data`, proof posted on-chain
 
 ### Job Submission (via MCP — Browser Flow)
-1. AI agent calls `run_compute_job` MCP tool
-2. MCP server creates payment session via `POST {AGENT_URL}/api/sessions`
+1. AI agent calls `run_compute_job` MCP tool (with `script` or `files`+`entrypoint`)
+2. MCP server creates payment session via `POST {AGENT_URL}/api/sessions` (stores `job_payload` JSONB for non-script modes)
 3. Returns payment URL: `https://dashboard.../pay/{sessionId}`
-4. User opens link, connects wallet, pays (same x402 flow as above)
-5. Pay page marks session complete via `POST /api/proxy/sessions/{id}/complete`
-6. AI agent polls with `get_job_status(session_id)` to get results
+4. User opens link, connects wallet — pay page shows mode-appropriate summary (script preview or file count/entrypoint/image)
+5. Pay page submits to `POST /api/proxy/submit/from-session` with just `{session_id, submitter_address}` + payment header (no large payload re-sent)
+6. Agent reads `session.job_payload`, creates workspace if needed, creates job, marks session paid
+7. AI agent polls with `get_job_status(session_id)` to get results
 
 ### Job Submission (via MCP — Autonomous Flow)
-1. AI agent calls `get_payment_requirements` MCP tool with job details
+1. AI agent calls `get_payment_requirements` MCP tool with job details (script or files)
 2. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` without payment → receives 402 + `PAYMENT-REQUIRED` header
 3. Returns price + raw payment header to calling agent
 4. Calling agent decodes header with its x402 library, signs USDC payment locally
@@ -185,7 +196,7 @@ ouro/
 8. No private keys leave the calling agent — only the opaque payment signature is transmitted
 
 ### Payment Sessions
-Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API.
+Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API. Sessions now support `job_payload` JSONB for non-script modes (multi-file, etc.).
 
 ## Database Schema
 
@@ -195,7 +206,7 @@ See `db/01-init.sql` for full schema. Key tables:
 - **historical_data** — Completed jobs archive (partitioned by month via `completed_at`)
 - **agent_costs** — Cost ledger (gas, llm_inference entries)
 - **wallet_snapshots** — Periodic ETH/USDC balance records
-- **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min)
+- **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min). `script` (nullable) for script mode, `job_payload` (JSONB) for multi-file/git modes
 - **attribution_log** — ERC-8021 builder code records per transaction
 - **credits** — USDC credits issued to wallets when jobs fail after payment (auto-redeemable)
 - **audit_log** — Structured audit trail for all financial events (payment_received, job_completed, credit_issued, errors)
@@ -245,6 +256,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
+ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Comma-separated image allowlist
 ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
@@ -391,7 +403,9 @@ Payment verification happens in `POST /api/compute/submit`. No payment header �
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}`. Optional header: `X-BUILDER-CODE`. |
+| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], entrypoint, image, nodes, time_limit_min}` (multi-file mode). Optional header: `X-BUILDER-CODE`. |
+| `POST` | `/api/compute/submit/from-session` | x402 payment | Session-based submit for pay page. Body: `{session_id, submitter_address}`. Reads job params from session's `job_payload`. |
+| `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
@@ -417,7 +431,9 @@ Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env va
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. |
+| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Supports `submission_mode`: `script` (default) or `multi_file` (requires `workspace_path` + `entrypoint`). Optional `image` field for custom container. |
+| `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
+| `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}/output` | `X-SLURM-USER-TOKEN` header | Get stdout, stderr, and SHA-256 output hash. |
 | `GET` | `/slurm/v0.0.38/nodes` | `X-SLURM-USER-TOKEN` header | Cluster node status via sinfo. Returns node name, state, CPUs, memory. |
@@ -439,6 +455,7 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
 | `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
+| `POST /api/proxy/submit/from-session` | `AGENT_URL/api/compute/submit/from-session` | None | Session-based submit, forwards `payment-signature` |
 | `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
 | `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | None | Payment session lookup |
 | `POST /api/proxy/sessions/{id}/complete` | `AGENT_URL/api/sessions/{id}/complete` | Mark session paid |
@@ -508,11 +525,12 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 ```
 
 MCP tools:
-- `run_compute_job(script, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow)
+- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`+`entrypoint`.
 - `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
-- `get_price_quote(nodes, time_limit_min)` → Returns price without submitting
-- `get_payment_requirements(script, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing
-- `submit_and_pay(script, payment_signature, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)
+- `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
+- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing
+- `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)
+- `get_allowed_images()` → Returns available container images (base, python312, node20, pytorch, r-base)
 - `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access
 
 ## Common Operations

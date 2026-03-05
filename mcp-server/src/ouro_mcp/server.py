@@ -35,40 +35,63 @@ def _get_dashboard_url() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helpers: build request bodies for all submission modes
+# ---------------------------------------------------------------------------
+
+
+def _build_submit_body(
+    *,
+    script: str | None = None,
+    files: list[dict] | None = None,
+    entrypoint: str | None = None,
+    image: str = "base",
+    nodes: int = 1,
+    time_limit_min: int = 1,
+    submitter_address: str | None = None,
+) -> dict:
+    """Centralizes body construction for all modes."""
+    body: dict = {"nodes": nodes, "time_limit_min": time_limit_min}
+    if image and image != "base":
+        body["image"] = image
+    if submitter_address:
+        body["submitter_address"] = submitter_address
+    if script:
+        body["script"] = script
+    elif files:
+        body["files"] = files
+        body["entrypoint"] = entrypoint
+    return body
+
+
+def _submission_mode(script: str | None, files: list[dict] | None) -> str:
+    if files:
+        return "multi_file"
+    return "script"
+
+
+# ---------------------------------------------------------------------------
 # Price quotes and job status (plain HTTP, no wallet needed)
 # ---------------------------------------------------------------------------
 
 
-async def _get_quote(nodes: int, time_limit_min: int) -> dict:
+async def _get_quote(nodes: int, time_limit_min: int, submission_mode: str = "script") -> dict:
+    """Get price quote using the dedicated /api/price endpoint."""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{_get_api_url()}/api/compute/submit",
-            json={"script": "echo hi", "nodes": nodes, "time_limit_min": time_limit_min},
+        resp = await client.get(
+            f"{_get_api_url()}/api/price",
+            params={"nodes": nodes, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
         )
-        if resp.status_code == 402:
-            data = resp.json()
-            return {
-                "price": data.get("price", "unknown"),
-                "breakdown": data.get("breakdown", {}),
-                "guaranteed_profitable": True,
-            }
-    return {"price": "unknown", "breakdown": {}}
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def _get_payment_requirements(
-    script: str,
-    nodes: int,
-    time_limit_min: int,
-    submitter_address: str | None = None,
+    body: dict,
     builder_code: str | None = None,
 ) -> dict:
     """Hit the agent submit endpoint without payment to get the 402 response
     including the raw PAYMENT-REQUIRED header that an x402 client needs to
     construct and sign a payment."""
-    body: dict = {"script": script, "nodes": nodes, "time_limit_min": time_limit_min}
-    if submitter_address:
-        body["submitter_address"] = submitter_address
-
     headers: dict[str, str] = {}
     if builder_code:
         headers["X-BUILDER-CODE"] = builder_code
@@ -87,24 +110,16 @@ async def _get_payment_requirements(
                 "breakdown": data.get("breakdown", {}),
                 "payment_required_header": payment_header,
             }
-        # Unexpected non-402 (e.g. validation error)
         logger.error("get_payment_requirements: expected 402, got %d: %s", resp.status_code, resp.text[:500])
         return {"error": f"Unexpected response (status {resp.status_code})"}
 
 
 async def _submit_with_payment(
-    script: str,
-    nodes: int,
-    time_limit_min: int,
+    body: dict,
     payment_signature: str,
-    submitter_address: str | None = None,
     builder_code: str | None = None,
 ) -> dict:
     """Forward a job payload with a pre-signed x402 payment to the agent API."""
-    body: dict = {"script": script, "nodes": nodes, "time_limit_min": time_limit_min}
-    if submitter_address:
-        body["submitter_address"] = submitter_address
-
     headers: dict[str, str] = {"payment-signature": payment_signature}
     if builder_code:
         headers["X-BUILDER-CODE"] = builder_code
@@ -137,18 +152,23 @@ def _payment_url(session_id: str) -> str:
 
 
 async def _create_session_via_api(
-    script: str, nodes: int, time_limit_min: int, price: str
+    *,
+    script: str | None = None,
+    job_payload: dict | None = None,
+    nodes: int,
+    time_limit_min: int,
+    price: str,
 ) -> dict:
     """Create a payment session via the agent API (persisted in DB)."""
+    body: dict = {"nodes": nodes, "time_limit_min": time_limit_min, "price": price}
+    if script:
+        body["script"] = script
+    if job_payload:
+        body["job_payload"] = job_payload
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{_get_api_url()}/api/sessions",
-            json={
-                "script": script,
-                "nodes": nodes,
-                "time_limit_min": time_limit_min,
-                "price": price,
-            },
+            json=body,
         )
         resp.raise_for_status()
         return resp.json()
@@ -179,6 +199,11 @@ mcp = FastMCP(
         "AUTONOMOUS FLOW (agent pays with own wallet):\n"
         "  get_payment_requirements -> decode header, sign payment locally -> "
         "submit_and_pay with signature -> get_job_status with job_id\n\n"
+        "SUBMISSION MODES:\n"
+        "  - script: single shell script string (simplest)\n"
+        "  - files: list of {path, content} dicts + entrypoint (multi-file workspaces)\n\n"
+        "CONTAINER IMAGES: base (Ubuntu 22.04), python312, node20, pytorch, r-base\n"
+        "Use get_allowed_images to see available options.\n\n"
         "Use get_price_quote to check pricing before committing.\n"
         "Use get_api_endpoint for direct HTTP access without MCP."
     ),
@@ -214,30 +239,58 @@ async def get_job_status(job_id: str) -> dict:
 
 @mcp.tool()
 async def run_compute_job(
-    script: str,
+    script: str | None = None,
+    files: list[dict] | None = None,
+    entrypoint: str | None = None,
+    image: str = "base",
     nodes: int = 1,
     time_limit_min: int = 1,
 ) -> dict:
-    """Submit a shell script to run on Ouro's HPC cluster.
+    """Submit a compute job to run on Ouro's HPC cluster (browser payment flow).
 
     Returns a one-time payment link. The user must open it in their browser,
     connect their wallet, and pay with USDC on Base. After paying, call
     get_job_status with the returned session_id to get the result.
 
+    Provide ONE of: script or files.
+    - script: shell script string (simplest)
+    - files: list of {path, content} dicts + entrypoint (for multi-file workspaces)
+
     IMPORTANT: Always show the payment_url to the user so they can open it.
 
     Args:
         script: Shell script to execute (e.g. "echo hello" or "python3 -c 'print(42)'")
+        files: List of {path, content} file dicts for multi-file workspace
+        entrypoint: File to execute (required with files)
+        image: Container image (default "base"). Options: base, python312, node20, pytorch, r-base
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
     """
+    if not script and not files:
+        return {"error": "Provide one of: script or files"}
+    if files and not entrypoint:
+        return {"error": "entrypoint required when using files"}
     if not (1 <= nodes <= 16):
         return {"error": "nodes must be between 1 and 16"}
     if not (1 <= time_limit_min <= 60):
         return {"error": "time_limit_min must be between 1 and 60"}
 
-    quote = await _get_quote(nodes, time_limit_min)
-    session = await _create_session_via_api(script, nodes, time_limit_min, quote["price"])
+    mode = _submission_mode(script, files)
+    quote = await _get_quote(nodes, time_limit_min, mode)
+
+    if script:
+        session = await _create_session_via_api(script=script, nodes=nodes, time_limit_min=time_limit_min, price=quote["price"])
+    else:
+        job_payload = {
+            "submission_mode": "multi_file",
+            "files": files,
+            "entrypoint": entrypoint,
+            "image": image,
+            "nodes": nodes,
+            "time_limit_min": time_limit_min,
+        }
+        session = await _create_session_via_api(job_payload=job_payload, nodes=nodes, time_limit_min=time_limit_min, price=quote["price"])
+
     url = _payment_url(session["id"])
 
     return {
@@ -257,6 +310,7 @@ async def run_compute_job(
 async def get_price_quote(
     nodes: int = 1,
     time_limit_min: int = 1,
+    submission_mode: str = "script",
 ) -> dict:
     """Get a price quote for a compute job without submitting or paying.
 
@@ -265,13 +319,17 @@ async def get_price_quote(
     Args:
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
+        submission_mode: "script" or "multi_file" (affects setup cost)
     """
-    return await _get_quote(nodes, time_limit_min)
+    return await _get_quote(nodes, time_limit_min, submission_mode)
 
 
 @mcp.tool()
 async def get_payment_requirements(
-    script: str,
+    script: str | None = None,
+    files: list[dict] | None = None,
+    entrypoint: str | None = None,
+    image: str = "base",
     nodes: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
@@ -282,23 +340,33 @@ async def get_payment_requirements(
     Returns the price breakdown and the raw PAYMENT-REQUIRED header that your
     x402 library needs to construct and sign a USDC payment on Base.
 
+    Provide ONE of: script or files.
+
     This is step 1 of the autonomous payment flow:
       1. Call get_payment_requirements to get the payment header
       2. Decode the header, sign the payment locally with your wallet
       3. Call submit_and_pay with the signed payment-signature
 
-    The price is valid for ~30 seconds. Complete both steps within that window.
+    The price is valid for ~30 seconds.
 
     Args:
         script: Shell script to execute
+        files: List of {path, content} file dicts for multi-file workspace
+        entrypoint: File to execute (required with files)
+        image: Container image (default "base")
         nodes: Number of compute nodes (default 1)
         time_limit_min: Maximum runtime in minutes (default 1)
         submitter_address: Your wallet address (optional, for job tracking)
-        builder_code: Builder code for 10% discount (optional)
+        builder_code: Builder code for ERC-8021 attribution (optional)
     """
-    result = await _get_payment_requirements(
-        script, nodes, time_limit_min, submitter_address, builder_code,
+    if not script and not files:
+        return {"error": "Provide one of: script or files"}
+    body = _build_submit_body(
+        script=script, files=files, entrypoint=entrypoint,
+        image=image, nodes=nodes, time_limit_min=time_limit_min,
+        submitter_address=submitter_address,
     )
+    result = await _get_payment_requirements(body, builder_code)
     if "error" in result:
         return result
     return {
@@ -314,8 +382,11 @@ async def get_payment_requirements(
 
 @mcp.tool()
 async def submit_and_pay(
-    script: str,
     payment_signature: str,
+    script: str | None = None,
+    files: list[dict] | None = None,
+    entrypoint: str | None = None,
+    image: str = "base",
     nodes: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
@@ -327,33 +398,37 @@ async def submit_and_pay(
     get_payment_requirements to get the payment header, sign it locally
     with your wallet, then pass the signature here.
 
-    No private keys are sent — only the opaque payment-signature string.
-
-    After a successful submission, call get_job_status with the returned
-    job_id to poll for results.
+    Provide ONE of: script or files (must match get_payment_requirements call).
 
     Args:
-        script: Shell script to execute (must match get_payment_requirements call)
         payment_signature: The signed x402 payment string from your wallet
-        nodes: Number of compute nodes (must match get_payment_requirements call)
+        script: Shell script to execute (must match get_payment_requirements call)
+        files: List of {path, content} file dicts (must match)
+        entrypoint: File to execute (must match)
+        image: Container image (must match)
+        nodes: Number of compute nodes (must match)
         time_limit_min: Maximum runtime in minutes (must match)
-        submitter_address: Your wallet address (optional, for job tracking)
-        builder_code: Builder code for 10% discount (must match if used in step 1)
+        submitter_address: Your wallet address (optional)
+        builder_code: Builder code (must match if used in step 1)
     """
-    result = await _submit_with_payment(
-        script, nodes, time_limit_min, payment_signature,
-        submitter_address, builder_code,
+    if not script and not files:
+        return {"error": "Provide one of: script or files"}
+    body = _build_submit_body(
+        script=script, files=files, entrypoint=entrypoint,
+        image=image, nodes=nodes, time_limit_min=time_limit_min,
+        submitter_address=submitter_address,
     )
+    result = await _submit_with_payment(body, payment_signature, builder_code)
     status = result["status_code"]
-    body = result["body"]
+    resp_body = result["body"]
 
     if status == 200:
         return {
-            "job_id": body.get("job_id"),
-            "status": body.get("status", "pending"),
-            "price": body.get("price"),
+            "job_id": resp_body.get("job_id"),
+            "status": resp_body.get("status", "pending"),
+            "price": resp_body.get("price"),
             "message": (
-                f"Job {body.get('job_id')} submitted successfully. "
+                f"Job {resp_body.get('job_id')} submitted successfully. "
                 "Call get_job_status to poll for results."
             ),
         }
@@ -363,7 +438,7 @@ async def submit_and_pay(
             "message": "Payment signature not accepted. Re-run get_payment_requirements and sign again.",
         }
     if status == 403:
-        reason = body.get("error", "verification_failed")
+        reason = resp_body.get("error", "verification_failed")
         msg = f"Payment verification failed: {reason}."
         if reason == "insufficient_funds":
             msg = "Insufficient USDC balance. Ensure your wallet has enough USDC on Base."
@@ -383,11 +458,29 @@ async def submit_and_pay(
             "error": "facilitator_unavailable",
             "message": "Payment facilitator is temporarily unavailable. Retry shortly.",
         }
-    logger.error("submit_and_pay: unexpected status %d: %s", status, body)
+    logger.error("submit_and_pay: unexpected status %d: %s", status, resp_body)
     return {
         "error": f"unexpected_status_{status}",
         "message": f"Agent API returned unexpected status {status}.",
     }
+
+
+@mcp.tool()
+async def get_allowed_images() -> dict:
+    """Get available container images for compute jobs.
+
+    Returns the list of image IDs that can be passed as the 'image' parameter.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{_get_api_url()}/api/capabilities")
+        resp.raise_for_status()
+        data = resp.json()
+        images = data.get("compute", {}).get("allowed_images", [])
+        return {
+            "images": images,
+            "default": "base",
+            "message": f"Available images: {', '.join(images)}. Use 'base' (Ubuntu 22.04) if unsure.",
+        }
 
 
 @mcp.tool()
@@ -405,11 +498,16 @@ async def get_api_endpoint() -> dict:
         "network": "eip155:8453",
         "currency": "USDC",
         "body_schema": {
-            "script": "string (required) - shell script to execute",
+            "script": "string (optional) - shell script to execute",
+            "files": "array (optional) - [{path, content}] for multi-file workspace",
+            "entrypoint": "string (optional) - file to execute (required with files)",
+            "image": "string (optional) - container image (default: base)",
             "nodes": "int (default 1) - number of compute nodes",
             "time_limit_min": "int (default 1) - max runtime in minutes",
             "submitter_address": "string (optional) - your wallet address for job tracking",
         },
+        "submission_modes": ["script", "multi_file"],
+        "price_endpoint": f"{_get_api_url()}/api/price?nodes=1&time_limit_min=1&submission_mode=script",
         "example_body": {
             "script": "echo hello world",
             "nodes": 1,

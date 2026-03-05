@@ -6,9 +6,12 @@ const TOOLS = [
   {
     name: "run_compute_job",
     description:
-      "Submit a shell script to run on the HPC cluster. Returns a payment link for the user to pay in their browser. After payment, poll with get_job_status.",
+      "Submit a job to run on the HPC cluster. Provide either a script (single command) or files + entrypoint (multi-file project). Returns a payment link for the user to pay in their browser. After payment, poll with get_job_status.",
     params: [
-      { name: "script", type: "string", description: "Shell script to execute", required: true },
+      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
+      { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
+      { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
+      { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
       { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
     ],
@@ -17,6 +20,8 @@ const TOOLS = [
   "payment_url": "https://ourocompute.com/pay/sess_f2a9c1...",
   "session_id": "sess_f2a9c1...",
   "price": "$0.0841",
+  "submission_mode": "script",
+  "setup_cost": 0.0,
   "message": "Payment of $0.0841 USDC required..."
 }`,
   },
@@ -48,6 +53,7 @@ const TOOLS = [
     params: [
       { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
+      { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, git (default: script)" },
     ],
     response: `{
   "price": "$0.0841",
@@ -55,9 +61,11 @@ const TOOLS = [
     "gas_upper_bound": 0.0025,
     "llm_upper_bound": 0.01,
     "compute_cost": 0.0006,
+    "setup_cost": 0.0,
     "cost_floor": 0.0131,
     "margin_multiplier": 1.5,
     "demand_multiplier": 1.0,
+    "submission_mode": "script",
     "phase": "OPTIMAL"
   },
   "guaranteed_profitable": true
@@ -68,7 +76,10 @@ const TOOLS = [
     description:
       "Get x402 payment requirements for a job. Returns the raw PAYMENT-REQUIRED header that your x402 library needs to construct and sign a USDC payment. Step 1 of the autonomous flow.",
     params: [
-      { name: "script", type: "string", description: "Shell script to execute", required: true },
+      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
+      { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
+      { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
+      { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
       { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
@@ -77,6 +88,8 @@ const TOOLS = [
     response: `{
   "price": "$0.0841",
   "breakdown": { ... },
+  "submission_mode": "script",
+  "setup_cost": 0.0,
   "payment_required_header": "eyJ0eXAiOiJ4NDAyL...",
   "message": "Payment of $0.0841 USDC required on Base..."
 }`,
@@ -86,7 +99,10 @@ const TOOLS = [
     description:
       "Submit a job with a pre-signed x402 payment. Step 2 of the autonomous flow — call after signing the payment header from get_payment_requirements.",
     params: [
-      { name: "script", type: "string", description: "Shell script to execute (must match step 1)", required: true },
+      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint, must match step 1)" },
+      { name: "files", type: "array", description: "Array of {path, content} file objects (must match step 1)" },
+      { name: "entrypoint", type: "string", description: "Entry script path (must match step 1)" },
+      { name: "image", type: "string", description: "Container image (must match step 1)" },
       { name: "payment_signature", type: "string", description: "Signed x402 payment string", required: true },
       { name: "nodes", type: "int", description: "Number of compute nodes (must match step 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (must match)" },
@@ -96,8 +112,25 @@ const TOOLS = [
     response: `{
   "job_id": "a1b2c3d4-...",
   "status": "pending",
+  "submission_mode": "script",
   "price": "$0.0841",
   "message": "Job a1b2c3d4-... submitted successfully."
+}`,
+  },
+  {
+    name: "get_allowed_images",
+    description:
+      "Returns the list of available container images for compute jobs. Each image is pre-built with common tools for its ecosystem.",
+    params: [],
+    response: `{
+  "images": [
+    { "id": "base", "description": "Ubuntu 22.04 base image" },
+    { "id": "python312", "description": "Python 3.12 with pip" },
+    { "id": "node20", "description": "Node.js 20 LTS" },
+    { "id": "pytorch", "description": "PyTorch with CUDA support" },
+    { "id": "r-base", "description": "R statistical computing" }
+  ],
+  "default": "base"
 }`,
   },
   {
@@ -128,7 +161,7 @@ export default function McpToolsPage() {
           MCP Tools Reference
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Full schemas and example responses for all 6 tools.
+          Full schemas and example responses for all 7 tools.
         </p>
       </div>
 

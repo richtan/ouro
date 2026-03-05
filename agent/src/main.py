@@ -29,13 +29,15 @@ MAX_REQUEST_BODY_BYTES = 1_048_576  # 1 MB
 
 
 class RequestBodyLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES, overrides: dict | None = None):
         super().__init__(app)
         self.max_bytes = max_bytes
+        self.overrides = overrides or {}
 
     async def dispatch(self, request: Request, call_next):
+        limit = self.overrides.get(request.url.path, self.max_bytes)
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > self.max_bytes:
+        if content_length and int(content_length) > limit:
             return JSONResponse(
                 status_code=413,
                 content={"error": "Request body too large"},
@@ -122,7 +124,7 @@ async def lifespan(app: FastAPI):
 
     resource_server = _init_x402_server()
 
-    init_routes(event_bus, chain_client, resource_server)
+    init_routes(event_bus, chain_client, resource_server, slurm_client)
 
     event_bus.emit("system", "Ouro agent starting up")
 
@@ -190,7 +192,11 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "payment-signature", "X-BUILDER-CODE", "X-Admin-Key"],
 )
-app.add_middleware(RequestBodyLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_bytes=MAX_REQUEST_BODY_BYTES,
+    overrides={"/api/compute/submit": 10 * 1024 * 1024},  # 10MB for multi-file workspaces
+)
 
 
 @app.middleware("http")

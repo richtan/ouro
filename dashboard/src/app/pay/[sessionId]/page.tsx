@@ -11,7 +11,8 @@ import { wrapFetchWithPayment } from "@x402/fetch";
 interface Session {
   id: string;
   status: string;
-  script: string;
+  script: string | null;
+  job_payload: Record<string, unknown> | null;
   nodes: number;
   time_limit_min: number;
   price: string;
@@ -20,6 +21,90 @@ interface Session {
 }
 
 type PayStatus = "loading" | "ready" | "submitting" | "paying" | "success" | "error" | "not_found";
+
+function JobSummary({ session }: { session: Session }) {
+  const payload = session.job_payload;
+  const mode = payload?.submission_mode as string | undefined;
+
+  if (mode === "multi_file") {
+    return (
+      <div className="card mb-6">
+        <label className="stat-label mb-3 block">Job Details</label>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Mode</span>
+            <span className="px-2 py-0.5 text-xs font-semibold bg-o-blue/20 text-o-blueText rounded">
+              Multi-File Workspace
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Files</span>
+            <span className="font-mono text-sm text-o-text">
+              {(payload?.file_count as number) ?? (payload?.files as unknown[])?.length ?? "?"}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Entrypoint</span>
+            <span className="font-mono text-sm text-o-text">{payload?.entrypoint as string}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Image</span>
+            <span className="font-mono text-sm text-o-text">{(payload?.image as string) || "base"}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Nodes</span>
+            <span className="font-mono text-sm text-o-text">{session.nodes}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Time Limit</span>
+            <span className="font-mono text-sm text-o-text">{session.time_limit_min} min</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Price</span>
+            <span className="font-mono text-sm font-semibold text-o-green">{session.price} USDC</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: script mode
+  return (
+    <>
+      <div className="card mb-6">
+        <label className="stat-label mb-3 block">Job Details</label>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Network</span>
+            <span className="px-2 py-0.5 text-xs font-semibold bg-o-blue/20 text-o-blueText rounded">
+              Base Mainnet
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Nodes</span>
+            <span className="font-mono text-sm text-o-text">{session.nodes}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Time Limit</span>
+            <span className="font-mono text-sm text-o-text">{session.time_limit_min} min</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-o-textSecondary">Price</span>
+            <span className="font-mono text-sm font-semibold text-o-green">{session.price} USDC</span>
+          </div>
+        </div>
+      </div>
+      {session.script && (
+        <div className="card mb-6">
+          <label className="stat-label mb-3 block">Script</label>
+          <pre className="bg-o-bg border border-o-border rounded-lg p-4 font-mono text-xs text-o-text whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
+            {session.script}
+          </pre>
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function PayPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -72,13 +157,12 @@ export default function PayPage() {
 
       setStatus("paying");
 
-      const res = await fetchWithPay("/api/proxy/submit", {
+      // Use session-based submit — no need to re-send script/files
+      const res = await fetchWithPay("/api/proxy/submit/from-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          script: session.script,
-          nodes: session.nodes,
-          time_limit_min: session.time_limit_min,
+          session_id: sessionId,
           submitter_address: address,
         }),
       });
@@ -91,6 +175,7 @@ export default function PayPage() {
       const data = await res.json();
       setJobId(data.job_id);
 
+      // Mark session as complete
       await fetch(`/api/proxy/sessions/${sessionId}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,36 +225,7 @@ export default function PayPage() {
         </p>
       </div>
 
-      <div className="card mb-6">
-        <label className="stat-label mb-3 block">Job Details</label>
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Network</span>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-o-blue/20 text-o-blueText rounded">
-              Base Mainnet
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Nodes</span>
-            <span className="font-mono text-sm text-o-text">{session?.nodes}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Time Limit</span>
-            <span className="font-mono text-sm text-o-text">{session?.time_limit_min} min</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Price</span>
-            <span className="font-mono text-sm font-semibold text-o-green">{session?.price} USDC</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="card mb-6">
-        <label className="stat-label mb-3 block">Script</label>
-        <pre className="bg-o-bg border border-o-border rounded-lg p-4 font-mono text-xs text-o-text whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
-          {session?.script}
-        </pre>
-      </div>
+      {session && <JobSummary session={session} />}
 
       {status === "success" ? (
         <div className="card border-o-green/30">
