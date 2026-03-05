@@ -64,6 +64,11 @@ async def autonomous_loop(
     base_margin = settings.PRICE_MARGIN_MULTIPLIER
     cycle_count = 0
 
+    scaler = None
+    if settings.AUTO_SCALING_ENABLED:
+        from src.slurm.scaler import AutoScaler
+        scaler = AutoScaler()
+
     while True:
         try:
             async with session_maker() as db:
@@ -121,9 +126,26 @@ async def autonomous_loop(
                 cluster_status = await slurm_client.get_cluster_info()
                 event_bus.emit(
                     "cluster",
-                    f"Cluster: {cluster_status['allocated_nodes']}/{cluster_status['total_nodes']} nodes active, "
+                    f"Cluster: {cluster_status.get('available_cpus', 0)} CPUs available, "
+                    f"{cluster_status['allocated_nodes']}/{cluster_status['total_nodes']} nodes active, "
                     f"status={cluster_status['status']}",
                 )
+
+                # 4b. Elastic auto-scaling
+                if scaler:
+                    scaling_event = await scaler.evaluate_and_act(cluster_status, db)
+                    if scaling_event:
+                        from src.db.models import ScalingEvent as ScalingEventModel
+                        event_bus.emit(
+                            "scaling",
+                            f"[{scaling_event.action}] {scaling_event.node_name}: {scaling_event.reason}",
+                        )
+                        db.add(ScalingEventModel(
+                            event_type=scaling_event.action,
+                            node_name=scaling_event.node_name,
+                            reason=scaling_event.reason,
+                        ))
+                        await db.commit()
 
                 # 5. Periodic on-chain heartbeat (respects survival phase)
                 now = datetime.now(timezone.utc)

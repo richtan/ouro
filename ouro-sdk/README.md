@@ -16,10 +16,10 @@ cd ouro-sdk && pip install -e .
 from ouro_sdk import OuroClient
 
 async with OuroClient() as ouro:
-    quote = await ouro.quote(nodes=2, time_limit_min=5)
+    quote = await ouro.quote(cpus=2, time_limit_min=5)
     print(f"Price: {quote.price}")
 
-    job_id = await ouro.submit("python3 train.py", nodes=2, time_limit_min=5)
+    job_id = await ouro.submit("python3 train.py", cpus=2, time_limit_min=5)
     result = await ouro.wait(job_id)
     print(result.status, result.output)
 ```
@@ -38,8 +38,8 @@ async with OuroClient() as ouro:
 ## API
 
 - `OuroClient(api_url, client, poll_interval_s, poll_timeout_s)` — constructor
-- `quote(nodes, time_limit_min)` — get a price quote
-- `submit(script, nodes, time_limit_min, submitter_address)` — submit a job (returns job_id)
+- `quote(cpus, time_limit_min)` — get a price quote
+- `submit(script, cpus, time_limit_min, submitter_address)` — submit a job (returns job_id)
 - `get_job(job_id)` — fetch job status
 - `wait(job_id)` — poll until complete/failed
 - `run(script, ...)` — submit + wait in one call

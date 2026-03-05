@@ -110,7 +110,7 @@ async def get_cost_upper_bound(
 
 async def calculate_price(
     db: AsyncSession,
-    requested_nodes: int,
+    requested_cpus: int,
     time_limit_min: int,
     submission_mode: str = "script",
 ) -> PriceQuote:
@@ -119,7 +119,7 @@ async def calculate_price(
 
     gas_ub = max_gas * COST_SAFETY_FACTOR
     llm_ub = max_llm * COST_SAFETY_FACTOR
-    compute_cost = requested_nodes * time_limit_min * settings.INFRA_COST_PER_NODE_MINUTE
+    compute_cost = requested_cpus * time_limit_min * settings.INFRA_COST_PER_CPU_MINUTE
     setup_cost = SETUP_COST_BY_MODE.get(submission_mode, 0.0)
 
     cost_floor = gas_ub + llm_ub + compute_cost + setup_cost
@@ -160,9 +160,9 @@ def verify_job_profit(
     gas_cost_usd: float,
     llm_cost_usd: float,
     compute_duration_s: float = 0.0,
-    nodes: int = 1,
+    cpus: int = 1,
 ) -> ProfitVerification:
-    infra_cost = nodes * (compute_duration_s / 60) * settings.INFRA_COST_PER_NODE_MINUTE
+    infra_cost = cpus * (compute_duration_s / 60) * settings.INFRA_COST_PER_CPU_MINUTE
     actual_cost = gas_cost_usd + llm_cost_usd + infra_cost
     profit = price_charged_usd - actual_cost
     profit_pct = (profit / actual_cost * 100) if actual_cost > 0 else float("inf")

@@ -5,7 +5,7 @@ import StepCard from "@/components/docs/StepCard";
 
 const CURL_402_CMD = `curl -X POST https://api.ourocompute.com/api/compute/submit \\
   -H "Content-Type: application/json" \\
-  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'`;
+  -d '{"script": "echo hello", "cpus": 1, "time_limit_min": 1}'`;
 
 const CURL_402 = `${CURL_402_CMD}
 
@@ -16,7 +16,7 @@ const CURL_402 = `${CURL_402_CMD}
 const CURL_SUBMIT_CMD = `curl -X POST https://api.ourocompute.com/api/compute/submit \\
   -H "Content-Type: application/json" \\
   -H "payment-signature: <your-signed-x402-payment>" \\
-  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'`;
+  -d '{"script": "echo hello", "cpus": 1, "time_limit_min": 1}'`;
 
 const CURL_SUBMIT = `${CURL_SUBMIT_CMD}
 
@@ -33,7 +33,7 @@ const CURL_MULTIFILE_CMD = `curl -X POST https://api.ourocompute.com/api/compute
     ],
     "entrypoint": "python main.py",
     "image": "python312",
-    "nodes": 1,
+    "cpus": 1,
     "time_limit_min": 5
   }'`;
 
@@ -130,7 +130,7 @@ export default function ApiPage() {
                 { name: "files", type: "array", description: 'Array of {path, content} objects written to a workspace (multi-file mode)' },
                 { name: "entrypoint", type: "string", description: 'Command to run inside the workspace, e.g. "python main.py" (multi-file mode)' },
                 { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
-                { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+                { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
                 { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
               ]}
@@ -152,7 +152,7 @@ export default function ApiPage() {
             <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Query Parameters</h4>
             <ParamTable
               params={[
-                { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+                { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
                 { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, or git (default: script)" },
               ]}
@@ -228,7 +228,7 @@ export default function ApiPage() {
             description="Machine-readable service manifest"
           >
             <p className="text-xs text-o-textSecondary">
-              Returns payment protocol info, compute limits (max nodes, max time), trust metrics
+              Returns payment protocol info, compute limits (max CPUs, max time), trust metrics
               (on-chain proofs, uptime), and rate limits. Useful for agent discovery.
             </p>
           </EndpointCard>
@@ -254,7 +254,7 @@ export default function ApiPage() {
               params={[
                 { name: "script", type: "string", description: "Shell script to execute (script mode, optional)" },
                 { name: "job_payload", type: "object", description: "Job parameters for non-script modes (files, entrypoint, image, etc.)" },
-                { name: "nodes", type: "int", description: "Number of compute nodes", required: true },
+                { name: "cpus", type: "int", description: "Number of CPU cores", required: true },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes", required: true },
                 { name: "price", type: "string", description: "Price string from quote", required: true },
               ]}

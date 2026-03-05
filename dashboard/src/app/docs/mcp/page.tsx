@@ -12,7 +12,7 @@ const TOOLS = [
       { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
       { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
       { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
-      { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+      { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
     ],
     response: `{
@@ -51,7 +51,7 @@ const TOOLS = [
     name: "get_price_quote",
     description: "Get a price quote without submitting or paying. Use this to check pricing before committing.",
     params: [
-      { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+      { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, git (default: script)" },
     ],
@@ -80,7 +80,7 @@ const TOOLS = [
       { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
       { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
       { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
-      { name: "nodes", type: "int", description: "Number of compute nodes (default 1)" },
+      { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
       { name: "builder_code", type: "string", description: "Builder code for attribution (optional)" },
@@ -104,7 +104,7 @@ const TOOLS = [
       { name: "entrypoint", type: "string", description: "Entry script path (must match step 1)" },
       { name: "image", type: "string", description: "Container image (must match step 1)" },
       { name: "payment_signature", type: "string", description: "Signed x402 payment string", required: true },
-      { name: "nodes", type: "int", description: "Number of compute nodes (must match step 1)" },
+      { name: "cpus", type: "int", description: "Number of CPU cores (must match step 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (must match)" },
       { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
       { name: "builder_code", type: "string", description: "Builder code (must match if used in step 1)" },
@@ -145,7 +145,7 @@ const TOOLS = [
   "currency": "USDC",
   "body_schema": {
     "script": "string (required)",
-    "nodes": "int (default 1)",
+    "cpus": "int (default 1, max 8)",
     "time_limit_min": "int (default 1)",
     "submitter_address": "string (optional)"
   }
@@ -211,7 +211,7 @@ export default function McpToolsPage() {
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
                 run_compute_job
               </span>{" "}
-              with your script, nodes, and time limit.
+              with your script, CPUs, and time limit.
             </p>
           </StepCard>
           <StepCard number={2} title="Show the payment link">

@@ -140,7 +140,7 @@ async def test_calculate_price_with_defaults():
     mock_result.scalar_one_or_none.return_value = None
     db.execute.return_value = mock_result
 
-    quote = await calculate_price(db, requested_nodes=1, time_limit_min=1)
+    quote = await calculate_price(db, requested_cpus=1, time_limit_min=1)
     assert quote.price_usd >= pricing.MIN_PRICE_USD
     assert quote.guaranteed_profitable is True
     assert "gas_upper_bound" in quote.breakdown
@@ -158,7 +158,7 @@ async def test_calculate_price_with_real_costs():
     mock_result.scalar_one_or_none.side_effect = [0.005, 0.02]
     db.execute.return_value = mock_result
 
-    quote = await calculate_price(db, requested_nodes=2, time_limit_min=10)
+    quote = await calculate_price(db, requested_cpus=2, time_limit_min=10)
     # Verify cost floor includes safety factor
     expected_gas_ub = 0.005 * COST_SAFETY_FACTOR
     expected_llm_ub = 0.02 * COST_SAFETY_FACTOR
@@ -181,7 +181,7 @@ async def test_calculate_price_min_price_floor():
     mock_result.scalar_one_or_none.return_value = None
     db.execute.return_value = mock_result
 
-    quote = await calculate_price(db, requested_nodes=1, time_limit_min=1)
+    quote = await calculate_price(db, requested_cpus=1, time_limit_min=1)
     assert quote.price_usd >= pricing.MIN_PRICE_USD
 
 

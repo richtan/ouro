@@ -60,7 +60,7 @@ export default function SubmitPage() {
   const publicClient = usePublicClient();
 
   const [files, setFiles] = useState<WorkspaceFile[]>(TEMPLATES[0].files);
-  const [nodes, setNodes] = useState(1);
+  const [cpus, setCpus] = useState(1);
   const [timeLimit, setTimeLimit] = useState(1);
   const [builderCode, setBuilderCode] = useState("");
   const [status, setStatus] = useState<JobStatus>("idle");
@@ -80,7 +80,7 @@ export default function SubmitPage() {
     setPriceLoading(true);
     const timeout = setTimeout(() => {
       fetch(
-        `/api/proxy/price?nodes=${nodes}&time_limit_min=${timeLimit}&submission_mode=multi_file`,
+        `/api/proxy/price?cpus=${cpus}&time_limit_min=${timeLimit}&submission_mode=multi_file`,
       )
         .then((r) => r.json())
         .then((data) => {
@@ -93,7 +93,7 @@ export default function SubmitPage() {
         });
     }, 300);
     return () => clearTimeout(timeout);
-  }, [nodes, timeLimit]);
+  }, [cpus, timeLimit]);
 
   // Submit handler
   const handleSubmit = async () => {
@@ -128,7 +128,7 @@ export default function SubmitPage() {
 
       const body = {
         files: files.map((f) => ({ path: f.path, content: f.content })),
-        nodes,
+        cpus,
         time_limit_min: timeLimit,
         submitter_address: address,
       };
@@ -219,22 +219,22 @@ export default function SubmitPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-o-textSecondary">Nodes</span>
+                  <span className="text-xs text-o-textSecondary">CPUs</span>
                   <span className="font-mono text-sm text-o-blueText">
-                    {nodes}
+                    {cpus}
                   </span>
                 </div>
                 <input
                   type="range"
                   min={1}
-                  max={16}
-                  value={nodes}
-                  onChange={(e) => setNodes(Number(e.target.value))}
+                  max={8}
+                  value={cpus}
+                  onChange={(e) => setCpus(Number(e.target.value))}
                   className="w-full accent-o-blue"
                 />
                 <div className="flex justify-between text-xs text-o-muted mt-1">
                   <span>1</span>
-                  <span>16</span>
+                  <span>8</span>
                 </div>
               </div>
               <div>
@@ -284,7 +284,7 @@ export default function SubmitPage() {
         <StickySubmitBar
           fromImage={dockerfileInfo?.fromImage ?? null}
           entrypointDisplay={dockerfileInfo?.entrypoint ?? null}
-          nodes={nodes}
+          cpus={cpus}
           timeLimit={timeLimit}
           priceEstimate={priceEstimate}
           priceLoading={priceLoading}

@@ -12,7 +12,7 @@ from src.api.routes import ComputeSubmitRequest
 
 
 def test_to_workspace_files_script():
-    req = ComputeSubmitRequest(script="echo hello", nodes=1, time_limit_min=1)
+    req = ComputeSubmitRequest(script="echo hello", cpus=1, time_limit_min=1)
     files, entrypoint = req.to_workspace_files()
     assert entrypoint == "job.sh"
     assert len(files) == 1
@@ -27,7 +27,7 @@ def test_to_workspace_files_multi_file():
             {"path": "helper.py", "content": "x = 1"},
         ],
         entrypoint="main.py",
-        nodes=1,
+        cpus=1,
         time_limit_min=1,
     )
     files, entrypoint = req.to_workspace_files()
@@ -37,13 +37,13 @@ def test_to_workspace_files_multi_file():
 
 
 def test_submission_mode_property():
-    script_req = ComputeSubmitRequest(script="echo hello", nodes=1, time_limit_min=1)
+    script_req = ComputeSubmitRequest(script="echo hello", cpus=1, time_limit_min=1)
     assert script_req.submission_mode == "script"
 
     multi_req = ComputeSubmitRequest(
         files=[{"path": "main.py", "content": "print('hi')"}],
         entrypoint="main.py",
-        nodes=1,
+        cpus=1,
         time_limit_min=1,
     )
     assert multi_req.submission_mode == "multi_file"

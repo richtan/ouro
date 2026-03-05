@@ -185,7 +185,7 @@ async def _finalize_success(
         gas_cost_usd=deps.captured_gas_cost_usd,
         llm_cost_usd=llm_cost_usd,
         compute_duration_s=compute_duration_s,
-        nodes=deps.nodes,
+        cpus=deps.cpus,
     )
     event_bus.emit(
         "profit",
@@ -235,7 +235,7 @@ async def _process_one_job(
                 entrypoint=entrypoint or "",
                 image=payload.get("image", "base"),
                 partition=payload.get("partition", "default"),
-                nodes=payload.get("nodes", 1),
+                cpus=payload.get("cpus", 1),
                 time_limit_min=payload.get("time_limit_min", 1),
                 client_builder_code=job.client_builder_code,
                 slurm_client=slurm_client,

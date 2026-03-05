@@ -64,7 +64,7 @@ CREATE TABLE payment_sessions (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status          TEXT NOT NULL DEFAULT 'pending',
   script          TEXT NOT NULL,
-  nodes           INTEGER NOT NULL,
+  cpus            INTEGER NOT NULL,
   time_limit_min  INTEGER NOT NULL,
   price           TEXT NOT NULL,
   agent_url       TEXT,
@@ -81,6 +81,16 @@ CREATE TABLE attribution_log (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_attribution_codes ON attribution_log USING GIN (codes);
+
+-- Scaling events (auto-scaler audit trail)
+CREATE TABLE IF NOT EXISTS scaling_events (
+    id          SERIAL PRIMARY KEY,
+    event_type  TEXT NOT NULL,
+    node_name   TEXT NOT NULL,
+    reason      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scaling_events_time ON scaling_events (created_at DESC);
 
 -- Create monthly partitions for historical_data (12 months ahead)
 DO $$

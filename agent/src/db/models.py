@@ -68,7 +68,7 @@ class PaymentSession(Base):
     status = Column(Text, nullable=False, server_default="pending")
     script = Column(Text, nullable=True)
     job_payload = Column(JSONB)
-    nodes = Column(Integer, nullable=False)
+    cpus = Column(Integer, nullable=False)
     time_limit_min = Column(Integer, nullable=False)
     price = Column(Text, nullable=False)
     agent_url = Column(Text)
@@ -127,4 +127,14 @@ class AuditLog(Base):
     wallet_address = Column(Text)
     amount_usdc = Column(Numeric(18, 6))
     detail = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class ScalingEvent(Base):
+    __tablename__ = "scaling_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_type = Column(Text, nullable=False)
+    node_name = Column(Text, nullable=False)
+    reason = Column(Text)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

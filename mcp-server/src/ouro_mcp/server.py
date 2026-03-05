@@ -52,12 +52,12 @@ def _build_submit_body(
     files: list[dict] | None = None,
     entrypoint: str | None = None,
     image: str = "base",
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
 ) -> dict:
     """Centralizes body construction for all modes."""
-    body: dict = {"nodes": nodes, "time_limit_min": time_limit_min}
+    body: dict = {"cpus": cpus, "time_limit_min": time_limit_min}
     if image and image != "base":
         body["image"] = image
     if submitter_address:
@@ -83,12 +83,12 @@ def _submission_mode(script: str | None, files: list[dict] | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _get_quote(nodes: int, time_limit_min: int, submission_mode: str = "script") -> dict:
+async def _get_quote(cpus: int, time_limit_min: int, submission_mode: str = "script") -> dict:
     """Get price quote using the dedicated /api/price endpoint."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
             f"{_get_api_url()}/api/price",
-            params={"nodes": nodes, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
+            params={"cpus": cpus, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
         )
         resp.raise_for_status()
         return resp.json()
@@ -164,12 +164,12 @@ async def _create_session_via_api(
     *,
     script: str | None = None,
     job_payload: dict | None = None,
-    nodes: int,
+    cpus: int,
     time_limit_min: int,
     price: str,
 ) -> dict:
     """Create a payment session via the agent API (persisted in DB)."""
-    body: dict = {"nodes": nodes, "time_limit_min": time_limit_min, "price": price}
+    body: dict = {"cpus": cpus, "time_limit_min": time_limit_min, "price": price}
     if script:
         body["script"] = script
     if job_payload:
@@ -256,7 +256,7 @@ async def run_compute_job(
     files: list[dict] | None = None,
     entrypoint: str | None = None,
     image: str = "base",
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
 ) -> dict:
     """Submit a compute job to run on Ouro's HPC cluster (browser payment flow).
@@ -279,33 +279,33 @@ async def run_compute_job(
         files: List of {path, content} file dicts for multi-file workspace
         entrypoint: File to execute (required with files unless a Dockerfile is included)
         image: Container image (default "base"). Options: base, python312, node20, pytorch, r-base
-        nodes: Number of compute nodes (default 1)
+        cpus: Number of CPU cores (default 1, max 8)
         time_limit_min: Maximum runtime in minutes (default 1)
     """
     if not script and not files:
         return {"error": "Provide one of: script or files"}
     if files and not entrypoint and not _has_dockerfile(files):
         return {"error": "entrypoint required when using files (or include a Dockerfile)"}
-    if not (1 <= nodes <= 16):
-        return {"error": "nodes must be between 1 and 16"}
+    if not (1 <= cpus <= 8):
+        return {"error": "cpus must be between 1 and 8"}
     if not (1 <= time_limit_min <= 60):
         return {"error": "time_limit_min must be between 1 and 60"}
 
     mode = _submission_mode(script, files)
-    quote = await _get_quote(nodes, time_limit_min, mode)
+    quote = await _get_quote(cpus, time_limit_min, mode)
 
     if script:
-        session = await _create_session_via_api(script=script, nodes=nodes, time_limit_min=time_limit_min, price=quote["price"])
+        session = await _create_session_via_api(script=script, cpus=cpus, time_limit_min=time_limit_min, price=quote["price"])
     else:
         job_payload = {
             "submission_mode": "multi_file",
             "files": files,
             "entrypoint": entrypoint,
             "image": image,
-            "nodes": nodes,
+            "cpus": cpus,
             "time_limit_min": time_limit_min,
         }
-        session = await _create_session_via_api(job_payload=job_payload, nodes=nodes, time_limit_min=time_limit_min, price=quote["price"])
+        session = await _create_session_via_api(job_payload=job_payload, cpus=cpus, time_limit_min=time_limit_min, price=quote["price"])
 
     url = _payment_url(session["id"])
 
@@ -324,7 +324,7 @@ async def run_compute_job(
 
 @mcp.tool()
 async def get_price_quote(
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
     submission_mode: str = "script",
 ) -> dict:
@@ -333,11 +333,11 @@ async def get_price_quote(
     Use this to check pricing before committing to a job.
 
     Args:
-        nodes: Number of compute nodes (default 1)
+        cpus: Number of CPU cores (default 1, max 8)
         time_limit_min: Maximum runtime in minutes (default 1)
         submission_mode: "script" or "multi_file" (affects setup cost)
     """
-    return await _get_quote(nodes, time_limit_min, submission_mode)
+    return await _get_quote(cpus, time_limit_min, submission_mode)
 
 
 @mcp.tool()
@@ -346,7 +346,7 @@ async def get_payment_requirements(
     files: list[dict] | None = None,
     entrypoint: str | None = None,
     image: str = "base",
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
     builder_code: str | None = None,
@@ -371,7 +371,7 @@ async def get_payment_requirements(
         files: List of {path, content} file dicts for multi-file workspace
         entrypoint: File to execute (required with files unless a Dockerfile is included)
         image: Container image (default "base")
-        nodes: Number of compute nodes (default 1)
+        cpus: Number of CPU cores (default 1, max 8)
         time_limit_min: Maximum runtime in minutes (default 1)
         submitter_address: Your wallet address (optional, for job tracking)
         builder_code: Builder code for ERC-8021 attribution (optional)
@@ -380,7 +380,7 @@ async def get_payment_requirements(
         return {"error": "Provide one of: script or files"}
     body = _build_submit_body(
         script=script, files=files, entrypoint=entrypoint,
-        image=image, nodes=nodes, time_limit_min=time_limit_min,
+        image=image, cpus=cpus, time_limit_min=time_limit_min,
         submitter_address=submitter_address,
     )
     result = await _get_payment_requirements(body, builder_code)
@@ -404,7 +404,7 @@ async def submit_and_pay(
     files: list[dict] | None = None,
     entrypoint: str | None = None,
     image: str = "base",
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
     builder_code: str | None = None,
@@ -424,7 +424,7 @@ async def submit_and_pay(
         files: List of {path, content} file dicts (must match)
         entrypoint: File to execute (must match, not needed if Dockerfile included)
         image: Container image (must match, not needed if Dockerfile included)
-        nodes: Number of compute nodes (must match)
+        cpus: Number of CPU cores (must match)
         time_limit_min: Maximum runtime in minutes (must match)
         submitter_address: Your wallet address (optional)
         builder_code: Builder code (must match if used in step 1)
@@ -433,7 +433,7 @@ async def submit_and_pay(
         return {"error": "Provide one of: script or files"}
     body = _build_submit_body(
         script=script, files=files, entrypoint=entrypoint,
-        image=image, nodes=nodes, time_limit_min=time_limit_min,
+        image=image, cpus=cpus, time_limit_min=time_limit_min,
         submitter_address=submitter_address,
     )
     result = await _submit_with_payment(body, payment_signature, builder_code)
@@ -520,15 +520,15 @@ async def get_api_endpoint() -> dict:
             "files": "array (optional) - [{path, content}] for multi-file workspace. Include a Dockerfile to configure the environment.",
             "entrypoint": "string (optional) - file to execute (required with files unless Dockerfile included)",
             "image": "string (optional) - container image (default: base, ignored if Dockerfile present)",
-            "nodes": "int (default 1) - number of compute nodes",
+            "cpus": "int (default 1, max 8) - number of CPU cores",
             "time_limit_min": "int (default 1) - max runtime in minutes",
             "submitter_address": "string (optional) - your wallet address for job tracking",
         },
         "submission_modes": ["script", "multi_file"],
-        "price_endpoint": f"{_get_api_url()}/api/price?nodes=1&time_limit_min=1&submission_mode=script",
+        "price_endpoint": f"{_get_api_url()}/api/price?cpus=1&time_limit_min=1&submission_mode=script",
         "example_body": {
             "script": "echo hello world",
-            "nodes": 1,
+            "cpus": 1,
             "time_limit_min": 1,
         },
     }

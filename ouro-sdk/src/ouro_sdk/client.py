@@ -42,14 +42,14 @@ class OuroClient:
 
     async def quote(
         self,
-        nodes: int = 1,
+        cpus: int = 1,
         time_limit_min: int = 1,
         submission_mode: str = "script",
     ) -> Quote:
         """Get a price quote without submitting."""
         resp = await self._client.get(
             f"{self._api_url}/api/price",
-            params={"nodes": nodes, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
+            params={"cpus": cpus, "time_limit_min": time_limit_min, "submission_mode": submission_mode},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -66,7 +66,7 @@ class OuroClient:
         files: list[dict] | None = None,
         entrypoint: str | None = None,
         image: str = "base",
-        nodes: int = 1,
+        cpus: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,
         builder_code: str | None = None,
@@ -80,7 +80,7 @@ class OuroClient:
         With a plain httpx client this will raise on 402.
         With an x402-wrapped client, payment is handled automatically.
         """
-        body: dict = {"nodes": nodes, "time_limit_min": time_limit_min}
+        body: dict = {"cpus": cpus, "time_limit_min": time_limit_min}
         if script:
             body["script"] = script
         elif files:
@@ -142,7 +142,7 @@ class OuroClient:
         files: list[dict] | None = None,
         entrypoint: str | None = None,
         image: str = "base",
-        nodes: int = 1,
+        cpus: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,
         builder_code: str | None = None,
@@ -150,7 +150,7 @@ class OuroClient:
         """Submit and wait for completion in one call."""
         job_id = await self.submit(
             script=script, files=files, entrypoint=entrypoint,
-            image=image, nodes=nodes, time_limit_min=time_limit_min,
+            image=image, cpus=cpus, time_limit_min=time_limit_min,
             submitter_address=submitter_address, builder_code=builder_code,
         )
         return await self.wait(job_id)

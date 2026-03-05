@@ -25,7 +25,7 @@ class OracleDeps:
     entrypoint: str
     image: str  # default "base"
     partition: str
-    nodes: int
+    cpus: int
     time_limit_min: int
     client_builder_code: str | None
     slurm_client: SlurmClient
@@ -61,12 +61,12 @@ async def validate_request_impl(deps: OracleDeps) -> str:
     if not deps.workspace_path:
         return "INVALID: workspace_path required"
 
-    if deps.nodes < 1 or deps.nodes > 16:
-        return "INVALID: nodes must be between 1 and 16"
+    if deps.cpus < 1 or deps.cpus > 8:
+        return "INVALID: cpus must be between 1 and 8"
     if deps.time_limit_min < 1 or deps.time_limit_min > 60:
         return "INVALID: time_limit_min must be between 1 and 60"
 
-    return f"VALID: nodes={deps.nodes}, time={deps.time_limit_min}min"
+    return f"VALID: cpus={deps.cpus}, time={deps.time_limit_min}min"
 
 
 async def submit_to_slurm_impl(deps: OracleDeps) -> str:
@@ -83,7 +83,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
             sif_path=deps.sif_path,
             entrypoint_cmd=deps.entrypoint_cmd,
             partition=deps.partition,
-            nodes=deps.nodes,
+            cpus=deps.cpus,
             time_limit_min=deps.time_limit_min,
         )
 
@@ -97,7 +97,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
         deps.event_bus.emit(
             "slurm",
             f"Job {deps.job_id} submitted as Slurm job {slurm_job_id} "
-            f"(partition={deps.partition}, nodes={deps.nodes})",
+            f"(partition={deps.partition}, cpus={deps.cpus})",
         )
         return f"SUBMITTED: slurm_job_id={slurm_job_id}"
     except Exception as e:

@@ -23,12 +23,12 @@ const wallet = createWalletClient({
 
 const OURO_API = "https://api.ourocompute.com";
 
-async function runJob(script: string, nodes = 1, timeMin = 1) {
+async function runJob(script: string, cpus = 1, timeMin = 1) {
   // 2. Get price and payment requirements
   const quoteRes = await fetch(\`\${OURO_API}/api/compute/submit\`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ script, nodes, time_limit_min: timeMin }),
+    body: JSON.stringify({ script, cpus, time_limit_min: timeMin }),
   });
 
   if (quoteRes.status !== 402) throw new Error("Expected 402");
@@ -48,7 +48,7 @@ async function runJob(script: string, nodes = 1, timeMin = 1) {
       "Content-Type": "application/json",
       "payment-signature": paymentSignature,
     },
-    body: JSON.stringify({ script, nodes, time_limit_min: timeMin }),
+    body: JSON.stringify({ script, cpus, time_limit_min: timeMin }),
   });
 
   const { job_id } = await submitRes.json();

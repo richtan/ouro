@@ -199,7 +199,7 @@ async def submit_job(
     job = body.get("job", {})
     partition = "compute"
     name = job.get("name", "ouro-job")
-    nodes = str(job.get("nodes", "1"))
+    cpus = str(job.get("cpus", "1"))
     time_limit = parse_time_limit(job.get("time_limit", "5"))
     cwd = job.get("current_working_directory", "/tmp")
 
@@ -248,8 +248,8 @@ async def submit_job(
     os.chmod(wrapper_path, 0o755)
 
     logger.info(
-        "Submitting: partition=%s name=%s nodes=%s time=%s isolation=apptainer",
-        partition, name, nodes, time_limit,
+        "Submitting: partition=%s name=%s cpus=%s time=%s isolation=apptainer",
+        partition, name, cpus, time_limit,
     )
 
     try:
@@ -259,9 +259,10 @@ async def submit_job(
                 "--parsable",
                 f"--partition={partition}",
                 f"--job-name={name}",
-                f"--nodes={nodes}",
+                "--ntasks=1",
+                f"--cpus-per-task={cpus}",
+                "--mem-per-cpu=1600M",
                 f"--time={time_limit}",
-                "--mem=3200M",
                 f"--output={OUTPUT_DIR}/slurm-%j.out",
                 f"--error={OUTPUT_DIR}/slurm-%j.err",
                 f"--chdir={cwd}",
@@ -384,32 +385,42 @@ async def get_job_output(
 @app.get("/slurm/v0.0.38/nodes")
 async def get_nodes(x_slurm_user_token: str | None = Header(None)):
     check_auth(x_slurm_user_token)
-    result = await run_cmd(["sinfo", "--noheader", "-N", "-o", "%N %T %c %m"])
+    # %C gives "allocated/idle/other/total" CPU breakdown per node
+    result = await run_cmd(["sinfo", "--noheader", "-N", "-o", "%N %T %c %C %m"])
     nodes = []
     for line in result.strip().split("\n"):
         if not line.strip():
             continue
         parts = line.split()
-        if len(parts) >= 4:
+        if len(parts) >= 5:
             state_raw = parts[1].upper()
             state_list = []
             if "IDLE" in state_raw:
                 state_list.append("IDLE")
+            elif "MIX" in state_raw:
+                state_list.append("MIXED")
             elif "ALLOC" in state_raw:
                 state_list.append("ALLOCATED")
-            elif "MIX" in state_raw:
-                state_list.append("ALLOCATED")
+            elif "CLOUD" in state_raw:
+                state_list.append("CLOUD")
             elif "DOWN" in state_raw:
                 state_list.append("DOWN")
+            elif "DRAIN" in state_raw:
+                state_list.append("DRAINING")
             else:
                 state_list.append(state_raw)
+
+            # Parse %C field: "allocated/idle/other/total"
+            cpu_parts = parts[3].split("/")
+            free_cpus = int(cpu_parts[1]) if len(cpu_parts) >= 2 else 0
 
             nodes.append(
                 {
                     "name": parts[0],
                     "state": state_list,
                     "cpus": int(parts[2]),
-                    "real_memory": int(parts[3]),
+                    "free_cpus": free_cpus,
+                    "real_memory": int(parts[4]),
                 }
             )
     return {"nodes": nodes}

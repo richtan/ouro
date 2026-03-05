@@ -19,6 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+scaling = ["google-cloud-compute>=1.19.0"]
 test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

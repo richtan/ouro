@@ -9,7 +9,7 @@ from ouro_sdk import OuroClient
 async def main():
     async with OuroClient() as ouro:
         # Get a price quote
-        quote = await ouro.quote(nodes=1, time_limit_min=1)
+        quote = await ouro.quote(cpus=1, time_limit_min=1)
         print(f"Price: {quote.price}")
 
         # Submit and wait for results (requires x402-capable HTTP client)
@@ -28,7 +28,7 @@ x402_client = httpx.AsyncClient(...)  # your x402-wrapped client
 
 async with OuroClient(client=x402_client) as ouro:
     # Payment is handled transparently by the x402 client
-    result = await ouro.run(script="python3 train.py --epochs 50", nodes=2, time_limit_min=30)`;
+    result = await ouro.run(script="python3 train.py --epochs 50", cpus=2, time_limit_min=30)`;
 
 const MULTIFILE_EXAMPLE = `from ouro_sdk import OuroClient
 
@@ -57,7 +57,7 @@ class SimpleNet(nn.Module):
         ],
         entrypoint="train.py",
         image="pytorch",
-        nodes=1,
+        cpus=1,
         time_limit_min=5,
     )
     print(result.output)`;
@@ -168,7 +168,7 @@ export default function SdkPage() {
         <div className="space-y-8">
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.run(*, script?, files?, entrypoint?, image, nodes, time_limit_min)</span>
+              <span className="font-mono">await ouro.run(*, script?, files?, entrypoint?, image, cpus, time_limit_min)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
               Submit a job and wait for completion. Provide{" "}
@@ -186,7 +186,7 @@ export default function SdkPage() {
                 { name: "files", type: "list[dict] | None", description: 'List of {path, content} dicts (mutually exclusive with script)' },
                 { name: "entrypoint", type: "str | None", description: "File to execute when using files mode" },
                 { name: "image", type: "str", description: 'Container image (default: "base")' },
-                { name: "nodes", type: "int", description: "Number of nodes (default: 1)" },
+                { name: "cpus", type: "int", description: "Number of CPU cores (default: 1, max: 8)" },
                 { name: "time_limit_min", type: "int", description: "Time limit in minutes (default: 1)" },
                 { name: "submitter_address", type: "str | None", description: "Wallet address of the submitter" },
                 { name: "builder_code", type: "str | None", description: "ERC-8021 builder code for attribution" },
@@ -196,7 +196,7 @@ export default function SdkPage() {
 
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.submit(*, script?, files?, entrypoint?, image, nodes, time_limit_min)</span>
+              <span className="font-mono">await ouro.submit(*, script?, files?, entrypoint?, image, cpus, time_limit_min)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
               Submit a job without waiting. Same parameters as{" "}
@@ -228,7 +228,7 @@ export default function SdkPage() {
 
           <div>
             <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-              <span className="font-mono">await ouro.quote(nodes=1, time_limit_min=1, submission_mode=&quot;script&quot;)</span>
+              <span className="font-mono">await ouro.quote(cpus=1, time_limit_min=1, submission_mode=&quot;script&quot;)</span>
             </h3>
             <p className="text-sm text-o-textSecondary mb-3">
               Get a price quote without submitting. Use{" "}

@@ -63,7 +63,16 @@ class Settings(BaseSettings):
     # Pricing
     PRICE_MARGIN_MULTIPLIER: float = 1.5
     MIN_PROFIT_PCT: float = 0.20
-    INFRA_COST_PER_NODE_MINUTE: float = 0.0006
+    INFRA_COST_PER_CPU_MINUTE: float = 0.0002
+
+    # Auto-scaling (disabled by default)
+    AUTO_SCALING_ENABLED: bool = False
+    GCP_PROJECT: str = ""
+    GCP_ZONE: str = "us-central1-a"
+    GCP_CREDENTIALS_JSON: str = ""  # Service account key JSON (set in Doppler)
+    SCALING_MAX_SPOT_NODES: int = 18
+    SCALING_COOLDOWN_SECONDS: int = 30
+    SCALING_IDLE_DRAIN_MINUTES: int = 5
 
     # CORS
     CORS_ORIGINS: str = "https://ourocompute.com,http://localhost:3000,http://localhost:3001"

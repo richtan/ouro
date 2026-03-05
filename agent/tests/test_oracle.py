@@ -26,7 +26,7 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
             entrypoint="job.sh",
             image="base",
             partition="default",
-            nodes=1,
+            cpus=1,
             time_limit_min=1,
             client_builder_code=None,
             slurm_client=mock_slurm_client,
@@ -63,10 +63,10 @@ async def test_validate_empty_workspace_path(make_deps):
     assert "workspace_path" in result
 
 
-async def test_validate_nodes_too_high(make_deps):
-    result = await validate_request_impl(make_deps(nodes=17))
+async def test_validate_cpus_too_high(make_deps):
+    result = await validate_request_impl(make_deps(cpus=9))
     assert "INVALID" in result
-    assert "nodes" in result
+    assert "cpus" in result
 
 
 async def test_validate_time_too_high(make_deps):
@@ -115,17 +115,17 @@ async def test_fast_path_proof_error(make_deps, mock_chain_client):
 # --- validate_request_impl boundary cases ---
 
 
-async def test_validate_nodes_zero(make_deps):
-    result = await validate_request_impl(make_deps(nodes=0))
+async def test_validate_cpus_zero(make_deps):
+    result = await validate_request_impl(make_deps(cpus=0))
     assert "INVALID" in result
-    assert "nodes" in result
+    assert "cpus" in result
 
 
-async def test_validate_nodes_boundary_valid(make_deps):
-    result1 = await validate_request_impl(make_deps(nodes=1))
+async def test_validate_cpus_boundary_valid(make_deps):
+    result1 = await validate_request_impl(make_deps(cpus=1))
     assert result1.startswith("VALID")
-    result16 = await validate_request_impl(make_deps(nodes=16))
-    assert result16.startswith("VALID")
+    result8 = await validate_request_impl(make_deps(cpus=8))
+    assert result8.startswith("VALID")
 
 
 async def test_validate_time_zero(make_deps):

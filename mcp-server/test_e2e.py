@@ -55,7 +55,7 @@ async def step1_get_payment_requirements(
     print("=== Step 1: Get payment requirements ===")
     resp = await client.post(
         f"{AGENT_URL}/api/compute/submit",
-        json={"script": "echo hello from e2e test", "nodes": 1, "time_limit_min": 1},
+        json={"script": "echo hello from e2e test", "cpus": 1, "time_limit_min": 1},
     )
     print(f"  Status: {resp.status_code}")
 
@@ -121,7 +121,7 @@ async def step3_submit_with_payment(
     print("=== Step 3: Submit with payment ===")
     resp = await client.post(
         f"{AGENT_URL}/api/compute/submit",
-        json={"script": "echo hello from e2e test", "nodes": 1, "time_limit_min": 1},
+        json={"script": "echo hello from e2e test", "cpus": 1, "time_limit_min": 1},
         headers={"payment-signature": payment_signature},
     )
     print(f"  Status: {resp.status_code}")

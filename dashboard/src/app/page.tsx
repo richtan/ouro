@@ -27,7 +27,7 @@ const MCP_JSON = `{
 
 const TERM_LINES: { text: string; color: string; delay: number }[] = [
   { text: '$ curl -X POST https://api.ourocompute.com/api/compute/submit \\', color: "text-o-text", delay: 0 },
-  { text: '    -d \'{"script": "python3 train.py --epochs 50", "nodes": 2}\'', color: "text-o-text", delay: 80 },
+  { text: '    -d \'{"script": "python3 train.py --epochs 50", "cpus": 2}\'', color: "text-o-text", delay: 80 },
   { text: "", color: "", delay: 0 },
   { text: '402 Payment Required \u00b7 $0.0841 USDC', color: "text-o-amber", delay: 500 },
   { text: "", color: "", delay: 0 },

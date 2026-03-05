@@ -6,7 +6,7 @@ const FORMULA = `price = max(
   $0.01                   // absolute floor
 )
 
-cost_floor = max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/node-min + setup_cost`;
+cost_floor = max_gas × 1.25 + max_llm × 1.25 + cpus × minutes × $0.0002/cpu-min + setup_cost`;
 
 export default function PricingPage() {
   return (
@@ -48,8 +48,8 @@ export default function PricingPage() {
           </div>
           <div className="bg-o-bg rounded-lg p-3 border border-o-border">
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Compute</div>
-            <div className="font-display text-lg font-semibold text-o-text mt-1">$0.0006</div>
-            <p className="text-xs text-o-muted mt-1">Per node-minute of Slurm cluster time</p>
+            <div className="font-display text-lg font-semibold text-o-text mt-1">$0.0002</div>
+            <p className="text-xs text-o-muted mt-1">Per CPU-minute of Slurm cluster time</p>
           </div>
         </div>
       </section>

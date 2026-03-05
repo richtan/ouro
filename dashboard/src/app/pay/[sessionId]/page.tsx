@@ -13,7 +13,7 @@ interface Session {
   status: string;
   script: string | null;
   job_payload: Record<string, unknown> | null;
-  nodes: number;
+  cpus: number;
   time_limit_min: number;
   price: string;
   agent_url: string;
@@ -74,8 +74,8 @@ function JobSummary({ session }: { session: Session }) {
             </div>
           )}
           <div className="flex justify-between items-center">
-            <span className="text-xs text-o-textSecondary">Nodes</span>
-            <span className="font-mono text-sm text-o-text">{session.nodes}</span>
+            <span className="text-xs text-o-textSecondary">CPUs</span>
+            <span className="font-mono text-sm text-o-text">{session.cpus}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-xs text-o-textSecondary">Time Limit</span>

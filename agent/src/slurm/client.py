@@ -43,7 +43,7 @@ class SlurmClient:
         sif_path: str | None = None,
         entrypoint_cmd: list[str] | None = None,
         partition: str = "compute",
-        nodes: int = 1,
+        cpus: int = 1,
         time_limit_min: int = 1,
     ) -> int:
         body: dict = {
@@ -54,7 +54,7 @@ class SlurmClient:
                 "environment": ["PATH=/usr/bin:/bin"],
                 "name": f"ouro-{uuid4().hex[:8]}",
                 "partition": partition,
-                "nodes": str(nodes),
+                "cpus": cpus,
                 "tasks": 1,
                 "time_limit": {"set": True, "number": time_limit_min * 60},
                 "current_working_directory": "/tmp",
@@ -126,18 +126,42 @@ class SlurmClient:
             resp = await self.client.get("/slurm/v0.0.38/nodes")
             resp.raise_for_status()
             nodes = resp.json().get("nodes", [])
+
             total = len(nodes)
             idle = sum(1 for n in nodes if "IDLE" in n.get("state", []))
             allocated = sum(1 for n in nodes if "ALLOCATED" in n.get("state", []))
+            cloud = sum(1 for n in nodes if "CLOUD" in n.get("state", []))
+
+            # CPU-level capacity (for core-level allocation)
+            total_cpus = sum(
+                n.get("cpus", 0) for n in nodes
+                if "CLOUD" not in n.get("state", [])
+                and "DOWN" not in n.get("state", [])
+            )
+            available_cpus = sum(
+                n.get("cpus", 0) for n in nodes if "IDLE" in n.get("state", [])
+            )
+            available_cpus += sum(
+                n.get("free_cpus", 0) for n in nodes if "MIXED" in n.get("state", [])
+            )
+
             return {
                 "total_nodes": total,
                 "idle_nodes": idle,
                 "allocated_nodes": allocated,
+                "cloud_nodes": cloud,
+                "total_cpus": total_cpus,
+                "available_cpus": available_cpus,
+                "nodes_detail": nodes,
                 "status": "healthy" if total > 0 else "offline",
             }
         except Exception as e:
             logger.warning("slurm_cluster_info_failed: %s", e)
-            return {"total_nodes": 0, "idle_nodes": 0, "allocated_nodes": 0, "status": "unreachable"}
+            return {
+                "total_nodes": 0, "idle_nodes": 0, "allocated_nodes": 0,
+                "cloud_nodes": 0, "total_cpus": 0, "available_cpus": 0,
+                "nodes_detail": [], "status": "unreachable",
+            }
 
     async def close(self) -> None:
         await self.client.aclose()

@@ -7,7 +7,7 @@ type JobStatus = "idle" | "submitting" | "paying" | "error";
 interface StickySubmitBarProps {
   fromImage: string | null;
   entrypointDisplay: string | null;
-  nodes: number;
+  cpus: number;
   timeLimit: number;
   priceEstimate: string | null;
   priceLoading: boolean;
@@ -21,7 +21,7 @@ interface StickySubmitBarProps {
 export default function StickySubmitBar({
   fromImage,
   entrypointDisplay,
-  nodes,
+  cpus,
   timeLimit,
   priceEstimate,
   priceLoading,
@@ -60,7 +60,7 @@ export default function StickySubmitBar({
               </>
             )}
             <span className="text-o-muted mx-1.5">·</span>
-            {nodes} node{nodes > 1 ? "s" : ""}
+            {cpus} CPU{cpus > 1 ? "s" : ""}
             <span className="text-o-muted mx-1.5">·</span>
             {timeLimit} min
           </div>

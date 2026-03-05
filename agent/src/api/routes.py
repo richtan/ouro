@@ -81,7 +81,7 @@ class ComputeSubmitRequest(BaseModel):
     # Container image (all modes)
     image: Optional[str] = None
     # Existing shared fields
-    nodes: int = Field(default=1, ge=1, le=16)
+    cpus: int = Field(default=1, ge=1, le=8)
     time_limit_min: int = Field(default=1, ge=1, le=60)
     submitter_address: Optional[str] = None
     builder_code: Optional[str] = None
@@ -132,7 +132,7 @@ class SessionSubmitRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     script: Optional[str] = Field(None, max_length=65_536)
     job_payload: Optional[dict] = None
-    nodes: int = Field(default=1, ge=1, le=16)
+    cpus: int = Field(default=1, ge=1, le=8)
     time_limit_min: int = Field(default=1, ge=1, le=60)
     price: str = "unknown"
 
@@ -376,7 +376,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if payment_header:
         logger.debug("x402 payment-signature header received (len=%d)", len(payment_header))
 
-    nodes = body.nodes
+    cpus = body.cpus
     time_limit_min = body.time_limit_min
     submitter_address = body.submitter_address
     mode = body.submission_mode
@@ -423,10 +423,10 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
             raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
 
-    cache_key = (mode, nodes, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
+    cache_key = (mode, cpus, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
     quote = _price_cache.get(cache_key)
     if not quote:
-        quote = await calculate_price(db, nodes, time_limit_min, mode)
+        quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
     config = ResourceConfig(
@@ -444,12 +444,12 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
             mimeType="application/json",
         )
         bazaar_ext = declare_discovery_extension(
-            input={"script": "echo hello", "nodes": 1, "time_limit_min": 1},
+            input={"script": "echo hello", "cpus": 1, "time_limit_min": 1},
             input_schema={
                 "type": "object",
                 "properties": {
                     "script": {"type": "string", "description": "Script to execute"},
-                    "nodes": {"type": "integer", "minimum": 1, "maximum": 16, "description": "Compute nodes"},
+                    "cpus": {"type": "integer", "minimum": 1, "maximum": 8, "description": "CPU cores"},
                     "time_limit_min": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Max runtime (min)"},
                     "submitter_address": {"type": "string", "description": "0x wallet address"},
                 },
@@ -519,7 +519,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     workspace_path = await _slurm_client.create_workspace(job_id, files_data)
 
     job_payload: dict = {
-        "nodes": nodes,
+        "cpus": cpus,
         "time_limit_min": time_limit_min,
         "image": body.image or "base",
         "entrypoint": entrypoint,
@@ -978,7 +978,7 @@ async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
         status="pending",
         script=body.script,
         job_payload=body.job_payload,
-        nodes=body.nodes,
+        cpus=body.cpus,
         time_limit_min=body.time_limit_min,
         price=body.price,
         agent_url=settings.PUBLIC_API_URL or "",
@@ -991,7 +991,7 @@ async def create_session(request: Request, db: AsyncSession = Depends(get_db)):
         "status": session.status,
         "script": session.script,
         "job_payload": session.job_payload,
-        "nodes": session.nodes,
+        "cpus": session.cpus,
         "time_limit_min": session.time_limit_min,
         "price": session.price,
         "agent_url": session.agent_url,
@@ -1014,7 +1014,7 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
         "status": session.status,
         "script": session.script,
         "job_payload": session.job_payload,
-        "nodes": session.nodes,
+        "cpus": session.cpus,
         "time_limit_min": session.time_limit_min,
         "price": session.price,
         "agent_url": session.agent_url or "",
@@ -1072,7 +1072,7 @@ async def complete_session(session_id: str, request: Request, db: AsyncSession =
 
 @router.get("/api/price")
 async def get_price(
-    nodes: int = 1,
+    cpus: int = 1,
     time_limit_min: int = 1,
     submission_mode: str = "script",
     db: AsyncSession = Depends(get_db),
@@ -1080,7 +1080,7 @@ async def get_price(
     """Get a price quote without submitting a job."""
     if submission_mode not in ("script", "multi_file", "archive", "git"):
         raise HTTPException(422, "Invalid submission_mode")
-    quote = await calculate_price(db, nodes, time_limit_min, submission_mode)
+    quote = await calculate_price(db, cpus, time_limit_min, submission_mode)
     return {"price": quote.price_str, "breakdown": quote.breakdown}
 
 
@@ -1128,7 +1128,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     # Determine submission_mode for pricing (still relevant for cost calculation)
     mode = job_params.get("submission_mode", "script")
 
-    nodes = session.nodes
+    cpus = session.cpus
     time_limit_min = session.time_limit_min
     submitter_address = body.submitter_address
 
@@ -1136,10 +1136,10 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         raise HTTPException(422, "Invalid submitter_address format")
 
     # 3. Calculate price and verify payment
-    cache_key = (mode, nodes, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
+    cache_key = (mode, cpus, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
     quote = _price_cache.get(cache_key)
     if not quote:
-        quote = await calculate_price(db, nodes, time_limit_min, mode)
+        quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
     config = ResourceConfig(
@@ -1221,7 +1221,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         job_params["dockerfile_content"] = session_dockerfile
 
     # 6. Create job
-    job_params["nodes"] = nodes
+    job_params["cpus"] = cpus
     job_params["time_limit_min"] = time_limit_min
     job = ActiveJob(
         id=job_id,
@@ -1277,7 +1277,7 @@ async def get_capabilities():
         "compute": {
             "engine": "slurm",
             "isolation": "apptainer",
-            "max_nodes": 16,
+            "max_cpus": 8,
             "max_time_min": 60,
             "max_script_bytes": MAX_SCRIPT_SIZE,
             "max_workspace_bytes": 10 * 1024 * 1024,
