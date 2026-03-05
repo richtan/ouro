@@ -10,6 +10,8 @@ import hmac
 import json
 import logging
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +19,10 @@ import uuid
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+_ALLOWED_CWD = {"/tmp"}
+MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10MB
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("slurm_proxy")
@@ -141,15 +147,15 @@ def wrap_in_apptainer(
 
     if entrypoint_cmd:
         # Dockerfile-based: use explicit command with --pwd /workspace
-        import shlex
         cmd_str = " ".join(shlex.quote(part) for part in entrypoint_cmd)
         return f"""#!/bin/bash
 set -euo pipefail
 apptainer exec \\
-    --contain --writable-tmpfs --home /tmp \\
+    --contain --cleanenv --writable-tmpfs --no-home \\
+    --net --network none \\
     --pwd /workspace \\
-    --bind "{workspace_path}":/workspace:ro \\
-    {image_path} \\
+    --bind {shlex.quote(workspace_path)}:/workspace:ro \\
+    {shlex.quote(image_path)} \\
     {cmd_str}
 exit $?
 """
@@ -165,10 +171,11 @@ exit $?
     return f"""#!/bin/bash
 set -euo pipefail
 apptainer exec \\
-    --contain --writable-tmpfs --home /tmp \\
-    --bind "{workspace_path}":/workspace:ro \\
-    {image_path} \\
-    {executor} /workspace/{normalized}
+    --contain --cleanenv --writable-tmpfs --no-home \\
+    --net --network none \\
+    --bind {shlex.quote(workspace_path)}:/workspace:ro \\
+    {shlex.quote(image_path)} \\
+    {executor} {shlex.quote(f'/workspace/{normalized}')}
 exit $?
 """
 
@@ -191,6 +198,13 @@ async def submit_job(
     time_limit = parse_time_limit(job.get("time_limit", "5"))
     cwd = job.get("current_working_directory", "/tmp")
 
+    # V11: Validate job name against injection
+    if not _SAFE_NAME_RE.match(name):
+        raise HTTPException(400, "Invalid job name")
+    # V12: Validate working directory
+    if cwd not in _ALLOWED_CWD:
+        raise HTTPException(400, "Invalid working directory")
+
     workspace_path = body.get("workspace_path")
     entrypoint = body.get("entrypoint")
 
@@ -203,7 +217,8 @@ async def submit_job(
             script = "#!/bin/bash\n" + script
         ws_id = str(uuid.uuid4())
         workspace_path = os.path.join(WORKSPACE_BASE_DIR, ws_id)
-        os.makedirs(workspace_path, exist_ok=True)
+        os.makedirs(workspace_path, mode=0o700, exist_ok=True)
+        os.chmod(workspace_path, 0o700)
         script_path = os.path.join(workspace_path, "job.sh")
         with open(script_path, "w") as sf:
             sf.write(script)
@@ -341,23 +356,19 @@ async def get_job_output(
     check_auth(x_slurm_user_token)
     stdout = stderr = ""
 
-    for base_dir in [OUTPUT_DIR, "/tmp"]:
-        stdout_path = f"{base_dir}/slurm-{job_id}.out"
-        try:
-            with open(stdout_path) as f:
-                stdout = f.read()
-            break
-        except FileNotFoundError:
-            continue
+    stdout_path = f"{OUTPUT_DIR}/slurm-{job_id}.out"
+    try:
+        with open(stdout_path) as f:
+            stdout = f.read(MAX_OUTPUT_SIZE)
+    except FileNotFoundError:
+        pass
 
-    for base_dir in [OUTPUT_DIR, "/tmp"]:
-        stderr_path = f"{base_dir}/slurm-{job_id}.err"
-        try:
-            with open(stderr_path) as f:
-                stderr = f.read()
-            break
-        except FileNotFoundError:
-            continue
+    stderr_path = f"{OUTPUT_DIR}/slurm-{job_id}.err"
+    try:
+        with open(stderr_path) as f:
+            stderr = f.read(MAX_OUTPUT_SIZE)
+    except FileNotFoundError:
+        pass
 
     output_hash = hashlib.sha256((stdout + stderr).encode()).hexdigest()
     return {"output": stdout, "error_output": stderr, "output_hash": output_hash}
@@ -425,7 +436,8 @@ async def create_workspace(
     if os.path.exists(workspace_path):
         return {"workspace_path": workspace_path, "reused": True}
 
-    os.makedirs(workspace_path, exist_ok=True)
+    os.makedirs(workspace_path, mode=0o700, exist_ok=True)
+    os.chmod(workspace_path, 0o700)
 
     try:
         if mode == "multi_file":
@@ -518,7 +530,7 @@ async def build_image(
             start = time.monotonic()
 
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "apptainer", "build", temp_sif, temp_def,
+                "sudo", "apptainer", "build", "--notest", temp_sif, temp_def,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -532,11 +544,13 @@ async def build_image(
             elapsed = time.monotonic() - start
 
             if proc.returncode != 0:
-                build_log = stderr.decode()[-2000:]  # Last 2KB of build log
-                logger.error("Image build failed (rc=%d): %s", proc.returncode, build_log[:500])
+                raw_log = stderr.decode()[-2000:]  # Last 2KB of build log
+                logger.error("Image build failed (rc=%d): %s", proc.returncode, raw_log[:500])
+                # V9: Sanitize build logs to avoid leaking system paths
+                sanitized_log = re.sub(r"/(?:usr|etc|var|tmp|home|root|ouro-jobs)/\S+", "<path>", raw_log)[-500:]
                 return JSONResponse(
                     status_code=502,
-                    content={"error": "Build failed", "build_log": build_log},
+                    content={"error": "Build failed", "build_log": sanitized_log},
                 )
 
             # Atomic move to final path

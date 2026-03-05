@@ -393,7 +393,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if body.entrypoint:
             _validate_workspace_file_path(body.entrypoint)
 
-    rate_key = submitter_address.lower() if submitter_address else None
+    rate_key = submitter_address.lower() if submitter_address else f"ip:{request.client.host if request.client else 'unknown'}"
     if not _rate_limiter.check(rate_key):
         return JSONResponse(
             status_code=429,

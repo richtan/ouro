@@ -169,12 +169,13 @@ echo ""
 echo "[Phase 5] Setting up NFS shared filesystem..."
 
 ssh_cmd "$CONTROLLER" "
-    sudo mkdir -p /ouro-jobs/output /ouro-jobs/scripts /ouro-jobs/images
+    sudo mkdir -p /ouro-jobs/output /ouro-jobs/scripts /ouro-jobs/images /ouro-jobs/workspaces
     sudo chown -R nobody:nogroup /ouro-jobs
-    sudo chmod -R 777 /ouro-jobs
+    sudo chmod -R 755 /ouro-jobs
+    sudo chmod 700 /ouro-jobs/workspaces
 
     if ! grep -q '/ouro-jobs' /etc/exports 2>/dev/null; then
-        echo '/ouro-jobs *(rw,sync,no_subtree_check,no_root_squash)' | sudo tee -a /etc/exports
+        echo '/ouro-jobs 10.128.0.0/9(rw,sync,no_subtree_check,root_squash)' | sudo tee -a /etc/exports
         sudo exportfs -ra
     fi
     sudo systemctl restart nfs-kernel-server

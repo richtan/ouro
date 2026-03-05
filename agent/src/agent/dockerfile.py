@@ -11,7 +11,16 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from dataclasses import dataclass, field
+
+_DOCKER_IMAGE_RE = re.compile(
+    r"^[a-zA-Z0-9]([a-zA-Z0-9._/-]*[a-zA-Z0-9])?"
+    r"(:[a-zA-Z0-9][a-zA-Z0-9._-]*)?"
+    r"(@sha256:[a-f0-9]{64})?$"
+)
+_WORKDIR_RE = re.compile(r"^/[a-zA-Z0-9._/-]+$")
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 PREBUILT_ALIASES: dict[str, str] = {
     "base": "base.sif",
@@ -66,6 +75,13 @@ def parse_dockerfile(content: str) -> DockerfileParsed:
         if instruction == "FROM":
             # Multi-stage: last FROM wins. Strip "AS <name>" suffix.
             from_image = re.split(r"\s+[Aa][Ss]\s+", args)[0].strip()
+            # V3: Validate FROM image name
+            if from_image not in PREBUILT_ALIASES and not _DOCKER_IMAGE_RE.match(from_image):
+                raise ValueError(f"Invalid FROM image: {from_image}")
+            # V6: Reset per-stage state — only final stage's commands matter
+            run_commands = []
+            env_vars = {}
+            workdir = None
 
         elif instruction == "RUN":
             if args:
@@ -76,6 +92,8 @@ def parse_dockerfile(content: str) -> DockerfileParsed:
 
         elif instruction == "WORKDIR":
             workdir = args.strip()
+            if not _WORKDIR_RE.match(workdir):
+                raise ValueError(f"Invalid WORKDIR: must be absolute path with safe characters")
 
         elif instruction == "ENTRYPOINT":
             entrypoint = _parse_cmd_or_entrypoint(args)
@@ -125,7 +143,7 @@ def dockerfile_to_def(parsed: DockerfileParsed) -> str:
     # %post section (RUN + WORKDIR mkdir)
     post_lines: list[str] = []
     if parsed.workdir:
-        post_lines.append(f"    mkdir -p {parsed.workdir}")
+        post_lines.append(f"    mkdir -p {shlex.quote(parsed.workdir)}")
     for cmd in parsed.run_commands:
         post_lines.append(f"    {cmd}")
     if post_lines:
@@ -134,9 +152,9 @@ def dockerfile_to_def(parsed: DockerfileParsed) -> str:
     # %environment section (ENV + WORKDIR)
     env_lines: list[str] = []
     for key, val in parsed.env_vars.items():
-        env_lines.append(f"    export {key}={val}")
+        env_lines.append(f"    export {key}={shlex.quote(val)}")
     if parsed.workdir:
-        env_lines.append(f"    export APPTAINER_CWD={parsed.workdir}")
+        env_lines.append(f"    export APPTAINER_CWD={shlex.quote(parsed.workdir)}")
     if env_lines:
         sections.append("%environment\n" + "\n".join(env_lines))
 
@@ -190,6 +208,8 @@ def _parse_env(args: str, env_vars: dict[str, str]) -> None:
         # Equals form: may have multiple KEY=VALUE pairs
         for match in re.finditer(r'(\w+)=("(?:[^"\\]|\\.)*"|\S+)', stripped):
             key = match.group(1)
+            if not _ENV_KEY_RE.match(key):
+                raise ValueError(f"Invalid ENV key: {key}")
             val = match.group(2)
             # Strip surrounding quotes
             if val.startswith('"') and val.endswith('"'):
@@ -199,6 +219,8 @@ def _parse_env(args: str, env_vars: dict[str, str]) -> None:
         # Space form: ENV KEY VALUE
         parts = stripped.split(None, 1)
         if len(parts) == 2:
+            if not _ENV_KEY_RE.match(parts[0]):
+                raise ValueError(f"Invalid ENV key: {parts[0]}")
             env_vars[parts[0]] = parts[1]
 
 
