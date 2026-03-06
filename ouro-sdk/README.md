@@ -24,6 +24,34 @@ async with OuroClient() as ouro:
     print(result.status, result.output)
 ```
 
+### Multi-file jobs with Dockerfile
+
+```python
+from ouro_sdk import OuroClient
+
+async with OuroClient() as ouro:
+    job_id = await ouro.submit(
+        files=[
+            {"path": "Dockerfile", "content": (
+                "FROM python:3.12-slim\n"
+                "WORKDIR /app\n"
+                "COPY requirements.txt .\n"
+                "RUN pip install -r requirements.txt\n"
+                "COPY train.py .\n"
+                "ENTRYPOINT [\"python3\", \"train.py\"]\n"
+            )},
+            {"path": "requirements.txt", "content": "numpy\nscipy\n"},
+            {"path": "train.py", "content": "import numpy; print('done')"},
+        ],
+        cpus=2,
+        time_limit_min=5,
+    )
+    result = await ouro.wait(job_id)
+    print(result.output)
+```
+
+Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. COPY/ADD accept local workspace paths only (no globs, no URLs). USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD are rejected.
+
 ### Service discovery
 
 ```python

@@ -21,14 +21,24 @@ class SlurmClient:
             timeout=30.0,
         )
 
-    async def build_image(self, def_content: str) -> dict:
+    async def build_image(
+        self,
+        def_content: str,
+        *,
+        workspace_path: str | None = None,
+        copy_instructions: list[tuple[str, str]] | None = None,
+    ) -> dict:
         """Build container image from Apptainer .def content.
 
         Returns dict with keys: sif_path, cached, build_time_s.
         """
+        body: dict = {"def_content": def_content}
+        if workspace_path and copy_instructions:
+            body["workspace_path"] = workspace_path
+            body["copy_instructions"] = [[src, dest] for src, dest in copy_instructions]
         resp = await self.client.post(
             "/slurm/v0.0.38/image/build",
-            json={"def_content": def_content},
+            json=body,
             timeout=360.0,  # 6 min to cover slow Docker pulls
         )
         resp.raise_for_status()

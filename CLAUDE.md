@@ -126,8 +126,8 @@ docker compose up --build
 - **Oracle agent timeout**: Wrapped in `asyncio.wait_for(..., timeout=900)` to prevent infinite hangs.
 - **Slurm poll errors**: `poll_slurm_status` wraps `get_job_status()` in try/except so transient network errors don't crash the run.
 - **Dashboard Docker build needs native toolchain**: `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
-- **Dockerfile COPY/ADD silently ignored** — user workspace is bind-mounted at `/workspace`, not built into the image. Files must be in the workspace `files` list.
-- **ARG substitution not supported** in user Dockerfiles — only FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD are processed.
+- **Dockerfile COPY/ADD supported** — `COPY` and `ADD` (local only, no URLs) are parsed and validated in the agent, then staged in an isolated temp build context on the proxy. 10 layers of defense-in-depth prevent path traversal. `ARG`, `LABEL`, `SHELL`, `EXPOSE` also supported. `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages. Glob patterns (`*`, `?`) in COPY sources are not supported.
+- **COPY disables image caching** — when `copy_instructions` are present, the proxy skips the cache fast-path since copied files may change between builds.
 - **Build time for custom images** doesn't count toward `time_limit_min` — it's infrastructure overhead handled before Slurm submission.
 - **Custom image cache** at `/ouro-jobs/images/custom/` has no automatic cleanup yet — images accumulate.
 

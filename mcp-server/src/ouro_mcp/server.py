@@ -213,10 +213,27 @@ mcp = FastMCP(
         "  - files: list of {path, content} dicts (multi-file workspaces)\n\n"
         "ENVIRONMENT CONFIGURATION:\n"
         "  Include a file named 'Dockerfile' in files to configure the environment.\n"
-        "  FROM selects the base image, RUN installs deps, ENTRYPOINT defines what to run.\n"
         "  Without a Dockerfile, use 'image' and 'entrypoint' params directly.\n"
         "  Prebuilt aliases (instant): base, python312, node20, pytorch, r-base.\n"
         "  Any Docker Hub image also works via Dockerfile (e.g. FROM python:3.12-slim).\n\n"
+        "  Supported Dockerfile instructions:\n"
+        "    FROM — select base image (required first line)\n"
+        "    RUN — install dependencies / run build commands\n"
+        "    ENV — set environment variables\n"
+        "    WORKDIR — set working directory\n"
+        "    ENTRYPOINT — define the main command (exec form recommended)\n"
+        "    CMD — default arguments for ENTRYPOINT\n"
+        "    COPY — copy workspace files into the image (local paths only, no glob patterns)\n"
+        "    ADD — like COPY but no URLs allowed (local files only, no globs)\n"
+        "    ARG — build-time variables (substituted in RUN, ENV, WORKDIR, COPY)\n"
+        "    LABEL — image metadata (no runtime effect)\n"
+        "    EXPOSE — document ports (no runtime effect)\n"
+        "    SHELL — set shell for RUN commands (JSON exec form, e.g. [\"/bin/bash\", \"-c\"])\n\n"
+        "  Not supported (returns clear error):\n"
+        "    USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD\n"
+        "    These are rejected because Apptainer containers run as the host user\n"
+        "    and don't support Docker-style volumes or signal handling.\n\n"
+        "  Note: COPY/ADD disables image caching since copied files may change between builds.\n\n"
         "Use get_price_quote to check pricing before committing.\n"
         "Use get_api_endpoint for direct HTTP access without MCP."
     ),
@@ -269,7 +286,9 @@ async def run_compute_job(
     - script: shell script string (simplest)
     - files: list of {path, content} dicts for multi-file workspaces
 
-    Include a Dockerfile in files to configure the environment (FROM, RUN, ENTRYPOINT).
+    Include a Dockerfile in files to configure the environment. Supported instructions:
+    FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL.
+    Not supported (returns error): USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
     Without a Dockerfile, provide entrypoint and image params.
 
     IMPORTANT: Always show the payment_url to the user so they can open it.
@@ -357,7 +376,8 @@ async def get_payment_requirements(
     x402 library needs to construct and sign a USDC payment on Base.
 
     Provide ONE of: script or files. Include a Dockerfile in files to configure
-    the environment (FROM, RUN, ENTRYPOINT).
+    the environment (FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG,
+    LABEL, EXPOSE, SHELL). USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD are rejected.
 
     This is step 1 of the autonomous payment flow:
       1. Call get_payment_requirements to get the payment header
@@ -416,7 +436,8 @@ async def submit_and_pay(
     with your wallet, then pass the signature here.
 
     Provide ONE of: script or files (must match get_payment_requirements call).
-    Include a Dockerfile in files to configure the environment.
+    Include a Dockerfile in files to configure the environment (supports FROM, RUN,
+    ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL).
 
     Args:
         payment_signature: The signed x402 payment string from your wallet
@@ -517,7 +538,7 @@ async def get_api_endpoint() -> dict:
         "currency": "USDC",
         "body_schema": {
             "script": "string (optional) - shell script to execute",
-            "files": "array (optional) - [{path, content}] for multi-file workspace. Include a Dockerfile to configure the environment.",
+            "files": "array (optional) - [{path, content}] for multi-file workspace. Include a Dockerfile to configure the environment (FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL; USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD rejected).",
             "entrypoint": "string (optional) - file to execute (required with files unless Dockerfile included)",
             "image": "string (optional) - container image (default: base, ignored if Dockerfile present)",
             "cpus": "int (default 1, max 8) - number of CPU cores",

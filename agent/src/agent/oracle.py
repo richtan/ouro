@@ -237,7 +237,11 @@ async def build_image_if_needed(deps: OracleDeps) -> None:
     def_content = dockerfile_to_def(parsed)
     deps.event_bus.emit("agent", f"Building image from Dockerfile (FROM {parsed.from_image})...")
 
-    result = await deps.slurm_client.build_image(def_content)
+    result = await deps.slurm_client.build_image(
+        def_content,
+        workspace_path=deps.workspace_path if parsed.copy_instructions else None,
+        copy_instructions=parsed.copy_instructions or None,
+    )
     deps.sif_path = result["sif_path"]
     if result.get("cached"):
         deps.event_bus.emit("agent", "Image found in cache")

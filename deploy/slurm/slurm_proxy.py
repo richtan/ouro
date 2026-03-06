@@ -26,6 +26,9 @@ MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_DEF_SIZE = 64 * 1024  # 64KB max .def content
 MAX_IMAGE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB max built image
 IMAGE_BUILD_TIMEOUT = 180  # seconds
+MAX_COPY_FILE_SIZE = 100 * 1024 * 1024  # 100MB per COPY source
+MAX_COPY_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total across all COPY sources
+_WORKSPACE_PATH_RE = re.compile(r"^/ouro-jobs/workspaces/[a-zA-Z0-9_-]+$")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("slurm_proxy")
@@ -519,6 +522,116 @@ async def delete_workspace(
 # ---------------------------------------------------------------------------
 
 
+def _get_dir_size(path: str) -> int:
+    """Get total size of a directory tree in bytes."""
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for f in filenames:
+            total += os.path.getsize(os.path.join(dirpath, f))
+    return total
+
+
+def _prepare_copy_build_context(
+    workspace_path: str,
+    copy_instructions: list[list[str]],
+) -> tuple[str, str]:
+    """Validate COPY sources, create isolated build context, return (temp_dir, files_section).
+
+    Raises HTTPException on validation failure.
+    """
+    # Layer 6: Validate workspace_path format and existence
+    if not _WORKSPACE_PATH_RE.match(workspace_path):
+        raise HTTPException(400, f"Invalid workspace_path format")
+    if not os.path.isdir(workspace_path):
+        raise HTTPException(400, f"Workspace path does not exist")
+
+    # Layer 7: Create isolated temp build context
+    build_id = uuid.uuid4().hex
+    temp_dir = f"/tmp/ouro-build-{build_id}"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    total_size = 0
+    files_lines: list[str] = []
+
+    try:
+        for entry in copy_instructions:
+            if len(entry) != 2:
+                raise HTTPException(400, "Each copy_instruction must be [src, dest]")
+            src, dest = entry[0], entry[1]
+
+            # Layer 4: Validate src path against workspace
+            resolved = _validate_workspace_file_path(workspace_path, src)
+
+            # Layer 5: Verify source exists
+            if not os.path.exists(resolved):
+                raise HTTPException(400, f"COPY source not found: {src}")
+
+            # Layer 10: Size limits
+            if os.path.isdir(resolved):
+                entry_size = _get_dir_size(resolved)
+            else:
+                entry_size = os.path.getsize(resolved)
+            if entry_size > MAX_COPY_FILE_SIZE:
+                raise HTTPException(400, f"COPY source too large: {src} ({entry_size // (1024*1024)}MB, max {MAX_COPY_FILE_SIZE // (1024*1024)}MB)")
+            total_size += entry_size
+            if total_size > MAX_COPY_TOTAL_SIZE:
+                raise HTTPException(400, f"Total COPY size exceeds limit ({MAX_COPY_TOTAL_SIZE // (1024*1024)}MB)")
+
+            # Layer 9: Audit logging
+            logger.info("COPY validated: src=%s resolved=%s workspace=%s", src, resolved, workspace_path)
+
+            # Layer 7: Copy to isolated temp dir
+            basename = os.path.basename(resolved)
+            temp_target = os.path.join(temp_dir, basename)
+            if os.path.isdir(resolved):
+                shutil.copytree(resolved, temp_target)
+            else:
+                shutil.copy2(resolved, temp_target)
+
+            files_lines.append(f"    {temp_target} {dest}")
+
+        # Layer 7: Generate %files section
+        files_section = "%files\n" + "\n".join(files_lines)
+
+        # Layer 8: Final safety scan — every source path must be within our temp dir
+        for line in files_lines:
+            src_path = line.strip().split()[0]
+            expected_prefix = f"/tmp/ouro-build-{build_id}/"
+            if not src_path.startswith(expected_prefix):
+                # This should never happen, but defense-in-depth
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                raise HTTPException(500, "Internal error: build context path mismatch")
+
+        return temp_dir, files_section
+
+    except HTTPException:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    except Exception as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(500, f"Failed to prepare COPY build context: {e}")
+
+
+def _inject_files_section(def_content: str, files_section: str) -> str:
+    """Inject %files section into .def content (after Bootstrap, before %post)."""
+    # Find the end of the Bootstrap section (first blank line or %post)
+    lines = def_content.split("\n")
+    insert_idx = len(lines)
+    for i, line in enumerate(lines):
+        if line.startswith("%post") or line.startswith("%environment") or line.startswith("%labels"):
+            insert_idx = i
+            break
+
+    # Insert %files with a blank line before and after
+    result_lines = lines[:insert_idx]
+    result_lines.append("")
+    result_lines.extend(files_section.split("\n"))
+    if insert_idx < len(lines):
+        result_lines.append("")
+        result_lines.extend(lines[insert_idx:])
+    return "\n".join(result_lines)
+
+
 @app.post("/slurm/v0.0.38/image/build")
 async def build_image(
     request: Request, x_slurm_user_token: str | None = Header(None)
@@ -537,11 +650,23 @@ async def build_image(
     if len(def_content.encode()) > MAX_DEF_SIZE:
         raise HTTPException(400, f"Definition file too large (max {MAX_DEF_SIZE // 1024}KB)")
 
+    # Handle COPY instructions: validate, stage files, inject %files
+    copy_instructions = body.get("copy_instructions")
+    workspace_path = body.get("workspace_path")
+    temp_build_dir: str | None = None
+
+    if copy_instructions:
+        if not workspace_path:
+            raise HTTPException(400, "workspace_path required when copy_instructions are provided")
+        temp_build_dir, files_section = _prepare_copy_build_context(workspace_path, copy_instructions)
+        def_content = _inject_files_section(def_content, files_section)
+
+    # Hash the FINAL def_content (after %files injection) for caching
     def_hash = hashlib.sha256(def_content.encode()).hexdigest()
     final_path = os.path.join(CUSTOM_IMAGES_DIR, f"{def_hash}.sif")
 
-    # Fast path: already cached
-    if os.path.exists(final_path):
+    # Fast path: already cached (skip for COPY jobs — files may have changed)
+    if not copy_instructions and os.path.exists(final_path):
         return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
 
     # Acquire per-hash lock to prevent duplicate builds
@@ -550,8 +675,10 @@ async def build_image(
     lock = _build_locks[def_hash]
 
     async with lock:
-        # Double-check after acquiring lock
-        if os.path.exists(final_path):
+        # Double-check after acquiring lock (skip for COPY jobs)
+        if not copy_instructions and os.path.exists(final_path):
+            if temp_build_dir:
+                shutil.rmtree(temp_build_dir, ignore_errors=True)
             return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
 
         # Write .def to temp file
@@ -563,7 +690,8 @@ async def build_image(
             with open(temp_def, "w") as f:
                 f.write(def_content)
 
-            logger.info("Building image: %s.sif from .def (%d bytes)", def_hash, len(def_content))
+            logger.info("Building image: %s.sif from .def (%d bytes, copy=%s)",
+                       def_hash, len(def_content), bool(copy_instructions))
             import time
             start = time.monotonic()
 
@@ -584,7 +712,7 @@ async def build_image(
             if proc.returncode != 0:
                 raw_log = stderr.decode()[-2000:]  # Last 2KB of build log
                 logger.error("Image build failed (rc=%d): %s", proc.returncode, raw_log[:500])
-                # V9: Sanitize build logs to avoid leaking system paths
+                # Sanitize build logs to avoid leaking system paths
                 sanitized_log = re.sub(r"/(?:usr|etc|var|tmp|home|root|ouro-jobs)/\S+", "<path>", raw_log)[-500:]
                 return JSONResponse(
                     status_code=502,
@@ -610,6 +738,9 @@ async def build_image(
                     os.unlink(p)
                 except FileNotFoundError:
                     pass
+            # Clean up COPY build context
+            if temp_build_dir:
+                shutil.rmtree(temp_build_dir, ignore_errors=True)
 
 
 @app.get("/health")

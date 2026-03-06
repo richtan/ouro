@@ -200,7 +200,7 @@ export default function SubmitPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
-          Submit Compute Job
+          Submit Job
         </h1>
         <p className="font-body text-sm text-o-textSecondary mt-1">
           Write code, configure resources, pay with USDC

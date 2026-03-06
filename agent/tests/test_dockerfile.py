@@ -14,7 +14,7 @@ from src.agent.dockerfile import (
 
 
 # ---------------------------------------------------------------------------
-# Parser tests
+# Parser tests — basic instructions
 # ---------------------------------------------------------------------------
 
 
@@ -132,21 +132,14 @@ ENTRYPOINT ["bash", "job.sh"]
         assert parsed.from_image == "base"
         assert parsed.entrypoint_cmd == ["bash", "job.sh"]
 
-    def test_ignored_instructions(self):
+    def test_unknown_instructions_silently_ignored(self):
+        """Truly unknown instructions are silently ignored for forward compat."""
         dockerfile = """FROM base
-COPY . /app
-ADD data.tar.gz /data
-EXPOSE 8080
-VOLUME /data
-USER nobody
-ARG VERSION=1.0
-LABEL maintainer="test"
+FUTUREINSTRUCTION something
 ENTRYPOINT ["bash", "job.sh"]
 """
         parsed = parse_dockerfile(dockerfile)
         assert parsed.from_image == "base"
-        assert parsed.entrypoint_cmd == ["bash", "job.sh"]
-        assert len(parsed.run_commands) == 0
 
     def test_multistage_last_from(self):
         dockerfile = """FROM golang:1.21 AS builder
@@ -156,8 +149,355 @@ ENTRYPOINT ["bash", "job.sh"]
 """
         parsed = parse_dockerfile(dockerfile)
         assert parsed.from_image == "base"
-        # V6: Multi-stage state reset — builder-stage RUN commands are cleared
+        # Multi-stage state reset — builder-stage RUN commands are cleared
         assert parsed.run_commands == []
+
+
+# ---------------------------------------------------------------------------
+# ARG tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseArg:
+    def test_arg_basic(self):
+        parsed = parse_dockerfile('FROM base\nARG VERSION\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.arg_vars == {"VERSION": None}
+
+    def test_arg_with_default(self):
+        parsed = parse_dockerfile('FROM base\nARG VERSION=1.0\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.arg_vars == {"VERSION": "1.0"}
+
+    def test_arg_with_quoted_default(self):
+        parsed = parse_dockerfile('FROM base\nARG MSG="hello world"\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.arg_vars == {"MSG": "hello world"}
+
+    def test_arg_substitution_in_run(self):
+        parsed = parse_dockerfile('FROM base\nARG PY_VERSION=3.12\nRUN pip install python==$PY_VERSION\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.run_commands == ["pip install python==3.12"]
+
+    def test_arg_substitution_braces(self):
+        parsed = parse_dockerfile('FROM base\nARG PY_VERSION=3.12\nRUN pip install python==${PY_VERSION}\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.run_commands == ["pip install python==3.12"]
+
+    def test_arg_substitution_in_env(self):
+        parsed = parse_dockerfile('FROM base\nARG VER=1.0\nENV APP_VERSION=$VER\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.env_vars == {"APP_VERSION": "1.0"}
+
+    def test_arg_substitution_in_workdir(self):
+        parsed = parse_dockerfile('FROM base\nARG DIR=/app\nWORKDIR $DIR\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.workdir == "/app"
+
+    def test_arg_no_value_left_as_is(self):
+        """ARG with no default value — references are left unsubstituted."""
+        parsed = parse_dockerfile('FROM base\nARG UNSET\nRUN echo $UNSET\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.run_commands == ["echo $UNSET"]
+
+    def test_arg_reset_on_from(self):
+        """ARG vars reset on each FROM (Docker scoping behavior)."""
+        parsed = parse_dockerfile(
+            'FROM golang:1.21 AS builder\nARG VER=old\nFROM base\nARG VER=new\nRUN echo $VER\nENTRYPOINT ["bash", "job.sh"]'
+        )
+        assert parsed.run_commands == ["echo new"]
+        assert parsed.arg_vars == {"VER": "new"}
+
+    def test_arg_invalid_name(self):
+        with pytest.raises(ValueError, match="Invalid ARG name"):
+            parse_dockerfile('FROM base\nARG 1BAD=val\nENTRYPOINT ["bash", "job.sh"]')
+
+
+# ---------------------------------------------------------------------------
+# COPY tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseCopy:
+    def test_copy_basic(self):
+        parsed = parse_dockerfile('FROM base\nCOPY requirements.txt /app/requirements.txt\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("requirements.txt", "/app/requirements.txt")]
+        assert parsed.needs_build
+
+    def test_copy_to_workdir_relative(self):
+        """COPY with relative dest resolves against WORKDIR."""
+        parsed = parse_dockerfile('FROM base\nWORKDIR /app\nCOPY requirements.txt .\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("requirements.txt", "/app/requirements.txt")]
+
+    def test_copy_to_root_relative(self):
+        """COPY with relative dest and no WORKDIR resolves against /."""
+        parsed = parse_dockerfile('FROM base\nCOPY requirements.txt .\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("requirements.txt", "/requirements.txt")]
+
+    def test_copy_to_dir_with_slash(self):
+        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/app/file.txt")]
+
+    def test_copy_multiple_sources(self):
+        parsed = parse_dockerfile('FROM base\nCOPY file1.txt file2.txt /app/\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [
+            ("file1.txt", "/app/file1.txt"),
+            ("file2.txt", "/app/file2.txt"),
+        ]
+
+    def test_copy_json_form(self):
+        parsed = parse_dockerfile('FROM base\nCOPY ["requirements.txt", "/app/requirements.txt"]\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("requirements.txt", "/app/requirements.txt")]
+
+    def test_copy_strips_chown(self):
+        parsed = parse_dockerfile('FROM base\nCOPY --chown=1000:1000 file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/app/file.txt")]
+
+    def test_copy_strips_chmod(self):
+        parsed = parse_dockerfile('FROM base\nCOPY --chmod=755 file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/app/file.txt")]
+
+    def test_copy_needs_build_on_prebuilt(self):
+        """COPY on a prebuilt alias triggers needs_build."""
+        parsed = parse_dockerfile('FROM python312\nCOPY requirements.txt /app/requirements.txt\nENTRYPOINT ["python", "main.py"]')
+        assert parsed.needs_build
+
+    def test_copy_reset_on_from(self):
+        """Copy instructions reset on each FROM."""
+        parsed = parse_dockerfile(
+            'FROM golang:1.21 AS builder\nCOPY go.mod /build/go.mod\nFROM base\nCOPY requirements.txt /app/requirements.txt\nENTRYPOINT ["bash", "job.sh"]'
+        )
+        assert len(parsed.copy_instructions) == 1
+        assert parsed.copy_instructions[0] == ("requirements.txt", "/app/requirements.txt")
+
+
+class TestCopyFromRejected:
+    def test_copy_from_rejected(self):
+        with pytest.raises(ValueError, match="COPY --from is not supported"):
+            parse_dockerfile('FROM base\nCOPY --from=builder /app /app\nENTRYPOINT ["bash", "job.sh"]')
+
+
+class TestCopyDestResolution:
+    def test_dest_dot_with_workdir(self):
+        parsed = parse_dockerfile('FROM base\nWORKDIR /app\nCOPY file.txt .\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/app/file.txt")]
+
+    def test_dest_dir_slash_with_workdir(self):
+        parsed = parse_dockerfile('FROM base\nWORKDIR /app\nCOPY file.txt ./sub/\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/app/sub/file.txt")]
+
+    def test_dest_absolute_ignores_workdir(self):
+        parsed = parse_dockerfile('FROM base\nWORKDIR /app\nCOPY file.txt /opt/file.txt\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/opt/file.txt")]
+
+    def test_no_workdir_defaults_to_root(self):
+        parsed = parse_dockerfile('FROM base\nCOPY file.txt .\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("file.txt", "/file.txt")]
+
+
+# ---------------------------------------------------------------------------
+# COPY security tests
+# ---------------------------------------------------------------------------
+
+
+class TestCopyPathTraversal:
+    def test_parent_traversal(self):
+        with pytest.raises(ValueError, match="Path traversal"):
+            parse_dockerfile('FROM base\nCOPY ../etc/passwd /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_deep_traversal(self):
+        with pytest.raises(ValueError, match="Path traversal"):
+            parse_dockerfile('FROM base\nCOPY ../../root/.ssh/id_rsa /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_hidden_traversal(self):
+        with pytest.raises(ValueError, match="Path traversal"):
+            parse_dockerfile('FROM base\nCOPY foo/../../etc/shadow /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+class TestCopyAbsoluteSrc:
+    def test_absolute_path_rejected(self):
+        with pytest.raises(ValueError, match="Absolute paths"):
+            parse_dockerfile('FROM base\nCOPY /etc/passwd /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+class TestCopyNullBytes:
+    def test_null_bytes_rejected(self):
+        with pytest.raises(ValueError, match="Null bytes"):
+            parse_dockerfile('FROM base\nCOPY file\x00.txt /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+class TestCopyGlobRejected:
+    def test_star_glob_rejected(self):
+        with pytest.raises(ValueError, match="Glob patterns"):
+            parse_dockerfile('FROM base\nCOPY *.py /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_double_star_glob_rejected(self):
+        with pytest.raises(ValueError, match="Glob patterns"):
+            parse_dockerfile('FROM base\nCOPY src/**/*.js /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_question_mark_glob_rejected(self):
+        with pytest.raises(ValueError, match="Glob patterns"):
+            parse_dockerfile('FROM base\nCOPY file?.txt /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+# ---------------------------------------------------------------------------
+# ADD tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseAdd:
+    def test_add_local_works(self):
+        parsed = parse_dockerfile('FROM base\nADD data.tar.gz /data/data.tar.gz\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.copy_instructions == [("data.tar.gz", "/data/data.tar.gz")]
+        assert parsed.needs_build
+
+
+class TestAddUrlRejected:
+    def test_http_url_rejected(self):
+        with pytest.raises(ValueError, match="ADD with URLs is not supported"):
+            parse_dockerfile('FROM base\nADD http://evil.com/payload /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_https_url_rejected(self):
+        with pytest.raises(ValueError, match="ADD with URLs is not supported"):
+            parse_dockerfile('FROM base\nADD https://evil.com/payload /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+# ---------------------------------------------------------------------------
+# ARG substitution security tests
+# ---------------------------------------------------------------------------
+
+
+class TestArgSubstitutionSecurity:
+    def test_arg_traversal_in_copy_rejected(self):
+        """ARG value with ../ substituted into COPY src is rejected after substitution."""
+        with pytest.raises(ValueError, match="Path traversal"):
+            parse_dockerfile('FROM base\nARG SRC=../../../etc/passwd\nCOPY $SRC /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_arg_absolute_in_copy_rejected(self):
+        with pytest.raises(ValueError, match="Absolute paths"):
+            parse_dockerfile('FROM base\nARG SRC=/etc/passwd\nCOPY $SRC /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_arg_glob_in_copy_rejected(self):
+        with pytest.raises(ValueError, match="Glob patterns"):
+            parse_dockerfile('FROM base\nARG SRC=*.py\nCOPY $SRC /app/\nENTRYPOINT ["bash", "job.sh"]')
+
+
+# ---------------------------------------------------------------------------
+# LABEL tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseLabel:
+    def test_label_equals_form(self):
+        parsed = parse_dockerfile('FROM base\nLABEL version=1.0\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.labels == {"version": "1.0"}
+
+    def test_label_space_form(self):
+        parsed = parse_dockerfile('FROM base\nLABEL maintainer test@example.com\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.labels == {"maintainer": "test@example.com"}
+
+    def test_label_multiple_equals(self):
+        parsed = parse_dockerfile('FROM base\nLABEL version=1.0 author="test"\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.labels["version"] == "1.0"
+        assert parsed.labels["author"] == "test"
+
+    def test_label_reset_on_from(self):
+        parsed = parse_dockerfile(
+            'FROM golang:1.21 AS builder\nLABEL stage=build\nFROM base\nLABEL stage=final\nENTRYPOINT ["bash", "job.sh"]'
+        )
+        assert parsed.labels == {"stage": "final"}
+
+
+class TestLabelNewlineStripped:
+    def test_newline_in_label_stripped(self):
+        """Label values with embedded newlines are sanitized."""
+        # Dockerfile line continuations are already joined, so actual \n in a label
+        # can only come from unusual input. The sanitizer handles it.
+        parsed = parse_dockerfile('FROM base\nLABEL desc="safe value"\nENTRYPOINT ["bash", "job.sh"]')
+        assert "\n" not in parsed.labels["desc"]
+
+
+class TestLabelInDef:
+    def test_labels_in_def_output(self):
+        parsed = parse_dockerfile('FROM base\nLABEL version=1.0\nENTRYPOINT ["bash", "job.sh"]')
+        def_content = dockerfile_to_def(parsed)
+        assert "%labels" in def_content
+        assert "version 1.0" in def_content
+
+
+# ---------------------------------------------------------------------------
+# SHELL tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseShell:
+    def test_shell_parsed(self):
+        parsed = parse_dockerfile('FROM base\nSHELL ["/bin/bash", "-c"]\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.shell == ["/bin/bash", "-c"]
+
+    def test_shell_non_json_rejected(self):
+        with pytest.raises(ValueError, match="SHELL must use JSON exec form"):
+            parse_dockerfile('FROM base\nSHELL /bin/bash -c\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_shell_non_list_rejected(self):
+        with pytest.raises(ValueError, match="SHELL must use JSON exec form"):
+            parse_dockerfile('FROM base\nSHELL "bash"\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_shell_non_string_elements_rejected(self):
+        with pytest.raises(ValueError, match="SHELL must be a JSON array of strings"):
+            parse_dockerfile('FROM base\nSHELL [1, 2]\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_shell_affects_post_wrapping(self):
+        parsed = parse_dockerfile('FROM base\nSHELL ["/bin/bash", "-c"]\nRUN echo hello\nENTRYPOINT ["bash", "job.sh"]')
+        def_content = dockerfile_to_def(parsed)
+        assert "/bin/bash -c" in def_content
+
+    def test_shell_reset_on_from(self):
+        parsed = parse_dockerfile(
+            'FROM golang:1.21 AS builder\nSHELL ["/bin/bash", "-c"]\nFROM base\nENTRYPOINT ["bash", "job.sh"]'
+        )
+        assert parsed.shell is None
+
+
+# ---------------------------------------------------------------------------
+# EXPOSE tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseExpose:
+    def test_expose_stored_as_label(self):
+        parsed = parse_dockerfile('FROM base\nEXPOSE 8080\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.labels.get("ouro.exposed_ports") == "8080"
+
+    def test_expose_multiple_ports(self):
+        parsed = parse_dockerfile('FROM base\nEXPOSE 8080\nEXPOSE 9090/tcp\nENTRYPOINT ["bash", "job.sh"]')
+        assert "8080" in parsed.labels["ouro.exposed_ports"]
+        assert "9090/tcp" in parsed.labels["ouro.exposed_ports"]
+
+    def test_expose_no_needs_build(self):
+        """EXPOSE alone on a prebuilt alias does not trigger needs_build."""
+        parsed = parse_dockerfile('FROM base\nEXPOSE 8080\nENTRYPOINT ["bash", "job.sh"]')
+        # EXPOSE stores as label, labels don't trigger needs_build
+        assert not parsed.needs_build
+
+
+# ---------------------------------------------------------------------------
+# Rejected instructions
+# ---------------------------------------------------------------------------
+
+
+class TestRejected:
+    def test_user_rejected(self):
+        with pytest.raises(ValueError, match="USER is not supported"):
+            parse_dockerfile('FROM base\nUSER nobody\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_volume_rejected(self):
+        with pytest.raises(ValueError, match="VOLUME is not supported"):
+            parse_dockerfile('FROM base\nVOLUME /data\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_healthcheck_rejected(self):
+        with pytest.raises(ValueError, match="HEALTHCHECK is not supported"):
+            parse_dockerfile('FROM base\nHEALTHCHECK CMD curl -f http://localhost/\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_stopsignal_rejected(self):
+        with pytest.raises(ValueError, match="STOPSIGNAL is not supported"):
+            parse_dockerfile('FROM base\nSTOPSIGNAL SIGTERM\nENTRYPOINT ["bash", "job.sh"]')
+
+    def test_onbuild_rejected(self):
+        with pytest.raises(ValueError, match="ONBUILD is not supported"):
+            parse_dockerfile('FROM base\nONBUILD RUN echo hello\nENTRYPOINT ["bash", "job.sh"]')
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +524,10 @@ class TestNeedsBuild:
 
     def test_prebuilt_with_workdir_needs_build(self):
         parsed = parse_dockerfile('FROM base\nWORKDIR /app\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.needs_build
+
+    def test_prebuilt_with_copy_needs_build(self):
+        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
         assert parsed.needs_build
 
     def test_all_prebuilt_aliases(self):
@@ -254,8 +598,38 @@ class TestDefConversion:
         assert def_content_hash(dockerfile_to_def(p1)) != def_content_hash(dockerfile_to_def(p2))
 
 
+class TestDefNoFiles:
+    def test_no_files_section_in_def(self):
+        """The .def output should NOT have %files — proxy handles that."""
+        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
+        def_content = dockerfile_to_def(parsed)
+        assert "%files" not in def_content
+
+    def test_copy_instructions_preserved_on_parsed(self):
+        """Copy instructions stay as structured data, not in the .def."""
+        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
+        assert len(parsed.copy_instructions) == 1
+        def_content = dockerfile_to_def(parsed)
+        assert "file.txt" not in def_content
+
+
+class TestDefWithLabels:
+    def test_labels_section_in_def(self):
+        parsed = parse_dockerfile('FROM base\nLABEL version=2.0 author="tester"\nENTRYPOINT ["bash", "job.sh"]')
+        def_content = dockerfile_to_def(parsed)
+        assert "%labels" in def_content
+        assert "version 2.0" in def_content
+        assert "author tester" in def_content
+
+    def test_expose_label_in_def(self):
+        parsed = parse_dockerfile('FROM base\nEXPOSE 8080\nENTRYPOINT ["bash", "job.sh"]')
+        def_content = dockerfile_to_def(parsed)
+        assert "%labels" in def_content
+        assert "ouro.exposed_ports 8080" in def_content
+
+
 # ---------------------------------------------------------------------------
-# Multi-stage reset tests (V6)
+# Multi-stage reset tests
 # ---------------------------------------------------------------------------
 
 
@@ -395,3 +769,51 @@ class TestSecurityValidation:
         for alias in PREBUILT_ALIASES:
             parsed = parse_dockerfile(f'FROM {alias}\nENTRYPOINT ["bash", "job.sh"]')
             assert parsed.from_image == alias
+
+
+# ---------------------------------------------------------------------------
+# Integration / combined feature tests
+# ---------------------------------------------------------------------------
+
+
+class TestCombinedFeatures:
+    def test_full_dockerfile(self):
+        """A realistic Dockerfile using many supported instructions."""
+        dockerfile = """FROM python:3.12-slim
+ARG PIP_INDEX_URL=https://pypi.org/simple
+LABEL version=1.0
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt --index-url $PIP_INDEX_URL
+COPY main.py /app/main.py
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8080
+ENTRYPOINT ["python", "main.py"]
+"""
+        parsed = parse_dockerfile(dockerfile)
+        assert parsed.from_image == "python:3.12-slim"
+        assert parsed.workdir == "/app"
+        assert len(parsed.copy_instructions) == 2
+        assert parsed.copy_instructions[0] == ("requirements.txt", "/app/requirements.txt")
+        assert parsed.copy_instructions[1] == ("main.py", "/app/main.py")
+        assert "https://pypi.org/simple" in parsed.run_commands[0]
+        assert parsed.env_vars == {"PYTHONUNBUFFERED": "1"}
+        assert parsed.labels["version"] == "1.0"
+        assert "8080" in parsed.labels["ouro.exposed_ports"]
+        assert parsed.needs_build
+        assert parsed.entrypoint_cmd == ["python", "main.py"]
+
+        # Verify .def output
+        def_content = dockerfile_to_def(parsed)
+        assert "Bootstrap: docker" in def_content
+        assert "%post" in def_content
+        assert "%environment" in def_content
+        assert "%labels" in def_content
+        assert "%files" not in def_content  # Proxy handles this
+
+    def test_arg_substitution_with_copy(self):
+        """ARG values are substituted into COPY args before validation."""
+        parsed = parse_dockerfile(
+            'FROM base\nARG DIR=src\nCOPY $DIR /app/src\nENTRYPOINT ["bash", "job.sh"]'
+        )
+        assert parsed.copy_instructions == [("src", "/app/src")]

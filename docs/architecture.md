@@ -131,8 +131,13 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 - `FROM` selects the base image (prebuilt alias or Docker Hub image)
 - `RUN` installs dependencies (built once, cached by content hash)
 - `ENTRYPOINT` or `CMD` defines what to execute
+- `COPY`/`ADD` copy workspace files into the image during build (local paths only; no URLs, no globs)
+- `ARG` defines build-time variables with `$VAR`/`${VAR}` substitution into RUN, ENV, WORKDIR, COPY/ADD
+- `LABEL` adds metadata (emitted as `%labels` in Apptainer .def)
+- `SHELL` sets the shell for RUN commands (JSON exec form only)
+- `EXPOSE` stores port metadata as a label (no runtime effect — containers run with `--network none`)
+- `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages
 - Build time is infrastructure overhead, doesn't count toward `time_limit_min`
-- `COPY`/`ADD` are silently ignored (workspace is bind-mounted read-only at `/workspace`)
 - Prebuilt aliases: `base` (Ubuntu 22.04), `python312`, `node20`, `pytorch`, `r-base`
 - Without a Dockerfile, use `entrypoint` and `image` fields directly (backward compat for MCP/SDK)
 

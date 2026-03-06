@@ -26,7 +26,7 @@
 ## Oracle Agent Tools (PydanticAI)
 
 1. `validate_request` — Checks workspace_path + entrypoint non-empty, nodes 1-16, time 1-60min (no mode branching)
-2. `build_image_if_needed` — Parses Dockerfile (if present in `deps.dockerfile_content`), resolves image via three paths: (a) prebuilt alias → use `/ouro-jobs/images/{alias}.sif` instantly, (b) Dockerfile with RUN/ENV → convert to `.def`, send to proxy `POST /image/build`, cache by SHA256, (c) Docker Hub image → proxy pulls and builds. Mutates `deps.sif_path` and `deps.entrypoint_cmd`. Skips if no Dockerfile (legacy path).
+2. `build_image_if_needed` — Parses Dockerfile (if present in `deps.dockerfile_content`), resolves image via three paths: (a) prebuilt alias → use `/ouro-jobs/images/{alias}.sif` instantly, (b) Dockerfile with RUN/ENV/COPY/ADD → convert to `.def`, send to proxy `POST /image/build`, cache by SHA256 (COPY/ADD disables caching since copied files may change), (c) Docker Hub image → proxy pulls and builds. Supported instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with error: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD stages files into an isolated temp build context on the proxy. Mutates `deps.sif_path` and `deps.entrypoint_cmd`. Skips if no Dockerfile (legacy path).
 3. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint (and optional `sif_path` + `entrypoint_cmd` from Dockerfile), updates DB status to `running`
 4. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
 5. `submit_onchain_proof` — Hashes output, calls ProofOfCompute.submitProof(), logs gas cost + attribution
@@ -119,7 +119,7 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 ```
 
 MCP tools:
-- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`. Include a `Dockerfile` in `files` for custom environments; `entrypoint`/`image` optional when Dockerfile present.
+- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`. Include a `Dockerfile` in `files` for custom environments (supports FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL; rejects USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD); `entrypoint`/`image` optional when Dockerfile present.
 - `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
 - `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
 - `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing. `files` can include a Dockerfile.
