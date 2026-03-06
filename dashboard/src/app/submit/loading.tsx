@@ -6,23 +6,25 @@ export default function SubmitLoading() {
         <div className="h-4 w-96 bg-o-border/20 rounded mt-2" />
       </div>
 
-      {/* Script editor */}
+      {/* Environment picker */}
+      <div className="h-12 bg-o-border/30 rounded-xl mb-6" />
+
+      {/* File explorer */}
       <div className="card mb-6">
         <div className="h-5 w-16 bg-o-border/20 rounded mb-3" />
         <div className="h-64 bg-o-border/30 rounded" />
       </div>
 
-      {/* Parameters */}
+      {/* Configuration */}
       <div className="card mb-6">
         <div className="h-5 w-24 bg-o-border/20 rounded mb-4" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="h-16 bg-o-border/30 rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="h-16 bg-o-border/30 rounded" />
           <div className="h-16 bg-o-border/30 rounded" />
         </div>
       </div>
 
-      {/* Submit button */}
+      {/* Submit bar */}
       <div className="card">
         <div className="flex items-center justify-between">
           <div className="h-10 w-48 bg-o-border/20 rounded" />

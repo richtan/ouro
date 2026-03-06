@@ -2,13 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import CodeEditor, { getLanguageForFile } from "./CodeEditor";
-
-/* ────────────────────────── types ────────────────────────── */
-
-interface WorkspaceFile {
-  path: string;
-  content: string;
-}
+import type { WorkspaceFile } from "@/lib/types";
 
 interface FileExplorerProps {
   files: WorkspaceFile[];

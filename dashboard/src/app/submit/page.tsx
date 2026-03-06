@@ -9,49 +9,11 @@ import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import FileExplorer from "@/components/submit/FileExplorer";
 import StickySubmitBar from "@/components/submit/StickySubmitBar";
+import EnvironmentPicker, { DEFAULT_FILES } from "@/components/submit/EnvironmentPicker";
 import { parseDockerfile } from "@/lib/dockerfile";
+import type { WorkspaceFile } from "@/lib/types";
 
 type JobStatus = "idle" | "submitting" | "paying" | "error";
-
-interface WorkspaceFile {
-  path: string;
-  content: string;
-}
-
-const TEMPLATES = [
-  {
-    name: "Hello World",
-    desc: "Echo + hostname + uptime",
-    files: [
-      { path: "Dockerfile", content: 'FROM base\nENTRYPOINT ["bash", "job.sh"]' },
-      { path: "job.sh", content: '#!/bin/bash\necho "Hello from Ouro HPC cluster!"\nhostname && uptime' },
-    ],
-  },
-  {
-    name: "Python Math",
-    desc: "Compute 100! with stdlib",
-    files: [
-      { path: "Dockerfile", content: 'FROM python312\nENTRYPOINT ["python", "main.py"]' },
-      { path: "main.py", content: '#!/usr/bin/env python3\nimport math\nprint(f"100! = {math.factorial(100)}")' },
-    ],
-  },
-  {
-    name: "Python + Deps",
-    desc: "Pandas data analysis",
-    files: [
-      { path: "Dockerfile", content: 'FROM python312\nRUN pip install pandas numpy\nENTRYPOINT ["python", "analysis.py"]' },
-      { path: "analysis.py", content: 'import pandas as pd\nimport numpy as np\ndf = pd.DataFrame(np.random.randn(100, 4), columns=list("ABCD"))\nprint(df.describe())' },
-    ],
-  },
-  {
-    name: "System Info",
-    desc: "CPU, memory, disk, uptime",
-    files: [
-      { path: "Dockerfile", content: 'FROM base\nENTRYPOINT ["bash", "job.sh"]' },
-      { path: "job.sh", content: "#!/bin/bash\necho '=== CPU ==='\nnproc\necho '=== Memory ==='\nfree -h 2>/dev/null || echo 'N/A'\necho '=== Disk ==='\ndf -h / 2>/dev/null\necho '=== Uptime ==='\nuptime" },
-    ],
-  },
-];
 
 export default function SubmitPage() {
   const router = useRouter();
@@ -59,7 +21,7 @@ export default function SubmitPage() {
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
 
-  const [files, setFiles] = useState<WorkspaceFile[]>(TEMPLATES[0].files);
+  const [files, setFiles] = useState<WorkspaceFile[]>(DEFAULT_FILES);
   const [cpus, setCpus] = useState(1);
   const [timeLimit, setTimeLimit] = useState(1);
   const [builderCode, setBuilderCode] = useState("");
@@ -67,7 +29,7 @@ export default function SubmitPage() {
   const [error, setError] = useState("");
   const [priceEstimate, setPriceEstimate] = useState<string | null>(null);
   const [priceLoading, setPriceLoading] = useState(false);
-  const [activeTemplate, setActiveTemplate] = useState(0);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Parse Dockerfile from files
   const dockerfileInfo = useMemo(() => {
@@ -182,28 +144,11 @@ export default function SubmitPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Templates */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {TEMPLATES.map((t, i) => (
-              <button
-                key={t.name}
-                onClick={() => {
-                  setFiles(t.files);
-                  setActiveTemplate(i);
-                }}
-                className={`bg-o-bg border rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  activeTemplate === i
-                    ? "border-o-blueText bg-o-blue/5"
-                    : "border-o-border hover:border-o-blueText/30"
-                }`}
-              >
-                <div className="text-sm font-medium text-o-text">
-                  {t.name}
-                </div>
-                <div className="text-xs text-o-muted mt-0.5">{t.desc}</div>
-              </button>
-            ))}
-          </div>
+          {/* Environment Picker */}
+          <EnvironmentPicker
+            onSelect={setFiles}
+            currentFromImage={dockerfileInfo?.fromImage ?? null}
+          />
 
           {/* File Explorer */}
           <FileExplorer
@@ -260,21 +205,46 @@ export default function SubmitPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-6">
-              <span className="text-xs text-o-textSecondary block mb-2">
-                Builder Code (optional)
-              </span>
-              <input
-                type="text"
-                value={builderCode}
-                onChange={(e) => setBuilderCode(e.target.value)}
-                placeholder="your-builder-code"
-                className="w-full sm:w-64 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
-              />
-              <p className="text-xs text-o-muted mt-1">
-                ERC-8021 builder code for dual attribution
-              </p>
-            </div>
+
+            {/* Advanced toggle */}
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-1.5 mt-5 pt-4 border-t border-o-border text-xs text-o-textSecondary hover:text-o-text transition-colors"
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`}
+              >
+                <path
+                  d="M3 1.5L7 5L3 8.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Advanced
+            </button>
+            {showAdvanced && (
+              <div className="mt-3">
+                <span className="text-xs text-o-textSecondary block mb-2">
+                  Builder Code (optional)
+                </span>
+                <input
+                  type="text"
+                  value={builderCode}
+                  onChange={(e) => setBuilderCode(e.target.value)}
+                  placeholder="your-builder-code"
+                  className="w-full sm:w-64 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
+                />
+                <p className="text-xs text-o-muted mt-1">
+                  ERC-8021 builder code for dual attribution
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
