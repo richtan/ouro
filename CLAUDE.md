@@ -128,6 +128,7 @@ docker compose up --build
 - **Dashboard Docker build needs native toolchain**: `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
 - **Dockerfile COPY/ADD supported** — `COPY` and `ADD` (local only, no URLs) are parsed and validated in the agent, then staged in an isolated temp build context on the proxy. 10 layers of defense-in-depth prevent path traversal. `ARG`, `LABEL`, `SHELL`, `EXPOSE` also supported. `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages. Glob patterns (`*`, `?`) in COPY sources are not supported.
 - **COPY disables image caching** — when `copy_instructions` are present, the proxy skips the cache fast-path since copied files may change between builds.
+- **Image builds are async** — `POST /image/build` returns `202 {build_id}` immediately and builds in the background. The agent polls `GET /image/build/{build_id}` every 5s (660s deadline). Cache hits still return `200` instantly. Duplicate requests piggyback on in-progress builds. `_build_status` is in-memory so proxy restarts lose state (agent gets 404 → job fails, next attempt starts fresh). `FAST_PATH_TIMEOUT_S` is 900s to accommodate 10-min builds.
 - **Build time for custom images** doesn't count toward `time_limit_min` — it's infrastructure overhead handled before Slurm submission.
 - **Custom image cache** at `/ouro-jobs/images/custom/` has no automatic cleanup yet — images accumulate.
 

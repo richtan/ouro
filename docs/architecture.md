@@ -137,7 +137,7 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 - `SHELL` sets the shell for RUN commands (JSON exec form only)
 - `EXPOSE` stores port metadata as a label (no runtime effect — containers run with `--network none`)
 - `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages
-- Build time is infrastructure overhead, doesn't count toward `time_limit_min`
+- Build time is infrastructure overhead, doesn't count toward `time_limit_min`. Builds are async (proxy returns 202, agent polls `GET /image/build/{build_id}` every 5s, 10-min timeout)
 - Prebuilt aliases: `base` (Ubuntu 22.04), `python312`, `node20`, `pytorch`, `r-base`
 - Without a Dockerfile, use `entrypoint` and `image` fields directly (backward compat for MCP/SDK)
 

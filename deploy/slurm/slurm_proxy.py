@@ -25,7 +25,8 @@ _ALLOWED_CWD = {"/tmp"}
 MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_DEF_SIZE = 64 * 1024  # 64KB max .def content
 MAX_IMAGE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB max built image
-IMAGE_BUILD_TIMEOUT = 180  # seconds
+IMAGE_BUILD_TIMEOUT = 600  # seconds (10 min — generous for large Docker pulls)
+STALE_BUILD_TTL = 1800  # 30 min — cleanup completed/failed entries
 MAX_COPY_FILE_SIZE = 100 * 1024 * 1024  # 100MB per COPY source
 MAX_COPY_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total across all COPY sources
 _WORKSPACE_PATH_RE = re.compile(r"^/ouro-jobs/workspaces/[a-zA-Z0-9_-]+$")
@@ -47,8 +48,9 @@ CUSTOM_IMAGES_DIR = "/ouro-jobs/images/custom"
 BASE_IMAGE = "/ouro-jobs/images/base.sif"
 APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/usr/local/bin/apptainer")
 
-# Locks for concurrent image builds (keyed by def hash)
-_build_locks: dict[str, asyncio.Lock] = {}
+# Async image build tracking (keyed by def hash)
+_build_status: dict[str, dict] = {}
+_background_tasks: set[asyncio.Task] = {}
 
 ALLOWED_IMAGES = {
     "base":      "base.sif",
@@ -632,11 +634,123 @@ def _inject_files_section(def_content: str, files_section: str) -> str:
     return "\n".join(result_lines)
 
 
+def _cleanup_stale_builds() -> None:
+    """Remove completed/failed entries older than STALE_BUILD_TTL."""
+    import time
+    now = time.monotonic()
+    stale = [
+        k for k, v in _build_status.items()
+        if v["status"] != "building" and (now - v["started_at"]) > STALE_BUILD_TTL
+    ]
+    for k in stale:
+        del _build_status[k]
+    if stale:
+        logger.info("Cleaned up %d stale build entries", len(stale))
+
+
+async def _run_build_task(
+    build_id: str,
+    def_content: str,
+    final_path: str,
+    temp_build_dir: str | None,
+    has_copy: bool,
+) -> None:
+    """Background coroutine: build an Apptainer image and update _build_status."""
+    import time
+    temp_def = os.path.join("/tmp", f"{uuid.uuid4().hex}.def")
+    temp_sif = os.path.join("/tmp", f"{uuid.uuid4().hex}.sif")
+
+    try:
+        with open(temp_def, "w") as f:
+            f.write(def_content)
+
+        logger.info("Building image: %s.sif from .def (%d bytes, copy=%s)",
+                     build_id[:16], len(def_content), has_copy)
+        start = time.monotonic()
+
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "apptainer", "build", "--notest", temp_sif, temp_def,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=IMAGE_BUILD_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            elapsed = time.monotonic() - start
+            _build_status[build_id] = {
+                "status": "failed",
+                "error": f"Image build timed out ({IMAGE_BUILD_TIMEOUT}s limit)",
+                "build_time_s": round(elapsed, 1),
+                "started_at": _build_status[build_id]["started_at"],
+            }
+            logger.error("Image build timed out: %s", build_id[:16])
+            return
+
+        elapsed = time.monotonic() - start
+
+        if proc.returncode != 0:
+            raw_log = stderr.decode()[-2000:]
+            logger.error("Image build failed (rc=%d): %s", proc.returncode, raw_log[:500])
+            sanitized_log = re.sub(r"/(?:usr|etc|var|tmp|home|root|ouro-jobs)/\S+", "<path>", raw_log)[-500:]
+            _build_status[build_id] = {
+                "status": "failed",
+                "error": f"Build failed: {sanitized_log}",
+                "build_time_s": round(elapsed, 1),
+                "started_at": _build_status[build_id]["started_at"],
+            }
+            return
+
+        # Check built image size
+        image_size = os.path.getsize(temp_sif)
+        if image_size > MAX_IMAGE_SIZE:
+            os.unlink(temp_sif)
+            _build_status[build_id] = {
+                "status": "failed",
+                "error": f"Built image too large ({image_size // (1024*1024)}MB, max {MAX_IMAGE_SIZE // (1024*1024*1024)}GB)",
+                "build_time_s": round(elapsed, 1),
+                "started_at": _build_status[build_id]["started_at"],
+            }
+            return
+
+        # Atomic move to final path
+        os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
+        os.rename(temp_sif, final_path)
+        logger.info("Image built: %s.sif in %.1fs (%dMB)", build_id[:16], elapsed, image_size // (1024*1024))
+
+        _build_status[build_id] = {
+            "status": "completed",
+            "sif_path": final_path,
+            "cached": False,
+            "build_time_s": round(elapsed, 1),
+            "started_at": _build_status[build_id]["started_at"],
+        }
+
+    except Exception as e:
+        import time as _t
+        _build_status[build_id] = {
+            "status": "failed",
+            "error": str(e),
+            "build_time_s": 0.0,
+            "started_at": _build_status.get(build_id, {}).get("started_at", _t.monotonic()),
+        }
+        logger.exception("Image build error for %s", build_id[:16])
+    finally:
+        for p in (temp_def, temp_sif):
+            try:
+                os.unlink(p)
+            except FileNotFoundError:
+                pass
+        if temp_build_dir:
+            shutil.rmtree(temp_build_dir, ignore_errors=True)
+
+
 @app.post("/slurm/v0.0.38/image/build")
 async def build_image(
     request: Request, x_slurm_user_token: str | None = Header(None)
 ):
-    """Build an Apptainer image from a .def file. Caches by content hash."""
+    """Build an Apptainer image from a .def file. Returns 200 on cache hit, 202 for async build."""
     check_auth(x_slurm_user_token)
 
     if not APPTAINER_AVAILABLE:
@@ -665,82 +779,81 @@ async def build_image(
     def_hash = hashlib.sha256(def_content.encode()).hexdigest()
     final_path = os.path.join(CUSTOM_IMAGES_DIR, f"{def_hash}.sif")
 
-    # Fast path: already cached (skip for COPY jobs — files may have changed)
+    _cleanup_stale_builds()
+
+    # Fast path: disk cache hit (skip for COPY jobs — files may have changed)
     if not copy_instructions and os.path.exists(final_path):
+        if temp_build_dir:
+            shutil.rmtree(temp_build_dir, ignore_errors=True)
         return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
 
-    # Acquire per-hash lock to prevent duplicate builds
-    if def_hash not in _build_locks:
-        _build_locks[def_hash] = asyncio.Lock()
-    lock = _build_locks[def_hash]
-
-    async with lock:
-        # Double-check after acquiring lock (skip for COPY jobs)
-        if not copy_instructions and os.path.exists(final_path):
+    # Check in-memory build status
+    existing = _build_status.get(def_hash)
+    if existing:
+        if existing["status"] == "completed" and not copy_instructions:
+            # Build finished while we were validating
             if temp_build_dir:
                 shutil.rmtree(temp_build_dir, ignore_errors=True)
-            return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
-
-        # Write .def to temp file
-        os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
-        temp_def = os.path.join("/tmp", f"{uuid.uuid4().hex}.def")
-        temp_sif = os.path.join("/tmp", f"{uuid.uuid4().hex}.sif")
-
-        try:
-            with open(temp_def, "w") as f:
-                f.write(def_content)
-
-            logger.info("Building image: %s.sif from .def (%d bytes, copy=%s)",
-                       def_hash, len(def_content), bool(copy_instructions))
-            import time
-            start = time.monotonic()
-
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "apptainer", "build", "--notest", temp_sif, temp_def,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            return {
+                "sif_path": existing["sif_path"],
+                "cached": existing.get("cached", False),
+                "build_time_s": existing.get("build_time_s", 0.0),
+            }
+        if existing["status"] == "building":
+            # Piggyback on existing build
+            if temp_build_dir:
+                shutil.rmtree(temp_build_dir, ignore_errors=True)
+            return JSONResponse(
+                status_code=202,
+                content={"build_id": def_hash, "status": "building"},
             )
+        # "failed" → fall through to retry
 
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=IMAGE_BUILD_TIMEOUT)
-            except asyncio.TimeoutError:
-                proc.kill()
-                raise HTTPException(504, f"Image build timed out ({IMAGE_BUILD_TIMEOUT}s limit)")
+    # Start async build
+    import time
+    os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
+    _build_status[def_hash] = {"status": "building", "started_at": time.monotonic()}
 
-            elapsed = time.monotonic() - start
+    task = asyncio.create_task(
+        _run_build_task(def_hash, def_content, final_path, temp_build_dir, bool(copy_instructions))
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
-            if proc.returncode != 0:
-                raw_log = stderr.decode()[-2000:]  # Last 2KB of build log
-                logger.error("Image build failed (rc=%d): %s", proc.returncode, raw_log[:500])
-                # Sanitize build logs to avoid leaking system paths
-                sanitized_log = re.sub(r"/(?:usr|etc|var|tmp|home|root|ouro-jobs)/\S+", "<path>", raw_log)[-500:]
-                return JSONResponse(
-                    status_code=502,
-                    content={"error": "Build failed", "build_log": sanitized_log},
-                )
+    return JSONResponse(
+        status_code=202,
+        content={"build_id": def_hash, "status": "building"},
+    )
 
-            # Check built image size before moving to cache
-            image_size = os.path.getsize(temp_sif)
-            if image_size > MAX_IMAGE_SIZE:
-                os.unlink(temp_sif)
-                raise HTTPException(400, f"Built image too large ({image_size // (1024*1024)}MB, max {MAX_IMAGE_SIZE // (1024*1024*1024)}GB)")
 
-            # Atomic move to final path
-            os.rename(temp_sif, final_path)
-            logger.info("Image built: %s.sif in %.1fs (%dMB)", def_hash, elapsed, image_size // (1024*1024))
+@app.get("/slurm/v0.0.38/image/build/{build_id}")
+async def get_build_status(
+    build_id: str, x_slurm_user_token: str | None = Header(None)
+):
+    """Poll the status of an async image build."""
+    check_auth(x_slurm_user_token)
 
-            return {"sif_path": final_path, "cached": False, "build_time_s": round(elapsed, 1)}
+    status = _build_status.get(build_id)
+    if not status:
+        raise HTTPException(404, "Build not found")
 
-        finally:
-            # Clean up temp files
-            for p in (temp_def, temp_sif):
-                try:
-                    os.unlink(p)
-                except FileNotFoundError:
-                    pass
-            # Clean up COPY build context
-            if temp_build_dir:
-                shutil.rmtree(temp_build_dir, ignore_errors=True)
+    if status["status"] == "building":
+        return {"build_id": build_id, "status": "building"}
+    elif status["status"] == "completed":
+        return {
+            "build_id": build_id,
+            "status": "completed",
+            "sif_path": status["sif_path"],
+            "cached": status.get("cached", False),
+            "build_time_s": status.get("build_time_s", 0.0),
+        }
+    else:  # failed
+        return {
+            "build_id": build_id,
+            "status": "failed",
+            "error": status.get("error", "Unknown error"),
+            "build_time_s": status.get("build_time_s", 0.0),
+        }
 
 
 @app.get("/health")

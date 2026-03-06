@@ -21,7 +21,7 @@ from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
 
-FAST_PATH_TIMEOUT_S = 600
+FAST_PATH_TIMEOUT_S = 900  # 10-min image build + 5-min Slurm poll + proof
 LLM_FALLBACK_TIMEOUT_S = 900
 MAX_RETRIES = 2
 MAX_CONCURRENT_JOBS = 3
