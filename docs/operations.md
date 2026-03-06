@@ -26,7 +26,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
-ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Prebuilt Apptainer image aliases for instant use. Custom Docker Hub images also supported via Dockerfile FROM (built/cached on demand)
+ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Prebuilt Docker image aliases mapped to Docker Hub (e.g. base → ubuntu:22.04). Custom Dockerfiles built on-worker
 ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
@@ -86,14 +86,14 @@ This script:
 1. Creates worker VMs (e2-medium) if they don't exist
 2. Distributes /etc/hosts, munge keys, JWT keys
 3. Sets up NFS shared filesystem at /ouro-jobs
-4. Installs Slurm + Apptainer on all nodes
+4. Installs Slurm + Docker on all nodes (Docker configured with `userns-remap: "default"` and iptables blocking metadata server)
 5. Deploys slurm_proxy.py on the controller
 6. Clears stale Slurm state and undrains nodes
-7. Verifies with test job and Apptainer test
+7. Verifies with test job and Docker container test
 
 GCP instances: `ouro-slurm` (e2-small controller), `ouro-worker-1`, `ouro-worker-2` (e2-medium).
 
-The Slurm proxy (`slurm_proxy.py`) runs on the controller at port 6820 as a systemd service (`slurm-proxy`). It wraps sbatch calls with Apptainer container isolation.
+The Slurm proxy (`slurm_proxy.py`) runs on the controller at port 6820 as a systemd service (`slurm-proxy`). It wraps sbatch calls with Docker container isolation (generates wrapper scripts with hardened `docker run` flags).
 
 ### Smart Contracts
 

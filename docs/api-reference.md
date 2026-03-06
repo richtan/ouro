@@ -32,11 +32,10 @@ Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env va
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Apptainer container. Always requires `workspace_path` + `entrypoint`. Accepts optional `sif_path` (pre-built image path from Dockerfile) and `entrypoint_cmd` (exec-form command). Has a transition fallback for legacy `script` payloads (converts to workspace internally). |
+| `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Docker container. Always requires `workspace_path` + `entrypoint`. Accepts optional `docker_image` (Docker Hub reference), `entrypoint_cmd` (exec-form command), and `dockerfile_content` (for docker build on worker). Has a transition fallback for legacy `script` payloads (converts to workspace internally). |
 | `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
-| `POST` | `/slurm/v0.0.38/image/build` | `X-SLURM-USER-TOKEN` header | Build Apptainer image from `.def` file content. Caches by SHA256 content hash at `/ouro-jobs/images/custom/`. Returns `200 {sif_path, cached, build_time_s}` on cache hit, or `202 {build_id, status}` for async builds. Duplicate requests for the same hash piggyback on the in-progress build. 10-minute build timeout. |
-| `GET` | `/slurm/v0.0.38/image/build/{build_id}` | `X-SLURM-USER-TOKEN` header | Poll async image build status. Returns `{build_id, status}` where status is `building`, `completed` (with `sif_path`, `build_time_s`), or `failed` (with `error`). Returns 404 if proxy restarted and state was lost. |
 | `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
+| `GET` | `/slurm/v0.0.38/allowed-images` | `X-SLURM-USER-TOKEN` header | Return available Docker image aliases and their Docker Hub references. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}/output` | `X-SLURM-USER-TOKEN` header | Get stdout, stderr, and SHA-256 output hash. |
 | `GET` | `/slurm/v0.0.38/nodes` | `X-SLURM-USER-TOKEN` header | Cluster node status via sinfo. Returns node name, state, CPUs, memory. |

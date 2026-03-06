@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -40,7 +39,7 @@ class OracleDeps:
     captured_gas_cost_usd: float = 0.0
     # Dockerfile-based fields
     dockerfile_content: str | None = None
-    sif_path: str | None = None
+    docker_image: str | None = None
     entrypoint_cmd: list[str] | None = field(default=None)
 
 
@@ -84,8 +83,9 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
             workspace_path=deps.workspace_path,
             entrypoint=deps.entrypoint,
             image=deps.image,
-            sif_path=deps.sif_path,
+            docker_image=deps.docker_image,
             entrypoint_cmd=deps.entrypoint_cmd,
+            dockerfile_content=deps.dockerfile_content if not deps.docker_image else None,
             partition=deps.partition,
             cpus=deps.cpus,
             time_limit_min=deps.time_limit_min,
@@ -206,47 +206,41 @@ async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Dockerfile image build step
+# Dockerfile image resolution step
 # ---------------------------------------------------------------------------
 
 
-async def build_image_if_needed(deps: OracleDeps) -> None:
-    """Parse Dockerfile and build image if needed. Mutates deps in place."""
+async def resolve_image_if_needed(deps: OracleDeps) -> None:
+    """Parse Dockerfile and resolve Docker image. Mutates deps in place.
+
+    No proxy calls — instant. Docker pull/build happens on the worker.
+    """
     if not deps.dockerfile_content:
         return  # Legacy path — use image/entrypoint fields as-is
 
-    from src.agent.dockerfile import (
-        IMAGES_DIR,
-        PREBUILT_ALIASES,
-        dockerfile_to_def,
-        parse_dockerfile,
-    )
+    from src.agent.dockerfile import DOCKER_IMAGES, parse_dockerfile
 
     has_external_entrypoint = bool(deps.entrypoint)
     parsed = parse_dockerfile(deps.dockerfile_content, require_entrypoint=not has_external_entrypoint)
     deps.entrypoint_cmd = parsed.entrypoint_cmd or None
 
     if not parsed.needs_build:
-        # Prebuilt alias, no RUN → use prebuilt .sif directly
-        sif_file = PREBUILT_ALIASES[parsed.from_image]
-        deps.sif_path = os.path.join(IMAGES_DIR, sif_file)
+        # Prebuilt alias, no RUN/ENV/COPY → use mapped Docker image directly
+        deps.docker_image = DOCKER_IMAGES[parsed.from_image]
+        deps.dockerfile_content = None  # No build needed
         deps.event_bus.emit("agent", f"Using prebuilt image: {parsed.from_image}")
         return
 
-    # Needs build → convert to .def and send to proxy
-    def_content = dockerfile_to_def(parsed)
-    deps.event_bus.emit("agent", f"Building image from Dockerfile (FROM {parsed.from_image})...")
+    if not parsed.needs_docker_build:
+        # External image (e.g., ruby:latest) with no RUN/COPY → just pull, no build
+        deps.docker_image = parsed.from_image
+        deps.dockerfile_content = None  # No build needed
+        deps.event_bus.emit("agent", f"Using Docker image: {parsed.from_image}")
+        return
 
-    result = await deps.slurm_client.build_image(
-        def_content,
-        workspace_path=deps.workspace_path if parsed.copy_instructions else None,
-        copy_instructions=parsed.copy_instructions or None,
-    )
-    deps.sif_path = result["sif_path"]
-    if result.get("cached"):
-        deps.event_bus.emit("agent", "Image found in cache")
-    else:
-        deps.event_bus.emit("agent", f"Image built in {result.get('build_time_s', 0):.1f}s")
+    # Needs docker build → pass dockerfile_content through to proxy
+    deps.docker_image = None  # Worker will docker build
+    deps.event_bus.emit("agent", f"Job requires docker build (FROM {parsed.from_image})")
 
 
 # ---------------------------------------------------------------------------
@@ -327,11 +321,11 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 
-    # Build image from Dockerfile if present (before Slurm submit, outside time_limit)
+    # Resolve Docker image from Dockerfile if present (instant — no network calls)
     try:
-        await build_image_if_needed(deps)
+        await resolve_image_if_needed(deps)
     except Exception as e:
-        deps.event_bus.emit("agent_error", f"Image build failed: {e}")
+        deps.event_bus.emit("agent_error", f"Image resolution failed: {e}")
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 

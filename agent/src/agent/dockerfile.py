@@ -1,8 +1,7 @@
-"""Dockerfile parser and Apptainer .def converter.
+"""Dockerfile parser for compute environments.
 
-Parses a subset of Dockerfile syntax relevant to compute environments and converts
-to Apptainer definition files. The entrypoint is extracted separately (not embedded
-in the .def) because it's passed to the Slurm wrapper script.
+Parses a subset of Dockerfile syntax relevant to HPC compute jobs.
+The entrypoint is extracted separately and passed to the Docker wrapper script.
 
 Supported: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, SHELL, EXPOSE.
 Rejected with clear errors: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
@@ -10,7 +9,6 @@ Rejected with clear errors: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -27,19 +25,18 @@ _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Safe characters for COPY/ADD source paths (no glob, no traversal tricks)
 _COPY_SRC_RE = re.compile(r"^[a-zA-Z0-9._/\- ]+$")
 
-PREBUILT_ALIASES: dict[str, str] = {
-    "base": "base.sif",
-    "python312": "python312.sif",
-    "node20": "node20.sif",
-    "pytorch": "pytorch.sif",
-    "r-base": "r-base.sif",
+DOCKER_IMAGES: dict[str, str] = {
+    "base": "ubuntu:22.04",
+    "python312": "python:3.12-slim",
+    "node20": "node:20-slim",
+    "pytorch": "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime",
+    "r-base": "r-base:4.3.2",
 }
-
-IMAGES_DIR = "/ouro-jobs/images"
+PREBUILT_ALIASES = DOCKER_IMAGES  # backward compat — parse_dockerfile checks membership
 
 # Instructions rejected with clear error messages
 _REJECTED: dict[str, str] = {
-    "USER": "USER is not supported; Apptainer runs as the job user",
+    "USER": "USER is not supported; containers run as non-root with --no-new-privileges",
     "VOLUME": "VOLUME is not supported; use workspace files at /workspace",
     "HEALTHCHECK": "HEALTHCHECK is not supported for batch jobs",
     "STOPSIGNAL": "STOPSIGNAL is not supported for batch jobs",
@@ -58,6 +55,7 @@ class DockerfileParsed:
     workdir: str | None = None
     entrypoint_cmd: list[str] = field(default_factory=list)
     needs_build: bool = False
+    needs_docker_build: bool = False
     arg_vars: dict[str, str | None] = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)
     shell: list[str] | None = None
@@ -69,10 +67,25 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
 
     Supports: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, SHELL, EXPOSE.
     Rejects with clear errors: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
-    Multi-stage builds: takes the last FROM.
+    Multi-stage builds (multiple FROM) are rejected for security reasons.
     """
+    # Reject BuildKit syntax directives (before any processing)
+    for raw_line in content.splitlines():
+        stripped_raw = raw_line.strip()
+        if stripped_raw.lower().startswith("# syntax=") or stripped_raw.lower().startswith("#syntax="):
+            raise ValueError("# syntax= directive is not supported for security reasons")
+
     # Join backslash-continuation lines
     lines = _join_continuations(content)
+
+    # Reject multi-stage builds (multiple FROM instructions)
+    from_count = sum(
+        1 for line in lines
+        if line.strip() and not line.strip().startswith("#")
+        and line.strip().split()[0].upper() == "FROM"
+    )
+    if from_count > 1:
+        raise ValueError("Multi-stage builds (multiple FROM) are not supported")
 
     from_image: str | None = None
     run_commands: list[str] = []
@@ -96,25 +109,20 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
         args = parts[1] if len(parts) > 1 else ""
 
         if instruction == "FROM":
-            # Multi-stage: last FROM wins. Strip "AS <name>" suffix.
+            # Strip "AS <name>" suffix.
             from_image = re.split(r"\s+[Aa][Ss]\s+", args)[0].strip()
             if from_image not in PREBUILT_ALIASES and not _DOCKER_IMAGE_RE.match(from_image):
                 raise ValueError(f"Invalid FROM image: {from_image}")
-            # Reset per-stage state — only final stage's commands matter
-            run_commands = []
-            env_vars = {}
-            workdir = None
-            arg_vars = {}
-            labels = {}
-            shell = None
-            copy_instructions = []
 
         elif instruction == "ARG":
             _parse_arg(args, arg_vars)
 
         elif instruction == "RUN":
             if args:
-                run_commands.append(_substitute_args(args, arg_vars))
+                substituted = _substitute_args(args, arg_vars)
+                if re.search(r"--mount[\s=]", substituted):
+                    raise ValueError("RUN --mount is not supported for security reasons")
+                run_commands.append(substituted)
 
         elif instruction == "ENV":
             _parse_env(_substitute_args(args, arg_vars), env_vars)
@@ -167,6 +175,14 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
         or len(copy_instructions) > 0
     )
 
+    # Does it actually need `docker build` vs just `docker pull`?
+    needs_docker_build = (
+        len(run_commands) > 0
+        or len(env_vars) > 0
+        or workdir is not None
+        or len(copy_instructions) > 0
+    )
+
     return DockerfileParsed(
         from_image=from_image,
         run_commands=run_commands,
@@ -174,72 +190,12 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
         workdir=workdir,
         entrypoint_cmd=resolved_entrypoint,
         needs_build=needs_build,
+        needs_docker_build=needs_docker_build,
         arg_vars=arg_vars,
         labels=labels,
         shell=shell,
         copy_instructions=copy_instructions,
     )
-
-
-def dockerfile_to_def(parsed: DockerfileParsed) -> str:
-    """Convert a parsed Dockerfile to an Apptainer .def file.
-
-    ENTRYPOINT/CMD are NOT embedded — they're returned via parsed.entrypoint_cmd
-    and passed to the Slurm wrapper separately.
-
-    NOTE: No %files section is generated. Copy instructions stay as structured data
-    on parsed.copy_instructions — the proxy handles file staging and %files injection.
-    """
-    sections: list[str] = []
-
-    # Bootstrap section
-    if parsed.from_image in PREBUILT_ALIASES:
-        sif_file = PREBUILT_ALIASES[parsed.from_image]
-        sif_path = os.path.join(IMAGES_DIR, sif_file)
-        sections.append(f"Bootstrap: localimage\nFrom: {sif_path}")
-    else:
-        sections.append(f"Bootstrap: docker\nFrom: {parsed.from_image}")
-
-    # %post section (RUN + WORKDIR mkdir)
-    post_lines: list[str] = []
-    if parsed.workdir:
-        post_lines.append(f"    mkdir -p {shlex.quote(parsed.workdir)}")
-    for cmd in parsed.run_commands:
-        if parsed.shell:
-            # Custom SHELL: wrap each RUN command
-            shell_cmd = parsed.shell[:-1]  # e.g. ["/bin/bash", "-c"] → ["/bin/bash"]
-            shell_flag = parsed.shell[-1] if len(parsed.shell) > 1 else None
-            if shell_flag:
-                post_lines.append(f"    {' '.join(shell_cmd)} {shell_flag} {shlex.quote(cmd)}")
-            else:
-                post_lines.append(f"    {shell_cmd[0]} {shlex.quote(cmd)}")
-        else:
-            post_lines.append(f"    {cmd}")
-    if post_lines:
-        sections.append("%post\n" + "\n".join(post_lines))
-
-    # %environment section (ENV + WORKDIR)
-    env_lines: list[str] = []
-    for key, val in parsed.env_vars.items():
-        env_lines.append(f"    export {key}={shlex.quote(val)}")
-    if parsed.workdir:
-        env_lines.append(f"    export APPTAINER_CWD={shlex.quote(parsed.workdir)}")
-    if env_lines:
-        sections.append("%environment\n" + "\n".join(env_lines))
-
-    # %labels section (LABEL + EXPOSE metadata)
-    if parsed.labels:
-        label_lines: list[str] = []
-        for key, val in parsed.labels.items():
-            label_lines.append(f"    {key} {val}")
-        sections.append("%labels\n" + "\n".join(label_lines))
-
-    return "\n\n".join(sections) + "\n"
-
-
-def def_content_hash(def_content: str) -> str:
-    """SHA256 hash of .def content for cache keying."""
-    return hashlib.sha256(def_content.encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +340,7 @@ def _parse_copy_add(
     if not is_add and stripped.startswith("--from"):
         raise ValueError("COPY --from is not supported (multi-stage COPY)")
 
-    # Strip --chown and --chmod flags (no effect in Apptainer)
+    # Strip --chown and --chmod flags (not used in our container execution)
     stripped = re.sub(r"--(?:chown|chmod)=\S+\s*", "", stripped).strip()
 
     # JSON form: COPY ["src", "dest"]
@@ -451,13 +407,8 @@ def _parse_label(args: str, labels: dict[str, str]) -> None:
 
 
 def _sanitize_label_value(val: str) -> str:
-    """Strip newlines and reject Apptainer section injection in label values."""
-    val = val.replace("\n", " ").replace("\r", " ")
-    # Reject values that could inject Apptainer sections
-    for line in val.split(" "):
-        if line.startswith("%"):
-            raise ValueError(f"Label value cannot contain Apptainer section directives: {val}")
-    return val
+    """Strip newlines from label values."""
+    return val.replace("\n", " ").replace("\r", " ")
 
 
 def _parse_shell(args: str) -> list[str]:

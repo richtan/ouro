@@ -12,7 +12,7 @@ ouro/
 │       ├── config.py       # pydantic-settings (all env vars)
 │       ├── agent/
 │       │   ├── oracle.py   # PydanticAI agent + _impl functions + process_job_fast (deterministic fast path)
-│       │   ├── dockerfile.py # Dockerfile parser → Apptainer .def converter, prebuilt alias map, content hashing
+│       │   ├── dockerfile.py # Dockerfile parser, prebuilt alias map, Docker wrapper script generation
 │       │   ├── processor.py # Background job loop with fast path, retry logic, credit issuance
 │       │   ├── loop.py     # Autonomous monitoring loop (wallet, pricing, heartbeat)
 │       │   └── event_bus.py # Pub/sub for SSE events
@@ -87,7 +87,7 @@ ouro/
 │   └── slurm/
 │       ├── slurm.conf      # Slurm config (e2-small controller, e2-medium workers)
 │       ├── cgroup.conf
-│       └── slurm_proxy.py  # FastAPI proxy wrapping sbatch with Apptainer isolation
+│       └── slurm_proxy.py  # FastAPI proxy wrapping sbatch with Docker container isolation
 ├── mcp-server/
 │   ├── Dockerfile
 │   ├── pyproject.toml
@@ -110,9 +110,9 @@ ouro/
 - **ERC-8021** — Builder Code attribution appended to every on-chain transaction calldata. Format: `codesJoined + length(1 byte) + schemaId(0x00) + marker(16 bytes)`. See `agent/src/chain/erc8021.py`.
 - **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent resolves or registers its `agentId` on startup (stored in `ERC8004_AGENT_ID`). Supports the Reputation Registry (`ERC8004_REPUTATION_REGISTRY`) for on-chain feedback via `giveFeedback()`.
 - **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
-- **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Apptainer container isolation.
-- **Apptainer** — Container isolation for user scripts on Slurm workers. Base image is ubuntu:22.04 stored at `/ouro-jobs/images/base.sif`.
-- **Dockerfile → Apptainer** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`), converts to Apptainer `.def` files, and builds/caches images. Prebuilt aliases (`base`, `python312`, `node20`, `pytorch`, `r-base`) run instantly; custom images from Docker Hub are pulled and cached by SHA256 at `/ouro-jobs/images/custom/`.
+- **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Docker container isolation.
+- **Docker** — Container isolation for user scripts on Slurm workers. Containers run with hardened flags: `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, `--memory`, `--pids-limit`, `--tmpfs /tmp`. Workers use `userns-remap: "default"` and iptables rules blocking the GCP metadata server.
+- **Dockerfile → Docker** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`) and generates Docker wrapper scripts that build and run on-worker inside the Slurm job. Prebuilt aliases (`base` → `ubuntu:22.04`, `python312`, `node20`, `pytorch`, `r-base`) map directly to Docker Hub images and are pulled on demand; custom Dockerfiles are built on-worker with `DOCKER_BUILDKIT=0`. Multi-stage builds (multiple FROM) and `RUN --mount`/`# syntax=` directives are rejected. `needs_docker_build` flag distinguishes images needing `docker build` from those needing only `docker pull`.
 
 ## Data Flow
 
@@ -133,11 +133,11 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 - `ENTRYPOINT` or `CMD` defines what to execute
 - `COPY`/`ADD` copy workspace files into the image during build (local paths only; no URLs, no globs)
 - `ARG` defines build-time variables with `$VAR`/`${VAR}` substitution into RUN, ENV, WORKDIR, COPY/ADD
-- `LABEL` adds metadata (emitted as `%labels` in Apptainer .def)
+- `LABEL` adds metadata to the image
 - `SHELL` sets the shell for RUN commands (JSON exec form only)
 - `EXPOSE` stores port metadata as a label (no runtime effect — containers run with `--network none`)
 - `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages
-- Build time is infrastructure overhead, doesn't count toward `time_limit_min`. Builds are async (proxy returns 202, agent polls `GET /image/build/{build_id}` every 5s, 10-min timeout)
+- Build time is included in the Slurm job's `time_limit_min` since Docker builds happen on-worker inside the job script. `DOCKER_BUILDKIT=0` is enforced; multi-stage builds and `RUN --mount`/`# syntax=` are rejected
 - Prebuilt aliases: `base` (Ubuntu 22.04), `python312`, `node20`, `pytorch`, `r-base`
 - Without a Dockerfile, use `entrypoint` and `image` fields directly (backward compat for MCP/SDK)
 

@@ -231,9 +231,8 @@ mcp = FastMCP(
         "    SHELL — set shell for RUN commands (JSON exec form, e.g. [\"/bin/bash\", \"-c\"])\n\n"
         "  Not supported (returns clear error):\n"
         "    USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD\n"
-        "    These are rejected because Apptainer containers run as the host user\n"
-        "    and don't support Docker-style volumes or signal handling.\n\n"
-        "  Note: COPY/ADD disables image caching since copied files may change between builds.\n\n"
+        "    These are rejected for security reasons (containers run as non-root\n"
+        "    and don't support Docker-style volumes or signal handling).\n\n"
         "Use get_price_quote to check pricing before committing.\n"
         "Use get_api_endpoint for direct HTTP access without MCP."
     ),

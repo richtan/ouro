@@ -1,4 +1,4 @@
-"""Slurm REST proxy — wraps real sbatch/scontrol/sinfo with Apptainer isolation.
+"""Slurm REST proxy — wraps real sbatch/scontrol/sinfo with Docker isolation.
 
 Maintains the same API the Ouro agent expects (slurmrestd v0.0.38 compatible)
 so the agent's SlurmClient needs zero changes.
@@ -23,12 +23,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 _ALLOWED_CWD = {"/tmp"}
 MAX_OUTPUT_SIZE = 10 * 1024 * 1024  # 10MB
-MAX_DEF_SIZE = 64 * 1024  # 64KB max .def content
-MAX_IMAGE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB max built image
-IMAGE_BUILD_TIMEOUT = 600  # seconds (10 min — generous for large Docker pulls)
-STALE_BUILD_TTL = 1800  # 30 min — cleanup completed/failed entries
-MAX_COPY_FILE_SIZE = 100 * 1024 * 1024  # 100MB per COPY source
-MAX_COPY_TOTAL_SIZE = 500 * 1024 * 1024  # 500MB total across all COPY sources
 _WORKSPACE_PATH_RE = re.compile(r"^/ouro-jobs/workspaces/[a-zA-Z0-9_-]+$")
 
 logging.basicConfig(level=logging.INFO)
@@ -43,21 +37,13 @@ app = FastAPI(title="Ouro Slurm Proxy")
 OUTPUT_DIR = "/ouro-jobs/output"
 SCRIPTS_DIR = "/ouro-jobs/scripts"
 WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
-IMAGES_DIR = "/ouro-jobs/images"
-CUSTOM_IMAGES_DIR = "/ouro-jobs/images/custom"
-BASE_IMAGE = "/ouro-jobs/images/base.sif"
-APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/usr/local/bin/apptainer")
 
-# Async image build tracking (keyed by def hash)
-_build_status: dict[str, dict] = {}
-_background_tasks: set[asyncio.Task] = set()
-
-ALLOWED_IMAGES = {
-    "base":      "base.sif",
-    "python312": "python312.sif",
-    "node20":    "node20.sif",
-    "pytorch":   "pytorch.sif",
-    "r-base":    "r-base.sif",
+DOCKER_IMAGES = {
+    "base":      "ubuntu:22.04",
+    "python312": "python:3.12-slim",
+    "node20":    "node:20-slim",
+    "pytorch":   "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime",
+    "r-base":    "r-base:4.3.2",
 }
 
 
@@ -92,19 +78,14 @@ def parse_time_limit(tl) -> str:
     return str(tl)
 
 
-def resolve_image(name: str | None) -> str:
-    """Map image name to .sif path. Validates against allowlist and checks file exists."""
+def resolve_docker_image(name: str | None) -> str:
+    """Map image alias to Docker Hub reference."""
     if not name or name == "base":
-        if not os.path.exists(BASE_IMAGE):
-            raise HTTPException(503, "Base container image missing")
-        return BASE_IMAGE
-    sif_file = ALLOWED_IMAGES.get(name)
-    if not sif_file:
-        raise HTTPException(400, f"Unknown image: {name}. Allowed: {', '.join(sorted(ALLOWED_IMAGES))}")
-    path = os.path.join(IMAGES_DIR, sif_file)
-    if not os.path.exists(path):
-        raise HTTPException(503, f"Container image '{name}' not available on this cluster")
-    return path
+        return DOCKER_IMAGES["base"]
+    image = DOCKER_IMAGES.get(name)
+    if not image:
+        raise HTTPException(400, f"Unknown image: {name}. Allowed: {', '.join(sorted(DOCKER_IMAGES))}")
+    return image
 
 
 def _validate_workspace_file_path(workspace_path: str, rel_path: str) -> str:
@@ -133,62 +114,90 @@ def _validate_and_write_file(workspace_path: str, rel_path: str, content: str) -
     os.chmod(abs_path, 0o644)
 
 
-def wrap_in_apptainer(
+def wrap_in_docker(
     workspace_path: str,
     entrypoint: str,
     job_name: str,
     image_name: str | None = None,
-    sif_path: str | None = None,
+    docker_image: str | None = None,
     entrypoint_cmd: list[str] | None = None,
+    dockerfile_content: str | None = None,
+    cpus: str = "1",
+    memory_mb: int = 1600,
 ) -> str:
-    """Wrap workspace execution in Apptainer container.
+    """Generate a wrapper script for Docker execution on the worker."""
+    image_ref = docker_image or resolve_docker_image(image_name)
 
-    Returns wrapper script string. Workspace is bind-mounted read-only at /workspace.
+    sec_flags = " \\\n    ".join([
+        "--read-only",
+        "--network none",
+        "--no-new-privileges",
+        "--cap-drop ALL",
+        "--user 65534:65534",
+        "--ipc=private",
+        "--security-opt no-new-privileges=true",
+        "--security-opt seccomp=default",
+        '--entrypoint ""',
+        "--tmpfs /tmp:rw,noexec,nosuid,size=100m",
+        "--tmpfs /dev/shm:rw,noexec,nosuid,size=64m",
+        f"--cpus={cpus}",
+        f"--memory={memory_mb}m",
+        f"--memory-swap={memory_mb}m",
+        "--pids-limit=4096",
+        "--ulimit nofile=1024:2048",
+        "--log-driver none",
+        "--rm",
+    ])
 
-    Args:
-        sif_path: Direct path to .sif image (from Dockerfile build). Takes priority over image_name.
-        entrypoint_cmd: Exec-form command from Dockerfile (e.g. ["python", "main.py"]).
-            When set, --pwd /workspace is added so relative paths resolve to workspace files.
-            Falls back to extension-based inference from entrypoint when not set.
-    """
-    if not APPTAINER_AVAILABLE:
-        raise HTTPException(503, "Container isolation unavailable (Apptainer missing)")
+    if dockerfile_content:
+        # Complex Dockerfile: docker build on worker, then run
+        if entrypoint_cmd:
+            cmd_str = " ".join(shlex.quote(p) for p in entrypoint_cmd)
+        else:
+            normalized = os.path.normpath(entrypoint)
+            if normalized.startswith("..") or normalized.startswith("/") or "\x00" in entrypoint:
+                raise HTTPException(400, "Invalid entrypoint path")
+            ext = os.path.splitext(normalized)[1].lower()
+            executor = {".py": "python3", ".r": "Rscript", ".jl": "julia"}.get(ext, "bash")
+            cmd_str = f"{executor} {shlex.quote(f'/workspace/{normalized}')}"
 
-    image_path = sif_path or resolve_image(image_name)
-
-    if entrypoint_cmd:
-        # Dockerfile-based: use explicit command with --pwd /workspace
-        cmd_str = " ".join(shlex.quote(part) for part in entrypoint_cmd)
+        tag = f"ouro-custom-{shlex.quote(job_name)}"
         return f"""#!/bin/bash
 set -euo pipefail
-ulimit -u 4096
-apptainer exec \\
-    --contain --cleanenv --writable-tmpfs --no-home \\
-    --net --network none \\
-    --pwd /workspace \\
-    --bind {shlex.quote(workspace_path)}:/workspace:ro \\
-    {shlex.quote(image_path)} \\
+DOCKER_TAG={tag}
+cd {shlex.quote(workspace_path)}
+DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >&2
+docker run \\
+    {sec_flags} \\
+    -v {shlex.quote(workspace_path)}:/workspace:ro \\
+    -w /workspace \\
+    "$DOCKER_TAG" \\
     {cmd_str}
-exit $?
+EXIT_CODE=$?
+docker rmi "$DOCKER_TAG" 2>/dev/null || true
+exit $EXIT_CODE
 """
 
-    # Legacy path: infer executor from entrypoint file extension
-    normalized = os.path.normpath(entrypoint)
-    if normalized.startswith("..") or normalized.startswith("/") or "\x00" in entrypoint:
-        raise HTTPException(400, "Invalid entrypoint path")
-
-    ext = os.path.splitext(normalized)[1].lower()
-    executor = {".py": "python3", ".r": "Rscript", ".jl": "julia"}.get(ext, "bash")
+    # Simple mode: pull + run
+    if entrypoint_cmd:
+        cmd_str = " ".join(shlex.quote(p) for p in entrypoint_cmd)
+    else:
+        normalized = os.path.normpath(entrypoint)
+        if normalized.startswith("..") or normalized.startswith("/") or "\x00" in entrypoint:
+            raise HTTPException(400, "Invalid entrypoint path")
+        ext = os.path.splitext(normalized)[1].lower()
+        executor = {".py": "python3", ".r": "Rscript", ".jl": "julia"}.get(ext, "bash")
+        cmd_str = f"{executor} {shlex.quote(f'/workspace/{normalized}')}"
 
     return f"""#!/bin/bash
 set -euo pipefail
-ulimit -u 4096
-apptainer exec \\
-    --contain --cleanenv --writable-tmpfs --no-home \\
-    --net --network none \\
-    --bind {shlex.quote(workspace_path)}:/workspace:ro \\
-    {shlex.quote(image_path)} \\
-    {executor} {shlex.quote(f'/workspace/{normalized}')}
+docker pull -q {shlex.quote(image_ref)} 2>/dev/null || true
+docker run \\
+    {sec_flags} \\
+    -v {shlex.quote(workspace_path)}:/workspace:ro \\
+    -w /workspace \\
+    {shlex.quote(image_ref)} \\
+    {cmd_str}
 exit $?
 """
 
@@ -238,15 +247,35 @@ async def submit_job(
         os.chmod(script_path, 0o644)
         entrypoint = "job.sh"
 
-    sif_path = body.get("sif_path")
+    docker_image = body.get("docker_image")
+    dockerfile_content = body.get("dockerfile_content")
     entrypoint_cmd = body.get("entrypoint_cmd")
 
     if not workspace_path or (not entrypoint and not entrypoint_cmd):
         raise HTTPException(400, "workspace_path and entrypoint (or entrypoint_cmd) required")
 
-    wrapper_script = wrap_in_apptainer(
+    # Write validated dockerfile_content to workspace to prevent naming discrepancy attacks
+    if dockerfile_content:
+        df_path = os.path.join(workspace_path, "Dockerfile")
+        with open(df_path, "w") as f:
+            f.write(dockerfile_content)
+        # Remove any case-variant duplicates
+        for variant in ("dockerfile", "DOCKERFILE"):
+            variant_path = os.path.join(workspace_path, variant)
+            if variant_path != df_path and os.path.exists(variant_path):
+                os.remove(variant_path)
+
+    # Add time buffer for Docker pull/build (not charged to user)
+    docker_buffer = 5 if dockerfile_content else 2
+    adjusted_time = str(int(time_limit) + docker_buffer)
+
+    wrapper_script = wrap_in_docker(
         workspace_path, entrypoint or "", name, image_name,
-        sif_path=sif_path, entrypoint_cmd=entrypoint_cmd,
+        docker_image=docker_image,
+        entrypoint_cmd=entrypoint_cmd,
+        dockerfile_content=dockerfile_content,
+        cpus=cpus,
+        memory_mb=1600 * int(cpus),
     )
 
     with tempfile.NamedTemporaryFile(
@@ -257,8 +286,8 @@ async def submit_job(
     os.chmod(wrapper_path, 0o755)
 
     logger.info(
-        "Submitting: partition=%s name=%s cpus=%s time=%s isolation=apptainer",
-        partition, name, cpus, time_limit,
+        "Submitting: partition=%s name=%s cpus=%s time=%s isolation=docker",
+        partition, name, cpus, adjusted_time,
     )
 
     try:
@@ -271,7 +300,7 @@ async def submit_job(
                 "--ntasks=1",
                 f"--cpus-per-task={cpus}",
                 "--mem-per-cpu=1600M",
-                f"--time={time_limit}",
+                f"--time={adjusted_time}",
                 f"--output={OUTPUT_DIR}/slurm-%j.out",
                 f"--error={OUTPUT_DIR}/slurm-%j.err",
                 f"--chdir={cwd}",
@@ -279,7 +308,7 @@ async def submit_job(
             ]
         )
         job_id = int(result.strip())
-        logger.info("Job submitted: %d (isolation: apptainer)", job_id)
+        logger.info("Job submitted: %d (isolation: docker)", job_id)
         return {"job_id": job_id, "step_id": "batch", "error_code": 0, "error": ""}
     except Exception as e:
         logger.error("Submit failed: %s", e)
@@ -519,341 +548,11 @@ async def delete_workspace(
     return {"deleted": True}
 
 
-# ---------------------------------------------------------------------------
-# Image build (for custom Dockerfiles converted to .def)
-# ---------------------------------------------------------------------------
-
-
-def _get_dir_size(path: str) -> int:
-    """Get total size of a directory tree in bytes."""
-    total = 0
-    for dirpath, _dirnames, filenames in os.walk(path):
-        for f in filenames:
-            total += os.path.getsize(os.path.join(dirpath, f))
-    return total
-
-
-def _prepare_copy_build_context(
-    workspace_path: str,
-    copy_instructions: list[list[str]],
-) -> tuple[str, str]:
-    """Validate COPY sources, create isolated build context, return (temp_dir, files_section).
-
-    Raises HTTPException on validation failure.
-    """
-    # Layer 6: Validate workspace_path format and existence
-    if not _WORKSPACE_PATH_RE.match(workspace_path):
-        raise HTTPException(400, f"Invalid workspace_path format")
-    if not os.path.isdir(workspace_path):
-        raise HTTPException(400, f"Workspace path does not exist")
-
-    # Layer 7: Create isolated temp build context
-    build_id = uuid.uuid4().hex
-    temp_dir = f"/tmp/ouro-build-{build_id}"
-    os.makedirs(temp_dir, exist_ok=True)
-
-    total_size = 0
-    files_lines: list[str] = []
-
-    try:
-        for entry in copy_instructions:
-            if len(entry) != 2:
-                raise HTTPException(400, "Each copy_instruction must be [src, dest]")
-            src, dest = entry[0], entry[1]
-
-            # Layer 4: Validate src path against workspace
-            resolved = _validate_workspace_file_path(workspace_path, src)
-
-            # Layer 5: Verify source exists
-            if not os.path.exists(resolved):
-                raise HTTPException(400, f"COPY source not found: {src}")
-
-            # Layer 10: Size limits
-            if os.path.isdir(resolved):
-                entry_size = _get_dir_size(resolved)
-            else:
-                entry_size = os.path.getsize(resolved)
-            if entry_size > MAX_COPY_FILE_SIZE:
-                raise HTTPException(400, f"COPY source too large: {src} ({entry_size // (1024*1024)}MB, max {MAX_COPY_FILE_SIZE // (1024*1024)}MB)")
-            total_size += entry_size
-            if total_size > MAX_COPY_TOTAL_SIZE:
-                raise HTTPException(400, f"Total COPY size exceeds limit ({MAX_COPY_TOTAL_SIZE // (1024*1024)}MB)")
-
-            # Layer 9: Audit logging
-            logger.info("COPY validated: src=%s resolved=%s workspace=%s", src, resolved, workspace_path)
-
-            # Layer 7: Copy to isolated temp dir
-            basename = os.path.basename(resolved)
-            temp_target = os.path.join(temp_dir, basename)
-            if os.path.isdir(resolved):
-                shutil.copytree(resolved, temp_target)
-            else:
-                shutil.copy2(resolved, temp_target)
-
-            files_lines.append(f"    {temp_target} {dest}")
-
-        # Layer 7: Generate %files section
-        files_section = "%files\n" + "\n".join(files_lines)
-
-        # Layer 8: Final safety scan — every source path must be within our temp dir
-        for line in files_lines:
-            src_path = line.strip().split()[0]
-            expected_prefix = f"/tmp/ouro-build-{build_id}/"
-            if not src_path.startswith(expected_prefix):
-                # This should never happen, but defense-in-depth
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                raise HTTPException(500, "Internal error: build context path mismatch")
-
-        return temp_dir, files_section
-
-    except HTTPException:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise
-    except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise HTTPException(500, f"Failed to prepare COPY build context: {e}")
-
-
-def _inject_files_section(def_content: str, files_section: str) -> str:
-    """Inject %files section into .def content (after Bootstrap, before %post)."""
-    # Find the end of the Bootstrap section (first blank line or %post)
-    lines = def_content.split("\n")
-    insert_idx = len(lines)
-    for i, line in enumerate(lines):
-        if line.startswith("%post") or line.startswith("%environment") or line.startswith("%labels"):
-            insert_idx = i
-            break
-
-    # Insert %files with a blank line before and after
-    result_lines = lines[:insert_idx]
-    result_lines.append("")
-    result_lines.extend(files_section.split("\n"))
-    if insert_idx < len(lines):
-        result_lines.append("")
-        result_lines.extend(lines[insert_idx:])
-    return "\n".join(result_lines)
-
-
-def _cleanup_stale_builds() -> None:
-    """Remove completed/failed entries older than STALE_BUILD_TTL."""
-    import time
-    now = time.monotonic()
-    stale = [
-        k for k, v in _build_status.items()
-        if v["status"] != "building" and (now - v["started_at"]) > STALE_BUILD_TTL
-    ]
-    for k in stale:
-        del _build_status[k]
-    if stale:
-        logger.info("Cleaned up %d stale build entries", len(stale))
-
-
-async def _run_build_task(
-    build_id: str,
-    def_content: str,
-    final_path: str,
-    temp_build_dir: str | None,
-    has_copy: bool,
-) -> None:
-    """Background coroutine: build an Apptainer image and update _build_status."""
-    import time
-    temp_def = os.path.join("/tmp", f"{uuid.uuid4().hex}.def")
-    temp_sif = os.path.join("/tmp", f"{uuid.uuid4().hex}.sif")
-
-    try:
-        with open(temp_def, "w") as f:
-            f.write(def_content)
-
-        logger.info("Building image: %s.sif from .def (%d bytes, copy=%s)",
-                     build_id[:16], len(def_content), has_copy)
-        start = time.monotonic()
-
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", "apptainer", "build", "--notest", temp_sif, temp_def,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=IMAGE_BUILD_TIMEOUT)
-        except asyncio.TimeoutError:
-            proc.kill()
-            elapsed = time.monotonic() - start
-            _build_status[build_id] = {
-                "status": "failed",
-                "error": f"Image build timed out ({IMAGE_BUILD_TIMEOUT}s limit)",
-                "build_time_s": round(elapsed, 1),
-                "started_at": _build_status[build_id]["started_at"],
-            }
-            logger.error("Image build timed out: %s", build_id[:16])
-            return
-
-        elapsed = time.monotonic() - start
-
-        if proc.returncode != 0:
-            raw_log = stderr.decode()[-2000:]
-            logger.error("Image build failed (rc=%d): %s", proc.returncode, raw_log[:500])
-            sanitized_log = re.sub(r"/(?:usr|etc|var|tmp|home|root|ouro-jobs)/\S+", "<path>", raw_log)[-500:]
-            _build_status[build_id] = {
-                "status": "failed",
-                "error": f"Build failed: {sanitized_log}",
-                "build_time_s": round(elapsed, 1),
-                "started_at": _build_status[build_id]["started_at"],
-            }
-            return
-
-        # Check built image size
-        image_size = os.path.getsize(temp_sif)
-        if image_size > MAX_IMAGE_SIZE:
-            os.unlink(temp_sif)
-            _build_status[build_id] = {
-                "status": "failed",
-                "error": f"Built image too large ({image_size // (1024*1024)}MB, max {MAX_IMAGE_SIZE // (1024*1024*1024)}GB)",
-                "build_time_s": round(elapsed, 1),
-                "started_at": _build_status[build_id]["started_at"],
-            }
-            return
-
-        # Atomic move to final path
-        os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
-        os.rename(temp_sif, final_path)
-        logger.info("Image built: %s.sif in %.1fs (%dMB)", build_id[:16], elapsed, image_size // (1024*1024))
-
-        _build_status[build_id] = {
-            "status": "completed",
-            "sif_path": final_path,
-            "cached": False,
-            "build_time_s": round(elapsed, 1),
-            "started_at": _build_status[build_id]["started_at"],
-        }
-
-    except Exception as e:
-        import time as _t
-        _build_status[build_id] = {
-            "status": "failed",
-            "error": str(e),
-            "build_time_s": 0.0,
-            "started_at": _build_status.get(build_id, {}).get("started_at", _t.monotonic()),
-        }
-        logger.exception("Image build error for %s", build_id[:16])
-    finally:
-        for p in (temp_def, temp_sif):
-            try:
-                os.unlink(p)
-            except FileNotFoundError:
-                pass
-        if temp_build_dir:
-            shutil.rmtree(temp_build_dir, ignore_errors=True)
-
-
-@app.post("/slurm/v0.0.38/image/build")
-async def build_image(
-    request: Request, x_slurm_user_token: str | None = Header(None)
-):
-    """Build an Apptainer image from a .def file. Returns 200 on cache hit, 202 for async build."""
+@app.get("/slurm/v0.0.38/allowed-images")
+async def get_allowed_images(x_slurm_user_token: str | None = Header(None)):
+    """Return available Docker image aliases and their Docker Hub references."""
     check_auth(x_slurm_user_token)
-
-    if not APPTAINER_AVAILABLE:
-        raise HTTPException(503, "Apptainer not available")
-
-    body = await request.json()
-    def_content = body.get("def_content")
-    if not def_content:
-        raise HTTPException(400, "def_content required")
-
-    if len(def_content.encode()) > MAX_DEF_SIZE:
-        raise HTTPException(400, f"Definition file too large (max {MAX_DEF_SIZE // 1024}KB)")
-
-    # Handle COPY instructions: validate, stage files, inject %files
-    copy_instructions = body.get("copy_instructions")
-    workspace_path = body.get("workspace_path")
-    temp_build_dir: str | None = None
-
-    if copy_instructions:
-        if not workspace_path:
-            raise HTTPException(400, "workspace_path required when copy_instructions are provided")
-        temp_build_dir, files_section = _prepare_copy_build_context(workspace_path, copy_instructions)
-        def_content = _inject_files_section(def_content, files_section)
-
-    # Hash the FINAL def_content (after %files injection) for caching
-    def_hash = hashlib.sha256(def_content.encode()).hexdigest()
-    final_path = os.path.join(CUSTOM_IMAGES_DIR, f"{def_hash}.sif")
-
-    _cleanup_stale_builds()
-
-    # Fast path: disk cache hit (skip for COPY jobs — files may have changed)
-    if not copy_instructions and os.path.exists(final_path):
-        if temp_build_dir:
-            shutil.rmtree(temp_build_dir, ignore_errors=True)
-        return {"sif_path": final_path, "cached": True, "build_time_s": 0.0}
-
-    # Check in-memory build status
-    existing = _build_status.get(def_hash)
-    if existing:
-        if existing["status"] == "completed" and not copy_instructions:
-            # Build finished while we were validating
-            if temp_build_dir:
-                shutil.rmtree(temp_build_dir, ignore_errors=True)
-            return {
-                "sif_path": existing["sif_path"],
-                "cached": existing.get("cached", False),
-                "build_time_s": existing.get("build_time_s", 0.0),
-            }
-        if existing["status"] == "building":
-            # Piggyback on existing build
-            if temp_build_dir:
-                shutil.rmtree(temp_build_dir, ignore_errors=True)
-            return JSONResponse(
-                status_code=202,
-                content={"build_id": def_hash, "status": "building"},
-            )
-        # "failed" → fall through to retry
-
-    # Start async build
-    import time
-    os.makedirs(CUSTOM_IMAGES_DIR, exist_ok=True)
-    _build_status[def_hash] = {"status": "building", "started_at": time.monotonic()}
-
-    task = asyncio.create_task(
-        _run_build_task(def_hash, def_content, final_path, temp_build_dir, bool(copy_instructions))
-    )
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-    return JSONResponse(
-        status_code=202,
-        content={"build_id": def_hash, "status": "building"},
-    )
-
-
-@app.get("/slurm/v0.0.38/image/build/{build_id}")
-async def get_build_status(
-    build_id: str, x_slurm_user_token: str | None = Header(None)
-):
-    """Poll the status of an async image build."""
-    check_auth(x_slurm_user_token)
-
-    status = _build_status.get(build_id)
-    if not status:
-        raise HTTPException(404, "Build not found")
-
-    if status["status"] == "building":
-        return {"build_id": build_id, "status": "building"}
-    elif status["status"] == "completed":
-        return {
-            "build_id": build_id,
-            "status": "completed",
-            "sif_path": status["sif_path"],
-            "cached": status.get("cached", False),
-            "build_time_s": status.get("build_time_s", 0.0),
-        }
-    else:  # failed
-        return {
-            "build_id": build_id,
-            "status": "failed",
-            "error": status.get("error", "Unknown error"),
-            "build_time_s": status.get("build_time_s", 0.0),
-        }
+    return {"images": DOCKER_IMAGES}
 
 
 @app.get("/health")

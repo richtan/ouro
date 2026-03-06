@@ -5,7 +5,7 @@
 # Usage: ./deploy/build-golden-image.sh [--image-name ouro-worker-v2]
 #
 # The image is used by the auto-scaler when creating new spot instances.
-# Rebuild when: Slurm version changes, Apptainer updates, or slurm.conf changes.
+# Rebuild when: Slurm version changes, Docker updates, or slurm.conf changes.
 set -euo pipefail
 
 PROJECT="${GCP_PROJECT:-ouro-hpc-2026}"
@@ -38,10 +38,18 @@ gcloud compute ssh "$TEMP_VM" --project="$PROJECT" --zone="$ZONE" --command="
   sudo add-apt-repository -y universe
   sudo add-apt-repository -y multiverse
   sudo apt-get update -qq
-  sudo apt-get install -y -qq munge slurmd slurm-client nfs-common software-properties-common
-  sudo add-apt-repository -y ppa:apptainer/ppa
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq apptainer
+  sudo apt-get install -y -qq munge slurmd slurm-client nfs-common
+  # Install Docker
+  curl -fsSL https://get.docker.com | sudo sh
+  sudo usermod -aG docker slurm
+  sudo cat > /etc/docker/daemon.json << 'DOCKEREOF'
+{
+  "userns-remap": "default",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+DOCKEREOF
+  sudo systemctl enable docker
 
   # Install gcloud CLI (needed by startup script to fetch secrets)
   curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg

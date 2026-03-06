@@ -36,7 +36,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
 | **MCP Server** | Python/FastMCP | 8080 | Railway | Standalone MCP server for AI agents (Cursor, Claude Desktop) to submit compute jobs |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, payment sessions |
-| **Slurm Cluster** | Slurm + Apptainer + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
+| **Slurm Cluster** | Slurm + Docker + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
 
 ### Live URLs
 
@@ -68,8 +68,8 @@ Full annotated tree: `docs/architecture.md`
 - **ERC-8004** — On-chain agent identity registry at `0x8004...9432` with reputation feedback
 - **PydanticAI** — Typed LLM agent; deterministic fast path in production, LLM fallback for error recovery
 - **Slurm** — HPC workload manager via custom REST proxy (`deploy/slurm/slurm_proxy.py`)
-- **Apptainer** — Container isolation on Slurm workers; Dockerfiles converted to `.def` files
-- **Prebuilt images** — `base`, `python312`, `node20`, `pytorch`, `r-base` (instant); custom Docker Hub images cached by SHA256
+- **Docker** — Container isolation on Slurm workers; hardened `docker run` with `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, etc. Workers use `userns-remap: "default"` and iptables blocking the metadata server
+- **Prebuilt images** — `base` (ubuntu:22.04), `python312`, `node20`, `pytorch`, `r-base` mapped to Docker Hub images; custom images built on-worker inside the Slurm job script. `needs_docker_build` distinguishes images needing `docker build` from those needing only `docker pull`
 
 ## Reference Docs
 
@@ -126,11 +126,13 @@ docker compose up --build
 - **Oracle agent timeout**: Wrapped in `asyncio.wait_for(..., timeout=900)` to prevent infinite hangs.
 - **Slurm poll errors**: `poll_slurm_status` wraps `get_job_status()` in try/except so transient network errors don't crash the run.
 - **Dashboard Docker build needs native toolchain**: `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
-- **Dockerfile COPY/ADD supported** — `COPY` and `ADD` (local only, no URLs) are parsed and validated in the agent, then staged in an isolated temp build context on the proxy. 10 layers of defense-in-depth prevent path traversal. `ARG`, `LABEL`, `SHELL`, `EXPOSE` also supported. `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages. Glob patterns (`*`, `?`) in COPY sources are not supported.
-- **COPY disables image caching** — when `copy_instructions` are present, the proxy skips the cache fast-path since copied files may change between builds.
-- **Image builds are async** — `POST /image/build` returns `202 {build_id}` immediately and builds in the background. The agent polls `GET /image/build/{build_id}` every 5s (660s deadline). Cache hits still return `200` instantly. Duplicate requests piggyback on in-progress builds. `_build_status` is in-memory so proxy restarts lose state (agent gets 404 → job fails, next attempt starts fresh). `FAST_PATH_TIMEOUT_S` is 900s to accommodate 10-min builds.
-- **Build time for custom images** doesn't count toward `time_limit_min` — it's infrastructure overhead handled before Slurm submission.
-- **Custom image cache** at `/ouro-jobs/images/custom/` has no automatic cleanup yet — images accumulate.
+- **Dockerfile COPY/ADD supported** — `COPY` and `ADD` (local only, no URLs) are parsed and validated in the agent. `ARG`, `LABEL`, `SHELL`, `EXPOSE` also supported. `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages. Glob patterns (`*`, `?`) in COPY sources are not supported.
+- **Docker build happens on-worker** — builds run inside the Slurm job script on the worker node, not as a separate async step. The proxy generates Docker wrapper scripts; it no longer has image build endpoints.
+- **DOCKER_BUILDKIT=0** — BuildKit is disabled on workers for security. This means `RUN --mount=...` and `# syntax=` directives are rejected at Dockerfile parse time.
+- **Multi-stage builds rejected** — Dockerfiles with multiple `FROM` instructions are rejected to prevent build-time escapes.
+- **Worker Docker hardening** — Workers run with `userns-remap: "default"` in Docker daemon config and iptables rules blocking the GCP metadata server (169.254.169.254) to prevent credential theft.
+- **Build time for custom images** is included in the Slurm job's `time_limit_min` since builds happen on-worker.
+- **Custom image cache** — Docker images accumulate on workers; no automatic cleanup yet.
 
 ## Workflow Preferences
 

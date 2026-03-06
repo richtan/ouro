@@ -60,14 +60,26 @@ for w in "${WORKERS[@]}"; do
             --machine-type="$MACHINE_TYPE" \
             --image-family="$IMAGE_FAMILY" \
             --image-project="$IMAGE_PROJECT" \
-            --boot-disk-size=20GB \
+            --boot-disk-size=30GB \
             --tags=slurm-worker \
             --metadata=startup-script='#!/bin/bash
                 apt-get update -qq
-                apt-get install -y -qq munge slurmd slurm-client nfs-common software-properties-common
-                add-apt-repository -y ppa:apptainer/ppa
-                apt-get update -qq
-                apt-get install -y -qq apptainer'
+                apt-get install -y -qq munge slurmd slurm-client nfs-common
+                # Install Docker
+                curl -fsSL https://get.docker.com | sh
+                usermod -aG docker slurm
+                cat > /etc/docker/daemon.json << DOCKEREOF
+{
+  "userns-remap": "default",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+DOCKEREOF
+                systemctl enable docker && systemctl restart docker
+                # Block GCP metadata server from Docker containers
+                iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP
+                echo "iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP" >> /etc/rc.local
+                chmod +x /etc/rc.local'
     fi
 done
 
@@ -118,20 +130,12 @@ for node in "${ALL_NODES[@]}"; do
 done
 
 # ------------------------------------------------------------------
-# Phase 3: Install packages on controller (Apptainer if missing)
+# Phase 3: Install packages on controller
 # ------------------------------------------------------------------
 echo ""
 echo "[Phase 3] Ensuring packages on controller..."
 
 ssh_cmd "$CONTROLLER" "
-    if ! command -v apptainer &>/dev/null; then
-        echo 'Installing Apptainer on controller...'
-        sudo add-apt-repository -y ppa:apptainer/ppa
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq apptainer
-    else
-        echo 'Apptainer already installed'
-    fi
     sudo apt-get install -y -qq nfs-kernel-server
 "
 
@@ -144,7 +148,7 @@ echo "[Phase 4] Verifying worker packages..."
 for w in "${WORKERS[@]}"; do
     echo "  Waiting for $w packages..."
     for attempt in $(seq 1 30); do
-        if ssh_cmd "$w" "dpkg -l | grep -q slurmd && command -v apptainer" &>/dev/null; then
+        if ssh_cmd "$w" "dpkg -l | grep -q slurmd && command -v docker" &>/dev/null; then
             echo "  $w ready"
             break
         fi
@@ -153,9 +157,9 @@ for w in "${WORKERS[@]}"; do
             ssh_cmd "$w" "
                 sudo apt-get update -qq
                 sudo apt-get install -y -qq munge slurmd slurm-client nfs-common
-                sudo add-apt-repository -y ppa:apptainer/ppa
-                sudo apt-get update -qq
-                sudo apt-get install -y -qq apptainer
+                curl -fsSL https://get.docker.com | sudo sh
+                sudo usermod -aG docker slurm
+                sudo systemctl enable docker && sudo systemctl restart docker
             "
         fi
         sleep 10
@@ -267,37 +271,20 @@ for w in "${WORKERS[@]}"; do
 done
 
 # ------------------------------------------------------------------
-# Phase 9: Build Apptainer base image
+# Phase 9: Pre-pull Docker images on workers
 # ------------------------------------------------------------------
 echo ""
-echo "[Phase 9] Building Apptainer base image..."
+echo "[Phase 9] Pre-pulling Docker images on workers..."
 
-ssh_cmd "$CONTROLLER" "
-    if [ ! -f /ouro-jobs/images/base.sif ]; then
-        echo 'Building base.sif from ubuntu:22.04...'
-        sudo apptainer build /ouro-jobs/images/base.sif docker://ubuntu:22.04
-        sudo chmod 644 /ouro-jobs/images/base.sif
-    else
-        echo 'base.sif already exists'
-    fi
-"
-
-# ------------------------------------------------------------------
-# Phase 9b: Custom image cache dir + sudoers for apptainer build
-# ------------------------------------------------------------------
-echo ""
-echo "[Phase 9b] Setting up custom image cache and build permissions..."
-
-ssh_cmd "$CONTROLLER" "
-    sudo mkdir -p /ouro-jobs/images/custom
-    sudo chmod 755 /ouro-jobs/images/custom
-
-    # Allow the proxy service user (nobody) to run apptainer build with constrained paths
-    echo 'nobody ALL=(root) NOPASSWD: /usr/bin/apptainer build /ouro-jobs/images/custom/*.sif /tmp/*.def' \
-        | sudo tee /etc/sudoers.d/ouro-apptainer > /dev/null
-    sudo chmod 440 /etc/sudoers.d/ouro-apptainer
-    echo 'sudoers entry for apptainer build updated'
-"
+DOCKER_IMAGES=("ubuntu:22.04" "python:3.12-slim" "node:20-slim" "r-base:4.3.2")
+for w in "${WORKERS[@]}"; do
+    for img in "${DOCKER_IMAGES[@]}"; do
+        ssh_cmd "$w" "docker pull -q $img" || echo "  WARNING: Failed to pull $img on $w"
+    done
+    # Set up daily cleanup cron
+    ssh_cmd "$w" "echo '0 4 * * * docker system prune -f --filter until=24h 2>/dev/null' | crontab -"
+    echo "  $w images pre-pulled"
+done
 
 # ------------------------------------------------------------------
 # Phase 10: Update proxy on controller
@@ -382,8 +369,8 @@ echo ""
 echo "--- Test job ---"
 ssh_cmd "$CONTROLLER" "timeout 30 srun --nodes=1 hostname" || echo "  WARNING: test job did not complete within 30s"
 echo ""
-echo "--- Apptainer test ---"
-ssh_cmd "$CONTROLLER" "timeout 30 apptainer exec /ouro-jobs/images/base.sif echo 'Container isolation working'" || echo "  WARNING: apptainer test did not complete within 30s"
+echo "--- Docker test ---"
+ssh_cmd "${WORKERS[0]}" "timeout 30 docker run --rm --network none ubuntu:22.04 echo 'Docker isolation working'" || echo "  WARNING: docker test did not complete within 30s"
 echo ""
 
 echo "============================================"
@@ -393,6 +380,6 @@ for w in "${WORKERS[@]}"; do
     echo " Worker:     $w (${WORKER_IPS[$w]})"
 done
 echo " Nodes:      ${#ALL_NODES[@]}"
-echo " Isolation:  Apptainer containers"
+echo " Isolation:  Docker containers"
 echo " Shared FS:  /ouro-jobs (NFS)"
 echo "============================================"

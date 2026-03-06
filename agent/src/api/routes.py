@@ -440,7 +440,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if not payment_header:
         resource_info = ResourceInfo(
             url="/api/compute/submit",
-            description="Submit an HPC compute job to a Slurm cluster with Apptainer isolation",
+            description="Submit an HPC compute job to a Slurm cluster with Docker container isolation",
             mimeType="application/json",
         )
         bazaar_ext = declare_discovery_extension(
@@ -1276,7 +1276,7 @@ async def get_capabilities():
         },
         "compute": {
             "engine": "slurm",
-            "isolation": "apptainer",
+            "isolation": "docker",
             "max_cpus": 8,
             "max_time_min": 60,
             "max_script_bytes": MAX_SCRIPT_SIZE,
@@ -1360,7 +1360,7 @@ async def agent_card():
             {
                 "id": "run_compute_job",
                 "name": "Run HPC Compute Job",
-                "description": "Execute a script on a Slurm HPC cluster with Apptainer isolation. Pay per job with USDC.",
+                "description": "Execute a script on a Slurm HPC cluster with Docker container isolation. Pay per job with USDC.",
                 "tags": ["compute", "hpc", "slurm", "execution"],
                 "inputModes": ["application/json"],
                 "outputModes": ["application/json"],
