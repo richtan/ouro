@@ -139,7 +139,24 @@ docker compose up --build
 - Keep changes minimal and focused
 - Find root causes, no temporary fixes
 - Before making any dashboard changes, read `dashboard/DESIGN.md` first to align with the overall theme, design tokens, and visual patterns
-- After making changes, update `CLAUDE.md`, `dashboard/DESIGN.md`, and `README.md` if the changes affect architecture, design, APIs, or project structure
+
+### Continuous Documentation
+- **After every change** to code, environment, infrastructure, or configuration: update `CLAUDE.md` and/or the relevant `docs/` file
+  - Code/architecture changes → update `CLAUDE.md` sections (Architecture, Project Structure, Key Technologies, etc.) and `docs/architecture.md`
+  - API changes → `docs/api-reference.md`
+  - Deploy/infra/env changes → `docs/operations.md`
+  - Agent behavior changes → `docs/agent-internals.md`
+  - Dashboard changes → `dashboard/DESIGN.md`
+  - New bugs found or resolved → add to `Known Issues & Lessons` in `CLAUDE.md`
+- **Findings and discoveries** (debug insights, gotchas, non-obvious behavior) go in `Known Issues & Lessons`
+- **Keep `CLAUDE.md` as the index** — it should reference `docs/` files so readers can drill down. Never bury information only in a `docs/` file without a pointer from `CLAUDE.md`
+- **Be specific**: include file paths, function names, and error messages so future readers can find the right context fast
+
+### Secrets & Credentials
+- **NEVER** put secrets, API keys, private keys, or credentials in `CLAUDE.md`, `docs/`, or any file that is not gitignored
+- Secrets live in Doppler (production) or `.env` (local, gitignored). Reference them by variable name only (e.g., "set `OPENAI_API_KEY` in Doppler"), never by value
+- If you encounter a secret in tracked files, remove it immediately and rotate the key
+
 - When adding or modifying agent code, write or update corresponding tests in `agent/tests/`
 - New features and bug fixes require tests before marking complete
 - Run `cd agent && python -m pytest tests/ -v` to verify before committing
