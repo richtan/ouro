@@ -147,6 +147,8 @@ async def _fetch_job(job_id: str) -> dict:
         resp = await client.get(f"{_get_api_url()}/api/jobs/{job_id}")
         if resp.status_code == 404:
             return {"error": "not_found", "message": f"Job {job_id} not found"}
+        if resp.status_code >= 500:
+            return {"error": "temporarily_unavailable", "message": "Agent API is temporarily unavailable. Retry in a few seconds."}
         resp.raise_for_status()
         return resp.json()
 
@@ -188,6 +190,8 @@ async def _get_session_from_api(session_id: str) -> dict | None:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(f"{_get_api_url()}/api/sessions/{session_id}")
         if resp.status_code == 404:
+            return None
+        if resp.status_code >= 500:
             return None
         resp.raise_for_status()
         return resp.json()

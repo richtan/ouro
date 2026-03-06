@@ -133,6 +133,7 @@ docker compose up --build
 - **Worker Docker hardening** — Workers run with `userns-remap: "default"` in Docker daemon config and iptables rules blocking the GCP metadata server (169.254.169.254) to prevent credential theft.
 - **Build time for custom images** is included in the Slurm job's `time_limit_min` since builds happen on-worker.
 - **Custom image cache** — Docker images accumulate on workers; no automatic cleanup yet.
+- **MCP server 5xx resilience** — `_fetch_job()` and `_get_session_from_api()` now handle 5xx responses gracefully instead of crashing via `raise_for_status()`. A transient 502 from the agent API no longer kills the FastMCP process and all its StreamableHTTP sessions.
 
 ## Workflow Preferences
 
