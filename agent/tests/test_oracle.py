@@ -8,6 +8,7 @@ import pytest
 
 from src.agent.oracle import (
     OracleDeps,
+    _ensure_capacity,
     build_image_if_needed,
     poll_slurm_status_impl,
     process_job_fast,
@@ -296,3 +297,102 @@ async def test_no_dockerfile_legacy_path(make_deps, mock_slurm_client):
     assert deps.sif_path is None
     assert deps.entrypoint_cmd is None
     mock_slurm_client.build_image.assert_not_awaited()
+
+
+# --- _ensure_capacity ---
+
+
+async def test_ensure_capacity_sufficient(make_deps, mock_slurm_client):
+    """When cluster has enough CPUs, _ensure_capacity is a no-op."""
+    deps = make_deps(cpus=2)
+    await _ensure_capacity(deps)
+    mock_slurm_client.get_cluster_info.assert_awaited_once()
+
+
+async def test_ensure_capacity_scaling_disabled(make_deps, mock_slurm_client, monkeypatch):
+    """When scaling is disabled and no node has enough CPUs, raise RuntimeError."""
+    monkeypatch.setattr("src.agent.oracle.settings.AUTO_SCALING_ENABLED", False)
+    deps = make_deps(cpus=4)
+    with pytest.raises(RuntimeError, match="No node has 4 CPUs"):
+        await _ensure_capacity(deps)
+
+
+async def test_ensure_capacity_boots_spot(make_deps, mock_slurm_client, monkeypatch):
+    """When scaling enabled, boots a spot node and waits for IDLE."""
+    monkeypatch.setattr("src.agent.oracle.settings.AUTO_SCALING_ENABLED", True)
+    from src.slurm.scaler import ScalingEvent
+
+    # Mock the scaler methods
+    mock_boot = AsyncMock(return_value=ScalingEvent("scale_out", "ouro-spot-md-1", "pending"))
+    monkeypatch.setattr("src.agent.oracle._scaler._boot_spot_instance", mock_boot)
+
+    # First get_cluster_info: no 4-CPU node. Second: spot node is IDLE.
+    mock_slurm_client.get_cluster_info.side_effect = [
+        {
+            "nodes_detail": [
+                {"name": "ouro-worker-1", "state": ["IDLE"], "cpus": 2, "free_cpus": 2},
+            ],
+        },
+        {
+            "nodes_detail": [
+                {"name": "ouro-worker-1", "state": ["IDLE"], "cpus": 2, "free_cpus": 2},
+                {"name": "ouro-spot-md-1", "state": ["IDLE"], "cpus": 4, "free_cpus": 4},
+            ],
+        },
+    ]
+
+    deps = make_deps(cpus=4)
+    await _ensure_capacity(deps)
+    mock_boot.assert_awaited_once()
+
+
+# --- poll_slurm_status_impl: status tracking ---
+
+
+async def test_poll_marks_running_on_transition(make_deps, mock_slurm_client):
+    """Poll should update DB status to 'running' when Slurm state becomes RUNNING."""
+    mock_slurm_client.get_job_status.side_effect = [
+        {"state": "PENDING", "exit_code": 0, "reason": ""},
+        {"state": "RUNNING", "exit_code": 0, "reason": ""},
+        {"state": "COMPLETED", "exit_code": 0, "reason": ""},
+    ]
+    deps = make_deps()
+    result = await poll_slurm_status_impl(deps, slurm_job_id=42)
+    assert result.startswith("COMPLETED:")
+    # DB should have been updated to "running" then committed
+    deps.db.execute.assert_awaited()
+    deps.db.commit.assert_awaited()
+
+
+# --- poll_slurm_status_impl: PENDING detection ---
+
+
+async def test_poll_cancels_stuck_pending(make_deps, mock_slurm_client):
+    """After 6 PENDING polls with ReqNodeNotAvail, should cancel and fail."""
+    mock_slurm_client.get_job_status.return_value = {
+        "state": "PENDING",
+        "exit_code": 0,
+        "reason": "ReqNodeNotAvail",
+    }
+    deps = make_deps()
+    result = await poll_slurm_status_impl(deps, slurm_job_id=42)
+    assert result.startswith("FAILED:")
+    assert "ReqNodeNotAvail" in result
+    mock_slurm_client.cancel_job.assert_awaited_once_with(42)
+
+
+# --- submit_to_slurm_impl: status stays processing ---
+
+
+async def test_submit_keeps_processing_status(make_deps, mock_slurm_client):
+    """submit_to_slurm_impl should NOT set status='running' — only store slurm_job_id."""
+    deps = make_deps()
+    result = await submit_to_slurm_impl(deps)
+    assert "SUBMITTED" in result
+    # Check the DB update call did NOT include status="running"
+    call_args = deps.db.execute.call_args
+    # The update statement values should only have slurm_job_id, not status
+    update_stmt = call_args[0][0]
+    # Verify by checking the compiled parameters
+    compiled = update_stmt.compile()
+    assert "status" not in compiled.params

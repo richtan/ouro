@@ -104,14 +104,21 @@ class SlurmClient:
         resp.raise_for_status()
         jobs = resp.json().get("jobs", [])
         if not jobs:
-            return {"state": "UNKNOWN"}
+            return {"state": "UNKNOWN", "reason": ""}
         job = jobs[0]
         return {
             "state": job.get("job_state", "UNKNOWN"),
             "exit_code": job.get("exit_code", {}).get("return_code"),
             "start_time": job.get("start_time"),
             "end_time": job.get("end_time"),
+            "reason": job.get("reason", ""),
         }
+
+    async def cancel_job(self, job_id: int) -> bool:
+        """Cancel a Slurm job via scancel."""
+        resp = await self.client.delete(f"/slurm/v0.0.38/job/{job_id}")
+        resp.raise_for_status()
+        return resp.json().get("cancelled", False)
 
     async def get_job_output(self, job_id: int) -> str:
         try:

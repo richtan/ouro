@@ -14,8 +14,12 @@ from src.agent.event_bus import EventBus
 from src.chain.client import BaseChainClient
 from src.config import settings
 from src.slurm.client import SlurmClient
+from src.slurm.scaler import AutoScaler
 
 logger = logging.getLogger(__name__)
+
+# Shared scaler instance for reactive capacity checks
+_scaler = AutoScaler()
 
 
 @dataclass
@@ -90,7 +94,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
         await deps.db.execute(
             sql_update(ActiveJob)
             .where(ActiveJob.id == deps.job_id)
-            .values(slurm_job_id=slurm_job_id, status="running")
+            .values(slurm_job_id=slurm_job_id)
         )
         await deps.db.commit()
 
@@ -106,6 +110,12 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
 
 
 async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
+    from sqlalchemy import update as sql_update
+    from src.db.models import ActiveJob
+
+    marked_running = False
+    pending_count = 0  # consecutive PENDING polls with resource reason
+
     for attempt in range(60):
         try:
             status = await deps.slurm_client.get_job_status(slurm_job_id)
@@ -116,6 +126,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
             await asyncio.sleep(5)
             continue
         state = status["state"]
+        reason = status.get("reason", "")
 
         if state == "COMPLETED":
             output = await deps.slurm_client.get_job_output(slurm_job_id)
@@ -126,6 +137,33 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
         if state in ("FAILED", "CANCELLED", "TIMEOUT"):
             deps.event_bus.emit("slurm", f"Job {slurm_job_id} {state}")
             return f"FAILED: state={state}, exit_code={status.get('exit_code')}"
+
+        # Track transition to RUNNING
+        if state in ("RUNNING", "COMPLETING") and not marked_running:
+            await deps.db.execute(
+                sql_update(ActiveJob)
+                .where(ActiveJob.id == deps.job_id)
+                .values(status="running")
+            )
+            await deps.db.commit()
+            marked_running = True
+            pending_count = 0
+
+        # Detect stuck PENDING (no node available)
+        if state == "PENDING" and "ReqNodeNotAvail" in reason:
+            pending_count += 1
+            if pending_count >= 6:
+                deps.event_bus.emit(
+                    "slurm",
+                    f"Job {slurm_job_id} stuck PENDING: {reason} — cancelling",
+                )
+                try:
+                    await deps.slurm_client.cancel_job(slurm_job_id)
+                except Exception:
+                    pass
+                return f"FAILED: state=PENDING, reason={reason} (no suitable node, cancelled)"
+        elif state != "PENDING":
+            pending_count = 0
 
         if attempt % 5 == 0:
             deps.event_bus.emit("slurm", f"Job {slurm_job_id} state={state} (poll {attempt})")
@@ -220,6 +258,64 @@ async def _cleanup_workspace(deps: OracleDeps) -> None:
         logger.warning("Workspace cleanup failed for %s: %s", deps.job_id, e)
 
 
+async def _ensure_capacity(deps: OracleDeps) -> None:
+    """Check cluster capacity for this job's CPU needs. Boot a spot node if needed.
+
+    Raises RuntimeError if capacity cannot be ensured.
+    """
+    cpus_needed = deps.cpus
+    cluster_info = await deps.slurm_client.get_cluster_info()
+    nodes = cluster_info.get("nodes_detail", [])
+
+    # Find max CPUs available on any single IDLE or MIXED node
+    max_node_cpus = 0
+    for node in nodes:
+        states = node.get("state", [])
+        if "DOWN" in states:
+            continue
+        if "IDLE" in states:
+            max_node_cpus = max(max_node_cpus, node.get("cpus", 0))
+        elif "MIXED" in states:
+            max_node_cpus = max(max_node_cpus, node.get("free_cpus", 0))
+
+    if max_node_cpus >= cpus_needed:
+        return  # Cluster has capacity
+
+    if not settings.AUTO_SCALING_ENABLED:
+        raise RuntimeError(
+            f"No node has {cpus_needed} CPUs (max available: {max_node_cpus}). "
+            f"Enable auto-scaling for larger jobs."
+        )
+
+    # Boot a spot node
+    deps.event_bus.emit(
+        "scaler",
+        f"No node has {cpus_needed} CPUs (max: {max_node_cpus}), scaling out...",
+    )
+    node_name, template = _scaler._pick_node_for_cpus(cpus_needed, nodes)
+    if not node_name:
+        raise RuntimeError(
+            f"No spot node tier supports {cpus_needed} CPUs"
+        )
+
+    event = await _scaler._boot_spot_instance(node_name, template)
+    if not event or event.action != "scale_out":
+        raise RuntimeError(f"Failed to boot spot node {node_name}: {event.reason if event else 'unknown'}")
+
+    deps.event_bus.emit("scaler", f"Booted {node_name}, waiting for it to become IDLE...")
+
+    # Poll until node appears as IDLE (timeout 180s)
+    for _ in range(18):
+        await asyncio.sleep(10)
+        info = await deps.slurm_client.get_cluster_info()
+        for node in info.get("nodes_detail", []):
+            if node["name"] == node_name and "IDLE" in node.get("state", []):
+                deps.event_bus.emit("scaler", f"{node_name} is IDLE — proceeding")
+                return
+
+    raise RuntimeError(f"Spot node {node_name} did not become IDLE within 180s")
+
+
 async def process_job_fast(deps: OracleDeps) -> JobResult:
     """Execute the standard validate -> submit -> poll -> prove pipeline without an LLM."""
     validation = await validate_request_impl(deps)
@@ -232,6 +328,14 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         await build_image_if_needed(deps)
     except Exception as e:
         deps.event_bus.emit("agent_error", f"Image build failed: {e}")
+        await _cleanup_workspace(deps)
+        return JobResult(job_id=deps.job_id, status="failed")
+
+    # Ensure cluster has capacity for this job's CPU needs
+    try:
+        await _ensure_capacity(deps)
+    except RuntimeError as e:
+        deps.event_bus.emit("agent_error", f"Capacity check failed: {e}")
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 

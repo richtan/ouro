@@ -38,10 +38,23 @@ def mock_chain_client():
 def mock_slurm_client():
     client = AsyncMock()
     client.submit_job.return_value = 42
-    client.get_job_status.return_value = {"state": "COMPLETED", "exit_code": 0}
+    client.get_job_status.return_value = {"state": "COMPLETED", "exit_code": 0, "reason": ""}
     client.get_job_output.return_value = "Hello World"
     client.create_workspace.return_value = "/ouro-jobs/workspaces/test-workspace"
     client.delete_workspace.return_value = True
+    client.cancel_job.return_value = True
+    client.get_cluster_info.return_value = {
+        "total_nodes": 2,
+        "idle_nodes": 2,
+        "allocated_nodes": 0,
+        "total_cpus": 4,
+        "available_cpus": 4,
+        "nodes_detail": [
+            {"name": "ouro-worker-1", "state": ["IDLE"], "cpus": 2, "free_cpus": 2},
+            {"name": "ouro-worker-2", "state": ["IDLE"], "cpus": 2, "free_cpus": 2},
+        ],
+        "status": "healthy",
+    }
     return client
 
 

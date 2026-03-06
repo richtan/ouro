@@ -311,6 +311,7 @@ async def get_job(
     exit_code = 0
     start_time = end_time = 0
     node_list = ""
+    reason = ""
     for field in result.split():
         if field.startswith("JobState="):
             state = field.split("=", 1)[1]
@@ -318,6 +319,8 @@ async def get_job(
             exit_code = int(field.split("=", 1)[1].split(":")[0])
         elif field.startswith("NodeList="):
             node_list = field.split("=", 1)[1]
+        elif field.startswith("Reason="):
+            reason = field.split("=", 1)[1]
         elif field.startswith("StartTime="):
             val = field.split("=", 1)[1]
             if val != "Unknown":
@@ -354,9 +357,20 @@ async def get_job(
                 "start_time": start_time,
                 "end_time": end_time,
                 "node_list": node_list,
+                "reason": reason,
             }
         ]
     }
+
+
+@app.delete("/slurm/v0.0.38/job/{job_id}")
+async def cancel_job(
+    job_id: int, x_slurm_user_token: str | None = Header(None)
+):
+    check_auth(x_slurm_user_token)
+    await run_cmd(["scancel", str(job_id)])
+    logger.info("Job cancelled: %d", job_id)
+    return {"cancelled": True, "job_id": job_id}
 
 
 @app.get("/slurm/v0.0.37/job/{job_id}/output")
