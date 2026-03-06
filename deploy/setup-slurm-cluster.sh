@@ -279,10 +279,10 @@ echo "[Phase 9] Pre-pulling Docker images on workers..."
 DOCKER_IMAGES=("ubuntu:22.04" "python:3.12-slim" "node:20-slim" "r-base:4.3.2")
 for w in "${WORKERS[@]}"; do
     for img in "${DOCKER_IMAGES[@]}"; do
-        ssh_cmd "$w" "docker pull -q $img" || echo "  WARNING: Failed to pull $img on $w"
+        ssh_cmd "$w" "sudo docker pull -q $img" || echo "  WARNING: Failed to pull $img on $w"
     done
     # Set up daily cleanup cron
-    ssh_cmd "$w" "echo '0 4 * * * docker system prune -f --filter until=24h 2>/dev/null' | crontab -"
+    ssh_cmd "$w" "echo '0 4 * * * sudo docker system prune -f --filter until=24h 2>/dev/null' | sudo crontab -"
     echo "  $w images pre-pulled"
 done
 
@@ -370,7 +370,7 @@ echo "--- Test job ---"
 ssh_cmd "$CONTROLLER" "timeout 30 srun --nodes=1 hostname" || echo "  WARNING: test job did not complete within 30s"
 echo ""
 echo "--- Docker test ---"
-ssh_cmd "${WORKERS[0]}" "timeout 30 docker run --rm --network none ubuntu:22.04 echo 'Docker isolation working'" || echo "  WARNING: docker test did not complete within 30s"
+ssh_cmd "${WORKERS[0]}" "timeout 30 sudo docker run --rm --network none ubuntu:22.04 echo 'Docker isolation working'" || echo "  WARNING: docker test did not complete within 30s"
 echo ""
 
 echo "============================================"
