@@ -59,6 +59,13 @@ gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/compute.viewer" --quiet
 
+# Grant agent-scaler permission to create VMs as this SA
+SCALER_SA="ouro-agent-scaler@$PROJECT.iam.gserviceaccount.com"
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --member="serviceAccount:$SCALER_SA" \
+  --role="roles/iam.serviceAccountUser" \
+  --project="$PROJECT" --quiet
+
 # 4. Create instance templates (one per size tier)
 echo "[4/6] Creating instance templates..."
 for tier in sm:e2-medium md:e2-standard-4 lg:e2-standard-8; do
