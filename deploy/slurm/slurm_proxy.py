@@ -50,7 +50,7 @@ APPTAINER_AVAILABLE = os.path.exists("/usr/bin/apptainer") or os.path.exists("/u
 
 # Async image build tracking (keyed by def hash)
 _build_status: dict[str, dict] = {}
-_background_tasks: set[asyncio.Task] = {}
+_background_tasks: set[asyncio.Task] = set()
 
 ALLOWED_IMAGES = {
     "base":      "base.sif",
