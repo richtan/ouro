@@ -6,6 +6,20 @@ export default function SubmitLoading() {
         <div className="h-4 w-96 bg-o-border/20 rounded mt-2" />
       </div>
 
+      {/* Configuration */}
+      <div className="border border-o-border rounded-xl p-4 mb-6">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-12 bg-o-border/30 rounded" />
+            <div className="h-8 w-24 bg-o-border/30 rounded-full" />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-20 bg-o-border/30 rounded" />
+            <div className="h-8 w-24 bg-o-border/30 rounded-full" />
+          </div>
+        </div>
+      </div>
+
       {/* Environment picker */}
       <div className="h-12 bg-o-border/30 rounded-xl mb-6" />
 
@@ -13,15 +27,6 @@ export default function SubmitLoading() {
       <div className="card mb-6">
         <div className="h-5 w-16 bg-o-border/20 rounded mb-3" />
         <div className="h-64 bg-o-border/30 rounded" />
-      </div>
-
-      {/* Configuration */}
-      <div className="card mb-6">
-        <div className="h-5 w-24 bg-o-border/20 rounded mb-4" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="h-16 bg-o-border/30 rounded" />
-          <div className="h-16 bg-o-border/30 rounded" />
-        </div>
       </div>
 
       {/* Submit bar */}

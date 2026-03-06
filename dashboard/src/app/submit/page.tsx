@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -12,6 +12,78 @@ import StickySubmitBar from "@/components/submit/StickySubmitBar";
 import EnvironmentPicker, { DEFAULT_FILES } from "@/components/submit/EnvironmentPicker";
 import { parseDockerfile } from "@/lib/dockerfile";
 import type { WorkspaceFile } from "@/lib/types";
+
+function StepperPill({
+  value,
+  onChange,
+  min,
+  max,
+  suffix,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  suffix?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    onChange(Number.isNaN(n) ? min : Math.min(max, Math.max(min, n)));
+    setEditing(false);
+  };
+
+  return (
+    <div className="bg-o-bg border border-o-border rounded-full px-1 flex items-center gap-0">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(min, value - 1))}
+        className="text-o-textSecondary hover:text-o-text px-2 py-1.5 text-sm font-mono select-none"
+      >
+        &ndash;
+      </button>
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="number"
+          min={min}
+          max={max}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && commit()}
+          className="w-10 text-center bg-transparent font-mono text-sm text-o-text outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(String(value));
+            setEditing(true);
+          }}
+          className="font-mono text-sm text-o-text px-1 min-w-[2rem] text-center"
+        >
+          {value}
+          {suffix ?? ""}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, value + 1))}
+        className="text-o-textSecondary hover:text-o-text px-2 py-1.5 text-sm font-mono select-none"
+      >
+        +
+      </button>
+    </div>
+  );
+}
 
 type JobStatus = "idle" | "submitting" | "paying" | "error";
 
@@ -144,72 +216,23 @@ export default function SubmitPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Environment Picker */}
-          <EnvironmentPicker
-            onSelect={setFiles}
-            currentFromImage={dockerfileInfo?.fromImage ?? null}
-          />
-
-          {/* File Explorer */}
-          <FileExplorer
-            files={files}
-            onFilesChange={setFiles}
-            defaultImage={dockerfileInfo?.fromImage ?? "base"}
-            height="400px"
-          />
-
           {/* Configuration */}
-          <div className="card">
-            <label className="stat-label mb-4 block">Configuration</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-o-textSecondary">CPUs</span>
-                  <span className="font-mono text-sm text-o-blueText">
-                    {cpus}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={8}
-                  value={cpus}
-                  onChange={(e) => setCpus(Number(e.target.value))}
-                  className="w-full accent-o-blue"
-                />
-                <div className="flex justify-between text-xs text-o-muted mt-1">
-                  <span>1</span>
-                  <span>8</span>
-                </div>
+          <div className="border border-o-border rounded-xl p-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-o-textSecondary">CPUs</span>
+                <StepperPill value={cpus} onChange={setCpus} min={1} max={8} />
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-o-textSecondary">
-                    Time Limit
-                  </span>
-                  <span className="font-mono text-sm text-o-blueText">
-                    {timeLimit}m
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={60}
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  className="w-full accent-o-blue"
-                />
-                <div className="flex justify-between text-xs text-o-muted mt-1">
-                  <span>1 min</span>
-                  <span>60 min</span>
-                </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-o-textSecondary">Time Limit</span>
+                <StepperPill value={timeLimit} onChange={setTimeLimit} min={1} max={60} suffix="m" />
               </div>
             </div>
 
             {/* Advanced toggle */}
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-1.5 mt-5 pt-4 border-t border-o-border text-xs text-o-textSecondary hover:text-o-text transition-colors"
+              className="flex items-center gap-1.5 mt-3 pt-3 border-t border-o-border text-xs text-o-textSecondary hover:text-o-text transition-colors w-full"
             >
               <svg
                 width="10"
@@ -230,22 +253,36 @@ export default function SubmitPage() {
             </button>
             {showAdvanced && (
               <div className="mt-3">
-                <span className="text-xs text-o-textSecondary block mb-2">
-                  Builder Code (optional)
-                </span>
-                <input
-                  type="text"
-                  value={builderCode}
-                  onChange={(e) => setBuilderCode(e.target.value)}
-                  placeholder="your-builder-code"
-                  className="w-full sm:w-64 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
-                />
-                <p className="text-xs text-o-muted mt-1">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm text-o-textSecondary whitespace-nowrap">Builder Code</span>
+                  <input
+                    type="text"
+                    value={builderCode}
+                    onChange={(e) => setBuilderCode(e.target.value)}
+                    placeholder="your-builder-code"
+                    className="w-full sm:w-64 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
+                  />
+                </div>
+                <p className="text-xs text-o-muted mt-1 text-right">
                   ERC-8021 builder code for dual attribution
                 </p>
               </div>
             )}
           </div>
+
+          {/* Environment Picker */}
+          <EnvironmentPicker
+            onSelect={setFiles}
+            currentFromImage={dockerfileInfo?.fromImage ?? null}
+          />
+
+          {/* File Explorer */}
+          <FileExplorer
+            files={files}
+            onFilesChange={setFiles}
+            defaultImage={dockerfileInfo?.fromImage ?? "base"}
+            height="400px"
+          />
         </div>
       )}
 
