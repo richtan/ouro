@@ -114,7 +114,8 @@ class SlurmClient:
         try:
             resp = await self.client.get(f"/slurm/v0.0.38/job/{job_id}/output")
             resp.raise_for_status()
-            return resp.text
+            data = resp.json()
+            return data.get("output", "")
         except Exception:
             return ""
 

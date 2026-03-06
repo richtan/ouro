@@ -131,12 +131,10 @@ def wrap_in_docker(
     sec_flags = " \\\n    ".join([
         "--read-only",
         "--network none",
-        "--no-new-privileges",
         "--cap-drop ALL",
         "--user 65534:65534",
         "--ipc=private",
         "--security-opt no-new-privileges=true",
-        "--security-opt seccomp=default",
         '--entrypoint ""',
         "--tmpfs /tmp:rw,noexec,nosuid,size=100m",
         "--tmpfs /dev/shm:rw,noexec,nosuid,size=64m",
