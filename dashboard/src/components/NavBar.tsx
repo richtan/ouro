@@ -88,22 +88,11 @@ export default function NavBar() {
               openAccountModal,
               openChainModal,
               openConnectModal,
-              mounted,
             }) => {
-              const ready = mounted;
               return (
-                <div
-                  {...(!ready && {
-                    "aria-hidden": true,
-                    style: {
-                      opacity: 0,
-                      pointerEvents: "none" as const,
-                      userSelect: "none" as const,
-                    },
-                  })}
-                >
+                <div>
                   {(() => {
-                    if (!ready || !account || !chain) {
+                    if (!account || !chain) {
                       return (
                         <button
                           onClick={openConnectModal}

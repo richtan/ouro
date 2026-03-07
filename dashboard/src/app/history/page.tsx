@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useAccount } from "wagmi";
+import { useWalletReady } from "@/hooks/useWalletReady";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
 
@@ -216,7 +216,7 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
 export default function HistoryPage() {
   const searchParams = useSearchParams();
   const expandId = searchParams.get("expand");
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReady } = useWalletReady();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -259,7 +259,9 @@ export default function HistoryPage() {
         </p>
       </div>
 
-      {!isConnected ? (
+      {!isReady ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      ) : !isConnected ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to view your job history</p>
           <ConnectButton />

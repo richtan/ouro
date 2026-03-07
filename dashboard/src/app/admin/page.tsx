@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useSignMessage } from "wagmi";
+import { useWalletReady } from "@/hooks/useWalletReady";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import JobsPanel from "@/components/JobsPanel";
 import TerminalFeed from "@/components/TerminalFeed";
@@ -10,7 +11,7 @@ import AuditPanel from "@/components/AuditPanel";
 const ADMIN_ADDRESS = process.env.NEXT_PUBLIC_ADMIN_ADDRESS?.toLowerCase() ?? "";
 
 export default function AdminPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReady } = useWalletReady();
   const { signMessageAsync } = useSignMessage();
   const [authenticated, setAuthenticated] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -67,6 +68,14 @@ export default function AdminPage() {
     await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
     setAuthenticated(false);
   }, []);
+
+  if (!isReady) {
+    return (
+      <main className="min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-7xl mx-auto">
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      </main>
+    );
+  }
 
   if (!isConnected) {
     return (

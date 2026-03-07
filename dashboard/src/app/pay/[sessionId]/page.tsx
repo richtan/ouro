@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+import { useWalletClient, usePublicClient } from "wagmi";
+import { useWalletReady } from "@/hooks/useWalletReady";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
@@ -101,7 +102,7 @@ function JobSummary({ session }: { session: Session }) {
 
 export default function PayPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReady } = useWalletReady();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
 
@@ -233,6 +234,8 @@ export default function PayPage() {
             Your AI agent will automatically pick up the result. You can close this tab.
           </p>
         </div>
+      ) : !isReady ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
       ) : !isConnected ? (
         <div className="card flex flex-col items-center justify-center py-10 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to pay for this compute job</p>

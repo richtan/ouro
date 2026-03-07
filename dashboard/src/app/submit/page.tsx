@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+import { useWalletClient, usePublicClient } from "wagmi";
+import { useWalletReady } from "@/hooks/useWalletReady";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
@@ -89,7 +90,7 @@ type JobStatus = "idle" | "submitting" | "paying" | "error";
 
 export default function SubmitPage() {
   const router = useRouter();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isReady } = useWalletReady();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
 
@@ -225,7 +226,9 @@ export default function SubmitPage() {
         </p>
       </div>
 
-      {!isConnected ? (
+      {!isReady ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      ) : !isConnected ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">
             Connect your wallet to submit compute jobs
@@ -305,7 +308,7 @@ export default function SubmitPage() {
       )}
 
       {/* Sticky submit bar */}
-      {isConnected && (
+      {isReady && isConnected && (
         <StickySubmitBar
           fromImage={dockerfileInfo?.fromImage ?? null}
           entrypointDisplay={dockerfileInfo?.entrypoint ?? null}
