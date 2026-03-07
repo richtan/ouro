@@ -1,11 +1,14 @@
+import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 
 export function useWalletReady() {
-  const { isConnected, isReconnecting, address } = useAccount();
+  const { isConnected, address, status } = useAccount();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   return {
     isConnected,
     address,
-    // True when we know the final connection state (not still reconnecting from cookies)
-    isReady: !isReconnecting,
+    // Ready only after mount AND wagmi has settled to a final state
+    isReady: mounted && (status === "connected" || status === "disconnected"),
   };
 }

@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAccount } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useWalletReady } from "@/hooks/useWalletReady";
 
 const ADMIN_ADDRESS =
   process.env.NEXT_PUBLIC_ADMIN_ADDRESS?.toLowerCase() ?? "";
@@ -17,7 +17,7 @@ const BASE_NAV = [
 
 export default function NavBar() {
   const pathname = usePathname();
-  const { address } = useAccount();
+  const { address, isReady, isConnected } = useWalletReady();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -93,6 +93,11 @@ export default function NavBar() {
                 <div>
                   {(() => {
                     if (!account || !chain) {
+                      if (!isReady || isConnected) {
+                        return (
+                          <div className="w-[82px] h-[34px] rounded-lg bg-o-surface animate-pulse" />
+                        );
+                      }
                       return (
                         <button
                           onClick={openConnectModal}
