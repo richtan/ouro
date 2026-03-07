@@ -396,9 +396,27 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if dockerfile_content:
         from src.agent.dockerfile import parse_dockerfile
         try:
-            parse_dockerfile(dockerfile_content, require_entrypoint=not body.entrypoint)
+            parsed = parse_dockerfile(dockerfile_content, require_entrypoint=not body.entrypoint)
         except ValueError as e:
             raise HTTPException(422, f"Invalid Dockerfile: {e}")
+
+        # Validate COPY/ADD sources reference files that exist in the submission
+        if parsed.copy_instructions and body.files:
+            submitted = {f.path for f in body.files if f.path.lower() != "dockerfile"}
+            missing = []
+            for src, _ in parsed.copy_instructions:
+                if src not in submitted:
+                    # Check if src is a directory prefix (e.g., COPY src/ .)
+                    prefix = src.rstrip("/") + "/"
+                    is_dir = any(p.startswith(prefix) for p in submitted)
+                    if not is_dir:
+                        missing.append(src)
+            if missing:
+                raise HTTPException(
+                    422,
+                    f"Dockerfile COPY/ADD references files not in submission: {missing}. "
+                    f"Submitted files: {sorted(submitted)}",
+                )
 
     # Validate file paths for multi-file mode
     if body.files:
