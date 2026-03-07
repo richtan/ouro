@@ -167,6 +167,7 @@ docker compose up --build
 - **NEVER** put secrets, API keys, private keys, or credentials in `CLAUDE.md`, `docs/`, or any file that is not gitignored
 - Secrets live in Doppler (production) or `.env` (local, gitignored). Reference them by variable name only (e.g., "set `OPENAI_API_KEY` in Doppler"), never by value
 - If you encounter a secret in tracked files, remove it immediately and rotate the key
+- **Before every commit**: scan all staged changes for secrets, API keys, tokens, private keys, passwords, or anything that should not be in a public repo. If anything suspicious is found, **stop and ask the user** before committing — never silently commit secrets
 
 - When adding or modifying agent code, write or update corresponding tests in `agent/tests/`
 - New features and bug fixes require tests before marking complete

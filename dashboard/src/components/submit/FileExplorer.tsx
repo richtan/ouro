@@ -464,6 +464,10 @@ export default function FileExplorer({
   const commitRename = (index: number) => {
     const trimmed = renameValue.trim().replace(/^\/+|\/+$/g, ""); // strip leading/trailing slashes
     if (!trimmed) {
+      // If the file was never named, remove it (same as cancel)
+      if (!files[index].path) {
+        removeFile(index);
+      }
       setRenamingIndex(null);
       return;
     }
@@ -715,9 +719,40 @@ export default function FileExplorer({
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <span className="text-xs font-mono text-o-muted italic">
-                        untitled
-                      </span>
+                      <>
+                        <span
+                          className="flex-1 min-w-0 text-xs font-mono text-o-muted italic"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startRename(i);
+                          }}
+                        >
+                          untitled
+                        </span>
+                        {/* Hover actions */}
+                        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); startRename(i); }}
+                            className="text-o-muted hover:text-o-blueText p-0.5"
+                            title="Rename"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          {files.length > 1 && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                              className="text-o-muted hover:text-o-red p-0.5"
+                              title="Delete"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
                 ),
