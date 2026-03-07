@@ -16,7 +16,7 @@ interface PrebuiltEnv {
 
 const PREBUILT_ENVS: PrebuiltEnv[] = [
   {
-    id: "python312",
+    id: "ouro-python",
     label: "Python 3.12",
     description: "General purpose scripting",
     starterFile: "main.py",
@@ -24,7 +24,7 @@ const PREBUILT_ENVS: PrebuiltEnv[] = [
     entrypoint: '["python", "main.py"]',
   },
   {
-    id: "node20",
+    id: "ouro-nodejs",
     label: "Node.js 20",
     description: "JavaScript runtime",
     starterFile: "index.js",
@@ -32,25 +32,9 @@ const PREBUILT_ENVS: PrebuiltEnv[] = [
     entrypoint: '["node", "index.js"]',
   },
   {
-    id: "pytorch",
-    label: "PyTorch",
-    description: "ML & deep learning",
-    starterFile: "train.py",
-    starterContent: '#!/usr/bin/env python3\nimport torch\nprint(f"PyTorch {torch.__version__}")\nprint(f"CUDA available: {torch.cuda.is_available()}")\n',
-    entrypoint: '["python", "train.py"]',
-  },
-  {
-    id: "r-base",
-    label: "R",
-    description: "Statistical computing",
-    starterFile: "main.R",
-    starterContent: '# Your R code here\ncat("Hello from Ouro!\\n")\nprint(sessionInfo())\n',
-    entrypoint: '["Rscript", "main.R"]',
-  },
-  {
-    id: "base",
-    label: "Base",
-    description: "Ubuntu shell environment",
+    id: "ouro-ubuntu",
+    label: "Ubuntu",
+    description: "Shell environment",
     starterFile: "job.sh",
     starterContent: '#!/bin/bash\necho "Hello from Ouro HPC cluster!"\nhostname && uptime\n',
     entrypoint: '["bash", "job.sh"]',

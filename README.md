@@ -57,7 +57,7 @@ curl -X POST https://api.ourocompute.com/api/compute/submit \
   -H "Content-Type: application/json" \
   -d '{
     "files": [
-      {"path": "Dockerfile", "content": "FROM python312\nRUN pip install requests\nENTRYPOINT [\"python\", \"main.py\"]"},
+      {"path": "Dockerfile", "content": "FROM ouro-python\nRUN pip install requests\nENTRYPOINT [\"python\", \"main.py\"]"},
       {"path": "main.py", "content": "import requests\nprint(requests.get(\"https://httpbin.org/ip\").json())"}
     ],
     "nodes": 1, "time_limit_min": 1

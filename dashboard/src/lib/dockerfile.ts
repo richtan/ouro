@@ -13,11 +13,9 @@ export interface DockerfileInfo {
 }
 
 const PREBUILT_ALIASES = new Set([
-  "base",
-  "python312",
-  "node20",
-  "pytorch",
-  "r-base",
+  "ouro-ubuntu",
+  "ouro-python",
+  "ouro-nodejs",
 ]);
 
 export function parseDockerfile(content: string): DockerfileInfo {

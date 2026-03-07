@@ -65,7 +65,7 @@ class OuroClient:
         script: str | None = None,
         files: list[dict] | None = None,
         entrypoint: str | None = None,
-        image: str = "base",
+        image: str = "ouro-ubuntu",
         cpus: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,
@@ -86,7 +86,7 @@ class OuroClient:
         elif files:
             body["files"] = files
             body["entrypoint"] = entrypoint
-        if image and image != "base":
+        if image and image != "ouro-ubuntu":
             body["image"] = image
         if submitter_address:
             body["submitter_address"] = submitter_address
@@ -141,7 +141,7 @@ class OuroClient:
         script: str | None = None,
         files: list[dict] | None = None,
         entrypoint: str | None = None,
-        image: str = "base",
+        image: str = "ouro-ubuntu",
         cpus: int = 1,
         time_limit_min: int = 1,
         submitter_address: str | None = None,

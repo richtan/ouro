@@ -39,11 +39,9 @@ SCRIPTS_DIR = "/ouro-jobs/scripts"
 WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
 
 DOCKER_IMAGES = {
-    "base":      "ubuntu:22.04",
-    "python312": "python:3.12-slim",
-    "node20":    "node:20-slim",
-    "pytorch":   "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime",
-    "r-base":    "r-base:4.3.2",
+    "ouro-ubuntu": "ubuntu:22.04",
+    "ouro-python": "python:3.12-slim",
+    "ouro-nodejs": "node:20-slim",
 }
 
 
@@ -80,8 +78,8 @@ def parse_time_limit(tl) -> str:
 
 def resolve_docker_image(name: str | None) -> str:
     """Map image alias to Docker Hub reference."""
-    if not name or name == "base":
-        return DOCKER_IMAGES["base"]
+    if not name or name == "ouro-ubuntu":
+        return DOCKER_IMAGES["ouro-ubuntu"]
     image = DOCKER_IMAGES.get(name)
     if not image:
         raise HTTPException(400, f"Unknown image: {name}. Allowed: {', '.join(sorted(DOCKER_IMAGES))}")

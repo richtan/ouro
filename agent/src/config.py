@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     CDP_API_KEY_SECRET: str = ""
 
     # Container images
-    ALLOWED_IMAGES: str = "base,python312,node20,pytorch,r-base"
+    ALLOWED_IMAGES: str = "ouro-ubuntu,ouro-python,ouro-nodejs"
 
     @property
     def allowed_images_set(self) -> set[str]:

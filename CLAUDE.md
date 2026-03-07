@@ -69,7 +69,7 @@ Full annotated tree: `docs/architecture.md`
 - **PydanticAI** — Typed LLM agent; deterministic fast path in production, LLM fallback for error recovery
 - **Slurm** — HPC workload manager via custom REST proxy (`deploy/slurm/slurm_proxy.py`)
 - **Docker** — Container isolation on Slurm workers; hardened `docker run` with `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, etc. Workers use `userns-remap: "default"` and iptables blocking the metadata server
-- **Prebuilt images** — `base` (ubuntu:22.04), `python312`, `node20`, `pytorch`, `r-base` mapped to Docker Hub images; custom images built on-worker inside the Slurm job script. `needs_docker_build` distinguishes images needing `docker build` from those needing only `docker pull`
+- **Prebuilt images** — `ouro-ubuntu` (ubuntu:22.04), `ouro-python` (python:3.12-slim), `ouro-nodejs` (node:20-slim) mapped to Docker Hub images; custom images built on-worker inside the Slurm job script. `needs_docker_build` distinguishes images needing `docker build` from those needing only `docker pull`
 
 ## Reference Docs
 

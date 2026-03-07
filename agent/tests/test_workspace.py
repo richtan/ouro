@@ -56,8 +56,8 @@ def test_reject_deep_path():
 
 
 def test_valid_image():
-    _validate_image("base")
-    _validate_image("python312")
+    _validate_image("ouro-ubuntu")
+    _validate_image("ouro-python")
     _validate_image(None)
 
 
@@ -113,8 +113,8 @@ def test_max_files_exceeded():
 
 
 def test_image_field():
-    req = ComputeSubmitRequest(script="echo hello", image="python312")
-    assert req.image == "python312"
+    req = ComputeSubmitRequest(script="echo hello", image="ouro-python")
+    assert req.image == "ouro-python"
 
 
 # --- CreateSessionRequest ---
@@ -148,11 +148,11 @@ def test_job_summary_multi_file():
     result = _job_summary({
         "entrypoint": "main.py",
         "file_count": 3,
-        "image": "python312",
+        "image": "ouro-python",
     })
     assert result["entrypoint"] == "main.py"
     assert result["file_count"] == 3
-    assert result["image"] == "python312"
+    assert result["image"] == "ouro-python"
 
 
 def test_job_summary_none():
@@ -168,17 +168,17 @@ def test_job_summary_legacy():
 
 def test_job_summary_new_format():
     """New unified payloads have entrypoint + file_count."""
-    result = _job_summary({"entrypoint": "job.sh", "file_count": 1, "image": "base"})
+    result = _job_summary({"entrypoint": "job.sh", "file_count": 1, "image": "ouro-ubuntu"})
     assert result["entrypoint"] == "job.sh"
     assert result["file_count"] == 1
-    assert "image" not in result  # base is excluded
+    assert "image" not in result  # ouro-ubuntu is excluded
 
 
 def test_job_summary_script_with_image():
     """Non-default image is included."""
-    result = _job_summary({"script": "echo hi", "image": "python312"})
-    assert result["image"] == "python312"
+    result = _job_summary({"script": "echo hi", "image": "ouro-python"})
+    assert result["image"] == "ouro-python"
 
     # Default image should not appear
-    result2 = _job_summary({"script": "echo hi", "image": "base"})
+    result2 = _job_summary({"script": "echo hi", "image": "ouro-ubuntu"})
     assert "image" not in result2

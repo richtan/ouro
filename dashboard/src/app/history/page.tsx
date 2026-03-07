@@ -49,6 +49,10 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
 };
 
 const IMAGE_LABELS: Record<string, string> = {
+  "ouro-ubuntu": "Ubuntu 22.04",
+  "ouro-python": "Python 3.12",
+  "ouro-nodejs": "Node.js 20",
+  // Legacy aliases for historical jobs
   base: "Ubuntu 22.04",
   python312: "Python 3.12",
   node20: "Node.js 20",

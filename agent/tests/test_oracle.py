@@ -25,7 +25,7 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
             job_id="test-job-1",
             workspace_path="/ouro-jobs/workspaces/test",
             entrypoint="job.sh",
-            image="base",
+            image="ouro-ubuntu",
             partition="default",
             cpus=1,
             time_limit_min=1,
@@ -232,7 +232,7 @@ async def test_validate_with_dockerfile_no_entrypoint(make_deps):
 async def test_resolve_image_prebuilt(make_deps):
     """Prebuilt alias with no RUN → use Docker image directly, no build needed."""
     deps = make_deps(
-        dockerfile_content='FROM base\nENTRYPOINT ["bash", "job.sh"]',
+        dockerfile_content='FROM ouro-ubuntu\nENTRYPOINT ["bash", "job.sh"]',
     )
     await resolve_image_if_needed(deps)
     assert deps.docker_image == "ubuntu:22.04"
@@ -243,7 +243,7 @@ async def test_resolve_image_prebuilt(make_deps):
 async def test_resolve_image_needs_build(make_deps):
     """Prebuilt alias with RUN → docker_image is None, dockerfile_content preserved."""
     deps = make_deps(
-        dockerfile_content='FROM python312\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]',
+        dockerfile_content='FROM ouro-python\nRUN pip install pandas\nENTRYPOINT ["python", "main.py"]',
     )
     await resolve_image_if_needed(deps)
     assert deps.docker_image is None  # worker will docker build
@@ -275,7 +275,7 @@ async def test_fast_path_with_dockerfile_prebuilt(make_deps, mock_slurm_client, 
     """Full fast path with prebuilt Dockerfile — no build, uses docker_image."""
     deps = make_deps(
         entrypoint="",
-        dockerfile_content='FROM base\nENTRYPOINT ["bash", "job.sh"]',
+        dockerfile_content='FROM ouro-ubuntu\nENTRYPOINT ["bash", "job.sh"]',
     )
     result = await process_job_fast(deps)
     assert result.status == "completed"

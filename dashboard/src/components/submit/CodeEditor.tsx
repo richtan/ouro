@@ -6,11 +6,9 @@ import { useCallback } from "react";
 // --- Language detection maps ---
 
 export const IMAGE_LANGUAGE: Record<string, string> = {
-  base: "shell",
-  python312: "python",
-  node20: "javascript",
-  pytorch: "python",
-  "r-base": "r",
+  "ouro-ubuntu": "shell",
+  "ouro-python": "python",
+  "ouro-nodejs": "javascript",
 };
 
 export const EXT_LANGUAGE: Record<string, string> = {

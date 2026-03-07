@@ -276,7 +276,7 @@ done
 echo ""
 echo "[Phase 9] Pre-pulling Docker images on workers..."
 
-DOCKER_IMAGES=("ubuntu:22.04" "python:3.12-slim" "node:20-slim" "r-base:4.3.2")
+DOCKER_IMAGES=("ubuntu:22.04" "python:3.12-slim" "node:20-slim")
 for w in "${WORKERS[@]}"; do
     for img in "${DOCKER_IMAGES[@]}"; do
         ssh_cmd "$w" "sudo docker pull -q $img" || echo "  WARNING: Failed to pull $img on $w"

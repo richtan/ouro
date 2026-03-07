@@ -56,7 +56,7 @@ class SimpleNet(nn.Module):
 """},
         ],
         entrypoint="train.py",
-        image="pytorch",
+        image="ouro-python",
         cpus=1,
         time_limit_min=5,
     )
@@ -134,7 +134,7 @@ export default function SdkPage() {
         <div className="mt-4">
           <p className="text-xs text-o-textSecondary">
             Available images:{" "}
-            {["base", "python312", "node20", "pytorch", "r-base"].map((img) => (
+            {["ouro-ubuntu", "ouro-python", "ouro-nodejs"].map((img) => (
               <span
                 key={img}
                 className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text mr-1.5"
@@ -185,7 +185,7 @@ export default function SdkPage() {
                 { name: "script", type: "str | None", description: "Shell script string (mutually exclusive with files)" },
                 { name: "files", type: "list[dict] | None", description: 'List of {path, content} dicts (mutually exclusive with script)' },
                 { name: "entrypoint", type: "str | None", description: "File to execute when using files mode" },
-                { name: "image", type: "str", description: 'Container image (default: "base")' },
+                { name: "image", type: "str", description: 'Container image (default: "ouro-ubuntu")' },
                 { name: "cpus", type: "int", description: "Number of CPU cores (default: 1, max: 8)" },
                 { name: "time_limit_min", type: "int", description: "Time limit in minutes (default: 1)" },
                 { name: "submitter_address", type: "str | None", description: "Wallet address of the submitter" },

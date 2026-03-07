@@ -26,7 +26,7 @@ class OracleDeps:
     job_id: str
     workspace_path: str
     entrypoint: str
-    image: str  # default "base"
+    image: str  # default "ouro-ubuntu"
     partition: str
     cpus: int
     time_limit_min: int

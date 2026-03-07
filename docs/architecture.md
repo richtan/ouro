@@ -112,7 +112,7 @@ ouro/
 - **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
 - **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Docker container isolation.
 - **Docker** — Container isolation for user scripts on Slurm workers. Containers run with hardened flags: `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, `--memory`, `--pids-limit`, `--tmpfs /tmp`. Workers use `userns-remap: "default"` and iptables rules blocking the GCP metadata server.
-- **Dockerfile → Docker** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`) and generates Docker wrapper scripts that build and run on-worker inside the Slurm job. Prebuilt aliases (`base` → `ubuntu:22.04`, `python312`, `node20`, `pytorch`, `r-base`) map directly to Docker Hub images and are pulled on demand; custom Dockerfiles are built on-worker with `DOCKER_BUILDKIT=0`. Multi-stage builds (multiple FROM) and `RUN --mount`/`# syntax=` directives are rejected. `needs_docker_build` flag distinguishes images needing `docker build` from those needing only `docker pull`.
+- **Dockerfile → Docker** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`) and generates Docker wrapper scripts that build and run on-worker inside the Slurm job. Prebuilt aliases (`ouro-ubuntu` → `ubuntu:22.04`, `ouro-python` → `python:3.12-slim`, `ouro-nodejs` → `node:20-slim`) map directly to Docker Hub images and are pulled on demand; custom Dockerfiles are built on-worker with `DOCKER_BUILDKIT=0`. Multi-stage builds (multiple FROM) and `RUN --mount`/`# syntax=` directives are rejected. `needs_docker_build` flag distinguishes images needing `docker build` from those needing only `docker pull`.
 
 ## Data Flow
 
@@ -138,7 +138,7 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 - `EXPOSE` stores port metadata as a label (no runtime effect — containers run with `--network none`)
 - `USER`, `VOLUME`, `HEALTHCHECK`, `STOPSIGNAL`, `ONBUILD` are rejected with clear error messages
 - Build time is included in the Slurm job's `time_limit_min` since Docker builds happen on-worker inside the job script. `DOCKER_BUILDKIT=0` is enforced; multi-stage builds and `RUN --mount`/`# syntax=` are rejected
-- Prebuilt aliases: `base` (Ubuntu 22.04), `python312`, `node20`, `pytorch`, `r-base`
+- Prebuilt aliases: `ouro-ubuntu` (Ubuntu 22.04), `ouro-python` (Python 3.12), `ouro-nodejs` (Node.js 20)
 - Without a Dockerfile, use `entrypoint` and `image` fields directly (backward compat for MCP/SDK)
 
 ### Job Submission (via Dashboard)

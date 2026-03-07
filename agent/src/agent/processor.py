@@ -233,7 +233,7 @@ async def _process_one_job(
                 job_id=str(job.id),
                 workspace_path=workspace_path or "",
                 entrypoint=entrypoint or "",
-                image=payload.get("image", "base"),
+                image=payload.get("image", "ouro-ubuntu"),
                 partition=payload.get("partition", "default"),
                 cpus=payload.get("cpus", 1),
                 time_limit_min=payload.get("time_limit_min", 1),

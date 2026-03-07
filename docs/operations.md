@@ -26,7 +26,7 @@ WALLET_PRIVATE_KEY, WALLET_ADDRESS
 PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
-ALLOWED_IMAGES=base,python312,node20,pytorch,r-base  # Prebuilt Docker image aliases mapped to Docker Hub (e.g. base → ubuntu:22.04). Custom Dockerfiles built on-worker
+ALLOWED_IMAGES=ouro-ubuntu,ouro-python,ouro-nodejs  # Prebuilt Docker image aliases mapped to Docker Hub (e.g. ouro-ubuntu → ubuntu:22.04). Custom Dockerfiles built on-worker
 ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT

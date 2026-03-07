@@ -191,7 +191,7 @@ def _job_summary(payload: dict | None) -> dict:
     if "file_count" in payload:
         base["file_count"] = payload["file_count"]
     img = payload.get("image")
-    if img and img != "base":
+    if img and img != "ouro-ubuntu":
         base["image"] = img
     return base
 
@@ -521,7 +521,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     job_payload: dict = {
         "cpus": cpus,
         "time_limit_min": time_limit_min,
-        "image": body.image or "base",
+        "image": body.image or "ouro-ubuntu",
         "entrypoint": entrypoint,
         "file_count": len(files_data),
         "workspace_path": workspace_path,

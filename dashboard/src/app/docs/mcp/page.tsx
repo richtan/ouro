@@ -11,7 +11,7 @@ const TOOLS = [
       { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
       { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
       { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
-      { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
+      { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
       { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
     ],
@@ -79,7 +79,7 @@ const TOOLS = [
       { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
       { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
       { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
-      { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
+      { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
       { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
@@ -124,13 +124,11 @@ const TOOLS = [
     params: [],
     response: `{
   "images": [
-    { "id": "base", "description": "Ubuntu 22.04 base image" },
-    { "id": "python312", "description": "Python 3.12 with pip" },
-    { "id": "node20", "description": "Node.js 20 LTS" },
-    { "id": "pytorch", "description": "PyTorch with CUDA support" },
-    { "id": "r-base", "description": "R statistical computing" }
+    { "id": "ouro-ubuntu", "description": "Ubuntu 22.04 base image" },
+    { "id": "ouro-python", "description": "Python 3.12 with pip" },
+    { "id": "ouro-nodejs", "description": "Node.js 20 LTS" }
   ],
-  "default": "base"
+  "default": "ouro-ubuntu"
 }`,
   },
   {

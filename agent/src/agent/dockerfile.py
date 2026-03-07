@@ -26,11 +26,9 @@ _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _COPY_SRC_RE = re.compile(r"^[a-zA-Z0-9._/\- ]+$")
 
 DOCKER_IMAGES: dict[str, str] = {
-    "base": "ubuntu:22.04",
-    "python312": "python:3.12-slim",
-    "node20": "node:20-slim",
-    "pytorch": "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime",
-    "r-base": "r-base:4.3.2",
+    "ouro-ubuntu": "ubuntu:22.04",
+    "ouro-python": "python:3.12-slim",
+    "ouro-nodejs": "node:20-slim",
 }
 PREBUILT_ALIASES = DOCKER_IMAGES  # backward compat — parse_dockerfile checks membership
 
@@ -49,7 +47,7 @@ _HANDLED = {"FROM", "RUN", "ENV", "WORKDIR", "ENTRYPOINT", "CMD", "COPY", "ADD",
 
 @dataclass
 class DockerfileParsed:
-    from_image: str  # "python312" or "python:3.12-slim"
+    from_image: str  # "ouro-python" or "python:3.12-slim"
     run_commands: list[str] = field(default_factory=list)
     env_vars: dict[str, str] = field(default_factory=dict)
     workdir: str | None = None

@@ -32,7 +32,7 @@ const CURL_MULTIFILE_CMD = `curl -X POST https://api.ourocompute.com/api/compute
       {"path": "utils.py", "content": "def greet():\\n    print(\\"hello\\")"}
     ],
     "entrypoint": "python main.py",
-    "image": "python312",
+    "image": "ouro-python",
     "cpus": 1,
     "time_limit_min": 5
   }'`;
@@ -129,7 +129,7 @@ export default function ApiPage() {
                 { name: "script", type: "string", description: "Shell script to execute (script mode)" },
                 { name: "files", type: "array", description: 'Array of {path, content} objects written to a workspace (multi-file mode)' },
                 { name: "entrypoint", type: "string", description: 'Command to run inside the workspace, e.g. "python main.py" (multi-file mode)' },
-                { name: "image", type: "string", description: "Container image: base, python312, node20, pytorch, r-base (default: base)" },
+                { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
                 { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
                 { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },

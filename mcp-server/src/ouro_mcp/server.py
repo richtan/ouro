@@ -51,14 +51,14 @@ def _build_submit_body(
     script: str | None = None,
     files: list[dict] | None = None,
     entrypoint: str | None = None,
-    image: str = "base",
+    image: str = "ouro-ubuntu",
     cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
 ) -> dict:
     """Centralizes body construction for all modes."""
     body: dict = {"cpus": cpus, "time_limit_min": time_limit_min}
-    if image and image != "base":
+    if image and image != "ouro-ubuntu":
         body["image"] = image
     if submitter_address:
         body["submitter_address"] = submitter_address
@@ -218,7 +218,7 @@ mcp = FastMCP(
         "ENVIRONMENT CONFIGURATION:\n"
         "  Include a file named 'Dockerfile' in files to configure the environment.\n"
         "  Without a Dockerfile, use 'image' and 'entrypoint' params directly.\n"
-        "  Prebuilt aliases (instant): base, python312, node20, pytorch, r-base.\n"
+        "  Prebuilt aliases (instant): ouro-ubuntu, ouro-python, ouro-nodejs.\n"
         "  Any Docker Hub image also works via Dockerfile (e.g. FROM python:3.12-slim).\n\n"
         "  Supported Dockerfile instructions:\n"
         "    FROM — select base image (required first line)\n"
@@ -275,7 +275,7 @@ async def run_compute_job(
     script: str | None = None,
     files: list[dict] | None = None,
     entrypoint: str | None = None,
-    image: str = "base",
+    image: str = "ouro-ubuntu",
     cpus: int = 1,
     time_limit_min: int = 1,
 ) -> dict:
@@ -300,7 +300,7 @@ async def run_compute_job(
         script: Shell script to execute (e.g. "echo hello" or "python3 -c 'print(42)'")
         files: List of {path, content} file dicts for multi-file workspace
         entrypoint: File to execute (required with files unless a Dockerfile is included)
-        image: Container image (default "base"). Options: base, python312, node20, pytorch, r-base
+        image: Container image (default "ouro-ubuntu"). Options: ouro-ubuntu, ouro-python, ouro-nodejs
         cpus: Number of CPU cores (default 1, max 8)
         time_limit_min: Maximum runtime in minutes (default 1)
     """
@@ -367,7 +367,7 @@ async def get_payment_requirements(
     script: str | None = None,
     files: list[dict] | None = None,
     entrypoint: str | None = None,
-    image: str = "base",
+    image: str = "ouro-ubuntu",
     cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
@@ -393,7 +393,7 @@ async def get_payment_requirements(
         script: Shell script to execute
         files: List of {path, content} file dicts for multi-file workspace
         entrypoint: File to execute (required with files unless a Dockerfile is included)
-        image: Container image (default "base")
+        image: Container image (default "ouro-ubuntu")
         cpus: Number of CPU cores (default 1, max 8)
         time_limit_min: Maximum runtime in minutes (default 1)
         submitter_address: Your wallet address (optional, for job tracking)
@@ -426,7 +426,7 @@ async def submit_and_pay(
     script: str | None = None,
     files: list[dict] | None = None,
     entrypoint: str | None = None,
-    image: str = "base",
+    image: str = "ouro-ubuntu",
     cpus: int = 1,
     time_limit_min: int = 1,
     submitter_address: str | None = None,
@@ -520,8 +520,8 @@ async def get_allowed_images() -> dict:
         images = data.get("compute", {}).get("allowed_images", [])
         return {
             "images": images,
-            "default": "base",
-            "message": f"Available images: {', '.join(images)}. Use 'base' (Ubuntu 22.04) if unsure.",
+            "default": "ouro-ubuntu",
+            "message": f"Available images: {', '.join(images)}. Use 'ouro-ubuntu' (Ubuntu 22.04) if unsure.",
         }
 
 
@@ -543,7 +543,7 @@ async def get_api_endpoint() -> dict:
             "script": "string (optional) - shell script to execute",
             "files": "array (optional) - [{path, content}] for multi-file workspace. Include a Dockerfile to configure the environment (FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL; USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD rejected).",
             "entrypoint": "string (optional) - file to execute (required with files unless Dockerfile included)",
-            "image": "string (optional) - container image (default: base, ignored if Dockerfile present)",
+            "image": "string (optional) - container image (default: ouro-ubuntu, ignored if Dockerfile present)",
             "cpus": "int (default 1, max 8) - number of CPU cores",
             "time_limit_min": "int (default 1) - max runtime in minutes",
             "submitter_address": "string (optional) - your wallet address for job tracking",
