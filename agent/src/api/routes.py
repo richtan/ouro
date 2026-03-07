@@ -11,6 +11,8 @@ import uuid
 from collections import OrderedDict
 from typing import Optional
 
+import httpx
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -22,6 +24,8 @@ import src.api.pricing as pricing_state
 from src.api.pricing import calculate_price
 from src.chain.client import BaseChainClient
 from src.chain import erc8021
+from x402.schemas.errors import SchemeNotFoundError
+
 from src.config import settings
 from src.db.models import (
     ActiveJob,
@@ -455,7 +459,27 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         pay_to=settings.WALLET_ADDRESS,
         price=quote.price_str,
     )
-    requirements = _resource_server.build_payment_requirements(config)
+    try:
+        requirements = _resource_server.build_payment_requirements(config)
+    except SchemeNotFoundError:
+        logger.error(
+            "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
+            settings.CHAIN_CAIP2,
+        )
+        raise HTTPException(
+            503,
+            f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
+            "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
+        )
+
+    # Pre-flight: ensure Slurm is reachable before settling payment
+    if _slurm_client:
+        cluster = await _slurm_client.get_cluster_info()
+        if cluster["status"] == "unreachable":
+            raise HTTPException(
+                503,
+                "Compute cluster is temporarily unreachable. Please retry shortly.",
+            )
 
     if not payment_header:
         resource_info = ResourceInfo(
@@ -536,7 +560,15 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(503, "Slurm client not available for workspace creation")
 
     files_data, entrypoint = body.to_workspace_files()
-    workspace_path = await _slurm_client.create_workspace(job_id, files_data)
+    try:
+        workspace_path = await _slurm_client.create_workspace(job_id, files_data)
+    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.TimeoutException) as e:
+        logger.error("Slurm workspace creation failed after payment: %s", e)
+        raise HTTPException(
+            503,
+            "Payment verified but compute cluster is unreachable. "
+            "Your job will be retried. Contact support if funds are not returned.",
+        )
 
     job_payload: dict = {
         "cpus": cpus,
@@ -1209,7 +1241,27 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         pay_to=settings.WALLET_ADDRESS,
         price=quote.price_str,
     )
-    requirements = _resource_server.build_payment_requirements(config)
+    try:
+        requirements = _resource_server.build_payment_requirements(config)
+    except SchemeNotFoundError:
+        logger.error(
+            "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
+            settings.CHAIN_CAIP2,
+        )
+        raise HTTPException(
+            503,
+            f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
+            "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
+        )
+
+    # Pre-flight: ensure Slurm is reachable before settling payment
+    if _slurm_client:
+        cluster = await _slurm_client.get_cluster_info()
+        if cluster["status"] == "unreachable":
+            raise HTTPException(
+                503,
+                "Compute cluster is temporarily unreachable. Please retry shortly.",
+            )
 
     if not payment_header:
         from x402.schemas import ResourceInfo
@@ -1274,7 +1326,15 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     else:
         raise HTTPException(422, "Session has no executable content")
 
-    workspace_path = await _slurm_client.create_workspace(job_id, files_list)
+    try:
+        workspace_path = await _slurm_client.create_workspace(job_id, files_list)
+    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.TimeoutException) as e:
+        logger.error("Slurm workspace creation failed after payment: %s", e)
+        raise HTTPException(
+            503,
+            "Payment verified but compute cluster is unreachable. "
+            "Your job will be retried. Contact support if funds are not returned.",
+        )
     job_params["workspace_path"] = workspace_path
     job_params["entrypoint"] = entrypoint
     job_params["file_count"] = len(files_list)

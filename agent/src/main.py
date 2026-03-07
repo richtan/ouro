@@ -95,6 +95,13 @@ def _init_x402_server():
         auth = None
         logger.info("Using x402.org facilitator (testnet)")
 
+    if not use_cdp and settings.CHAIN_CAIP2 and ":84532" not in settings.CHAIN_CAIP2:
+        logger.warning(
+            "x402 testnet facilitator selected but CHAIN_CAIP2=%s is not testnet — "
+            "set CDP_API_KEY_ID and CDP_API_KEY_SECRET for mainnet",
+            settings.CHAIN_CAIP2,
+        )
+
     facilitator = HTTPFacilitatorClient(
         FacilitatorConfig(url=url, auth_provider=auth)
     )

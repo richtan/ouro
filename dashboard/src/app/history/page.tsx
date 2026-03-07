@@ -45,6 +45,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   processing: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
+  completed_no_proof: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
@@ -93,8 +94,7 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
         {/* Row 1: ID + status + chevron */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="sm:hidden font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
-            <span className="hidden sm:inline font-mono text-sm text-o-blueText">{job.id.slice(0, 12)}</span>
+            <span className="font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
             <StatusBadge status={job.status} />
             {job.mode && <ModeBadge mode={job.mode} />}
           </div>
@@ -125,23 +125,27 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
 
       {open && (
         <div className="mt-4 pt-4 border-t border-o-border space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
+          <div className={`grid grid-cols-2 gap-3 ${hist?.gas_paid_usd != null ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
+            <div className="col-span-2 bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Job ID</div>
               <div className="font-mono text-xs text-o-text break-all">{job.id}</div>
             </div>
-            <div>
+            <div className="bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Slurm ID</div>
               <div className="font-mono text-xs text-o-text">{job.slurm_job_id ?? "—"}</div>
             </div>
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Price</div>
-              <div className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</div>
+            <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Compute Cost</div>
+              <div className="font-mono text-xs text-o-green">
+                ${(job.price_usdc ?? 0).toFixed(4)}
+              </div>
             </div>
             {hist?.gas_paid_usd != null && (
-              <div>
-                <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Gas</div>
-                <div className="font-mono text-xs text-o-textSecondary">${hist.gas_paid_usd.toFixed(4)}</div>
+              <div className="bg-o-bg rounded-lg p-3 border border-o-border">
+                <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Proof Gas</div>
+                <div className="font-mono text-xs text-o-textSecondary">
+                  ${hist.gas_paid_usd.toFixed(4)}
+                </div>
               </div>
             )}
           </div>
@@ -282,24 +286,43 @@ export default function HistoryPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-o-textSecondary">
-              {jobs.length} job{jobs.length !== 1 ? "s" : ""} for{" "}
-              <span className="md:hidden">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
-              <span className="hidden md:inline">{address}</span>
-            </span>
-            <span className="text-xs text-o-textSecondary">
-              Total: ${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-xs text-o-muted font-mono">
-            <span>{jobs.filter(j => j.status === "completed").length} completed</span>
-            {jobs.some(j => j.status === "failed") && (
-              <span className="text-o-red">{jobs.filter(j => j.status === "failed").length} failed</span>
-            )}
-            {jobs.some(j => ["pending", "processing", "running"].includes(j.status)) && (
-              <span className="text-o-amber">{jobs.filter(j => ["pending", "processing", "running"].includes(j.status)).length} active</span>
-            )}
+          <div className="pb-4 mb-1 border-b border-o-border">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="font-display text-base font-semibold text-o-text">
+                    {jobs.length} <span className="text-sm font-normal text-o-textSecondary">job{jobs.length !== 1 ? "s" : ""}</span>
+                  </span>
+                  <span className="text-o-textSecondary">·</span>
+                  <span className="font-mono text-sm text-o-blueText truncate">
+                    <span className="md:hidden">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
+                    <span className="hidden md:inline">{address}</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-green/10 text-o-green">
+                    <span className="w-1.5 h-1.5 rounded-full bg-o-green" />
+                    {jobs.filter(j => ["completed", "completed_no_proof"].includes(j.status)).length} completed
+                  </span>
+                  {jobs.some(j => j.status === "failed") && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-red/10 text-o-red">
+                      <span className="w-1.5 h-1.5 rounded-full bg-o-red" />
+                      {jobs.filter(j => j.status === "failed").length} failed
+                    </span>
+                  )}
+                  {jobs.some(j => ["pending", "processing", "running"].includes(j.status)) && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-amber/10 text-o-amber">
+                      <span className="w-1.5 h-1.5 rounded-full bg-o-amber animate-pulse" />
+                      {jobs.filter(j => ["pending", "processing", "running"].includes(j.status)).length} active
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-xs text-o-textSecondary uppercase tracking-wider">Total Spent</div>
+                <div className="font-mono text-lg font-semibold text-o-green mt-0.5">${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}</div>
+              </div>
+            </div>
           </div>
           {jobs.map((job) => (
             <JobCard key={job.id} job={job} expandId={expandId} />
