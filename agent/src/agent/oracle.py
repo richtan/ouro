@@ -188,29 +188,34 @@ async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
     deps.event_bus.emit("chain", f"Submitting proof for job {deps.job_id} to Base")
 
     try:
-        from src.db.operations import log_attribution, log_cost
-
         result = await deps.chain_client.submit_proof(
             job_id=deps.job_id,
             output_hash=output_hash,
             client_builder_code=deps.client_builder_code,
         )
+    except Exception as e:
+        deps.event_bus.emit("chain_error", f"Proof submission failed: {e}")
+        return f"ERROR: {e}"
 
-        deps.captured_gas_cost_usd = result.gas_cost_usd
+    deps.captured_gas_cost_usd = result.gas_cost_usd
+    deps.event_bus.emit(
+        "chain",
+        f"Proof posted for job {deps.job_id}: tx={result.tx_hash} (builder codes attached)",
+    )
+
+    # Log gas cost and attribution — DB errors must not mask a successful proof
+    try:
+        from src.db.operations import log_attribution, log_cost
+
         await log_cost(deps.db, "gas", result.gas_cost_usd, {
             "tx_hash": result.tx_hash, "gas_wei": str(result.gas_cost_wei),
             "job_id": deps.job_id,
         })
         await log_attribution(deps.db, result.tx_hash, result.codes, result.gas_cost_wei)
-
-        deps.event_bus.emit(
-            "chain",
-            f"Proof posted for job {deps.job_id}: tx={result.tx_hash} (builder codes attached)",
-        )
-        return f"PROOF_POSTED: tx_hash={result.tx_hash}, output_hash={output_hash.hex()}"
     except Exception as e:
-        deps.event_bus.emit("chain_error", f"Proof submission failed: {e}")
-        return f"ERROR: {e}"
+        logger.warning("Failed to log proof cost/attribution for job %s: %s", deps.job_id, e)
+
+    return f"PROOF_POSTED: tx_hash={result.tx_hash}, output_hash={output_hash.hex()}"
 
 
 # ---------------------------------------------------------------------------
