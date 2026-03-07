@@ -281,9 +281,14 @@ for w in "${WORKERS[@]}"; do
     for img in "${DOCKER_IMAGES[@]}"; do
         ssh_cmd "$w" "sudo docker pull -q $img" || echo "  WARNING: Failed to pull $img on $w"
     done
-    # Set up daily cleanup cron
-    ssh_cmd "$w" "echo '0 4 * * * sudo docker system prune -f --filter until=24h 2>/dev/null' | sudo crontab -"
-    echo "  $w images pre-pulled"
+    # Deploy cleanup script and set up cron (every 6 hours)
+    scp_to "$SLURM_DIR/docker-cleanup.sh" "$w" "/tmp/docker-cleanup.sh"
+    ssh_cmd "$w" "
+        sudo cp /tmp/docker-cleanup.sh /opt/ouro-docker-cleanup.sh
+        sudo chmod +x /opt/ouro-docker-cleanup.sh
+        echo '0 */6 * * * /opt/ouro-docker-cleanup.sh 2>/dev/null' | sudo crontab -
+    "
+    echo "  $w images pre-pulled, cleanup cron installed"
 done
 
 # ------------------------------------------------------------------

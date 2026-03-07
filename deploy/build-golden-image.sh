@@ -78,13 +78,19 @@ gcloud compute scp "$SCRIPT_DIR/slurm/node-startup.sh" "$TEMP_VM:/tmp/node-start
   --project="$PROJECT" --zone="$ZONE"
 gcloud compute scp "$SCRIPT_DIR/slurm/node-shutdown.sh" "$TEMP_VM:/tmp/node-shutdown.sh" \
   --project="$PROJECT" --zone="$ZONE"
+gcloud compute scp "$SCRIPT_DIR/slurm/docker-cleanup.sh" "$TEMP_VM:/tmp/docker-cleanup.sh" \
+  --project="$PROJECT" --zone="$ZONE"
 
 gcloud compute ssh "$TEMP_VM" --project="$PROJECT" --zone="$ZONE" --command="
   sudo cp /tmp/slurm.conf /etc/slurm/slurm.conf
   sudo cp /tmp/cgroup.conf /etc/slurm/cgroup.conf
   sudo cp /tmp/node-startup.sh /opt/ouro-node-startup.sh
   sudo cp /tmp/node-shutdown.sh /opt/ouro-node-shutdown.sh
-  sudo chmod +x /opt/ouro-node-startup.sh /opt/ouro-node-shutdown.sh
+  sudo cp /tmp/docker-cleanup.sh /opt/ouro-docker-cleanup.sh
+  sudo chmod +x /opt/ouro-node-startup.sh /opt/ouro-node-shutdown.sh /opt/ouro-docker-cleanup.sh
+
+  # Docker cleanup cron (every 6 hours)
+  echo '0 */6 * * * /opt/ouro-docker-cleanup.sh 2>/dev/null' | sudo crontab -
 
   # Systemd service to run startup script on boot
   sudo tee /etc/systemd/system/ouro-node-init.service > /dev/null <<'UNIT'
