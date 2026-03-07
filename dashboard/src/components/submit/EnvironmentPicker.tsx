@@ -54,37 +54,12 @@ function filesForEnv(env: PrebuiltEnv): WorkspaceFile[] {
   ];
 }
 
-function inferStarterFromImage(image: string): { file: string; entrypoint: string } {
-  const lower = image.toLowerCase();
-  if (lower.includes("python") || lower.includes("pytorch") || lower.includes("tensorflow") || lower.includes("jupyter")) {
-    return { file: "main.py", entrypoint: '["python", "main.py"]' };
-  }
-  if (lower.includes("node")) {
-    return { file: "index.js", entrypoint: '["node", "index.js"]' };
-  }
-  if (lower.includes("golang") || lower.includes("go")) {
-    return { file: "main.go", entrypoint: '["go", "run", "main.go"]' };
-  }
-  if (lower.includes("rust")) {
-    return { file: "main.rs", entrypoint: '["rustc", "main.rs", "-o", "main"]' };
-  }
-  if (lower.includes("ruby")) {
-    return { file: "main.rb", entrypoint: '["ruby", "main.rb"]' };
-  }
-  if (lower.includes("openjdk") || lower.includes("java")) {
-    return { file: "Main.java", entrypoint: '["java", "Main.java"]' };
-  }
-  if (lower.includes("r-base") || lower === "r") {
-    return { file: "main.R", entrypoint: '["Rscript", "main.R"]' };
-  }
-  return { file: "job.sh", entrypoint: '["bash", "job.sh"]' };
-}
-
 function filesForCustomImage(image: string): WorkspaceFile[] {
-  const { file, entrypoint } = inferStarterFromImage(image);
   return [
-    { path: "Dockerfile", content: `FROM ${image}\nENTRYPOINT ${entrypoint}` },
-    { path: file, content: `# Your code here\n` },
+    {
+      path: "Dockerfile",
+      content: `FROM ${image}\n# Add ENTRYPOINT or CMD to specify how to run your code\n# Example: ENTRYPOINT ["python", "main.py"]`,
+    },
   ];
 }
 

@@ -1,43 +1,50 @@
 "use client";
 
-import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
+import Editor, { type Monaco, type BeforeMount, type OnMount } from "@monaco-editor/react";
 import { useCallback } from "react";
 
 // --- Language detection maps ---
 
-export const IMAGE_LANGUAGE: Record<string, string> = {
+const IMAGE_LANGUAGE: Record<string, string> = {
   "ouro-ubuntu": "shell",
   "ouro-python": "python",
   "ouro-nodejs": "javascript",
 };
 
-export const EXT_LANGUAGE: Record<string, string> = {
-  ".sh": "shell",
-  ".bash": "shell",
-  ".py": "python",
-  ".js": "javascript",
-  ".mjs": "javascript",
-  ".ts": "typescript",
-  ".r": "r",
-  ".R": "r",
-  ".jl": "julia",
-  ".json": "json",
-  ".yaml": "yaml",
-  ".yml": "yaml",
-  ".toml": "ini",
-  ".md": "markdown",
-  ".txt": "plaintext",
-  ".csv": "plaintext",
-  ".tsv": "plaintext",
-};
+// Module-level caches, populated once in handleBeforeMount
+let extToLang: Map<string, string> | null = null;
+let nameToLang: Map<string, string> | null = null;
+
+function buildLanguageMaps(monaco: Monaco): void {
+  if (extToLang) return;
+  extToLang = new Map();
+  nameToLang = new Map();
+  for (const lang of monaco.languages.getLanguages()) {
+    for (const ext of lang.extensions ?? []) {
+      if (!extToLang.has(ext)) extToLang.set(ext, lang.id);
+    }
+    for (const name of lang.filenames ?? []) {
+      nameToLang.set(name.toLowerCase(), lang.id);
+    }
+  }
+}
 
 export function getLanguageForFile(filePath: string, fallbackImage: string): string {
-  // Check exact filename first (e.g. Dockerfile)
   const fileName = filePath.split("/").pop() ?? "";
-  if (fileName.toLowerCase() === "dockerfile") return "dockerfile";
-
-  const ext = filePath.includes(".") ? "." + filePath.split(".").pop()! : "";
-  return EXT_LANGUAGE[ext] ?? IMAGE_LANGUAGE[fallbackImage] ?? "plaintext";
+  // 1. Exact filename match (Dockerfile, Makefile, etc.)
+  if (nameToLang) {
+    const byName = nameToLang.get(fileName.toLowerCase());
+    if (byName) return byName;
+  }
+  // 2. Extension match
+  const dotIdx = fileName.lastIndexOf(".");
+  if (dotIdx >= 0 && extToLang) {
+    const ext = fileName.slice(dotIdx).toLowerCase();
+    const byExt = extToLang.get(ext);
+    if (byExt) return byExt;
+  }
+  // 3. Fallback by prebuilt image
+  return IMAGE_LANGUAGE[fallbackImage] ?? "plaintext";
 }
 
 // --- Ouro dark theme (matches Shiki CSS variables in globals.css) ---
@@ -45,6 +52,7 @@ export function getLanguageForFile(filePath: string, fallbackImage: string): str
 const OURO_THEME_NAME = "ouro-dark";
 
 const handleBeforeMount: BeforeMount = (monaco) => {
+  buildLanguageMaps(monaco);
   monaco.editor.defineTheme(OURO_THEME_NAME, {
     base: "vs-dark",
     inherit: false,

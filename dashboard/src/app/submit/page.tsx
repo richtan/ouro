@@ -188,6 +188,24 @@ export default function SubmitPage() {
     }
   };
 
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (!files.length) {
+      errors.push("No files");
+      return errors;
+    }
+    const emptyFiles = files.filter((f) => !f.path.trim() || !f.content.trim());
+    if (emptyFiles.length) {
+      errors.push("Some files are empty or unnamed");
+    }
+    if (dockerfileInfo) {
+      errors.push(...dockerfileInfo.errors);
+    } else {
+      errors.push("Missing Dockerfile");
+    }
+    return errors;
+  }, [files, dockerfileInfo]);
+
   const canSubmit =
     status !== "submitting" &&
     status !== "paying" &&
@@ -224,8 +242,8 @@ export default function SubmitPage() {
                 <StepperPill value={cpus} onChange={setCpus} min={1} max={8} />
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-o-textSecondary">Time Limit</span>
-                <StepperPill value={timeLimit} onChange={setTimeLimit} min={1} max={60} suffix="m" />
+                <span className="text-sm text-o-textSecondary">Time Limit (min)</span>
+                <StepperPill value={timeLimit} onChange={setTimeLimit} min={1} max={60} />
               </div>
             </div>
 
@@ -300,6 +318,7 @@ export default function SubmitPage() {
           status={status}
           onSubmit={handleSubmit}
           error={status === "error" ? error : null}
+          validationErrors={validationErrors}
         />
       )}
     </main>

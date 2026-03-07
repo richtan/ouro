@@ -182,6 +182,8 @@ interface TreeItemProps {
   onSelectFile: (fileIndex: number) => void;
   onRemoveFile: (fileIndex: number) => void;
   onStartRename: (fileIndex: number) => void;
+  onAddFileInFolder: (folderPath: string) => void;
+  onRemoveFolder: (folderPath: string) => void;
   renamingIndex: number | null;
   renameValue: string;
   onRenameChange: (val: string) => void;
@@ -200,6 +202,8 @@ function TreeItem({
   onSelectFile,
   onRemoveFile,
   onStartRename,
+  onAddFileInFolder,
+  onRemoveFolder,
   renamingIndex,
   renameValue,
   onRenameChange,
@@ -214,13 +218,35 @@ function TreeItem({
     return (
       <>
         <button
-          className="flex items-center gap-1 w-full px-1 py-[3px] text-xs text-o-textSecondary hover:bg-o-bg/50 hover:text-o-text transition-colors"
-          style={{ paddingLeft: `${depth * 16 + 4}px` }}
+          className="group flex items-center gap-1 w-full px-1 py-[3px] text-xs text-o-textSecondary hover:bg-o-bg/50 hover:text-o-text transition-colors"
+          style={{ paddingLeft: `${depth * 16 + 4}px`, paddingRight: "4px" }}
           onClick={() => onToggleFolder(node.path)}
         >
           <ChevronIcon open={isOpen} />
           <FolderIcon open={isOpen} />
           <span className="truncate font-mono">{node.name}</span>
+          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); onAddFileInFolder(node.path); }}
+              className="text-o-muted hover:text-o-blueText p-0.5"
+              title="New file"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); onRemoveFolder(node.path); }}
+              className="text-o-muted hover:text-o-red p-0.5"
+              title="Delete folder"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+              </svg>
+            </span>
+          </div>
         </button>
         {isOpen &&
           node.children.map((child) => (
@@ -234,6 +260,8 @@ function TreeItem({
               onSelectFile={onSelectFile}
               onRemoveFile={onRemoveFile}
               onStartRename={onStartRename}
+              onAddFileInFolder={onAddFileInFolder}
+              onRemoveFolder={onRemoveFolder}
               renamingIndex={renamingIndex}
               renameValue={renameValue}
               onRenameChange={onRenameChange}
@@ -299,17 +327,30 @@ function TreeItem({
         </span>
       )}
 
-      {/* Hide remove button for Dockerfile when there are other files */}
-      {fileCount > 1 && !isRenaming && !isDockerfile && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemoveFile(idx);
-          }}
-          className="opacity-0 group-hover:opacity-100 text-o-muted hover:text-o-red text-xs flex-shrink-0 transition-opacity"
-        >
-          ×
-        </button>
+      {/* Hover actions */}
+      {!isRenaming && !isDockerfile && (
+        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => { e.stopPropagation(); onStartRename(idx); }}
+            className="text-o-muted hover:text-o-blueText p-0.5"
+            title="Rename"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {fileCount > 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRemoveFile(idx); }}
+              className="text-o-muted hover:text-o-red p-0.5"
+              title="Delete"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -484,6 +525,29 @@ export default function FileExplorer({
     }
   };
 
+  /* ── folder actions ── */
+
+  const addFileInFolder = (folderPath: string) => {
+    const newFiles = [...files, { path: "", content: "" }];
+    onFilesChange(newFiles);
+    const newIndex = newFiles.length - 1;
+    setActiveIndex(newIndex);
+    setOpenTabs((prev) => [...prev, newIndex]);
+    setRenamingIndex(newIndex);
+    setRenameValue(folderPath + "/");
+    setDuplicateError(false);
+    setExpandedFolders((prev) => new Set([...prev, folderPath]));
+  };
+
+  const removeFolder = (folderPath: string) => {
+    const prefix = folderPath + "/";
+    const updated = files.filter((f) => !f.path.startsWith(prefix));
+    if (updated.length === files.length) return;
+    onFilesChange(updated);
+    setActiveIndex(0);
+    setOpenTabs([0]);
+  };
+
   /* ── upload ── */
 
   const handleUpload = useCallback(
@@ -572,8 +636,20 @@ export default function FileExplorer({
       <div className="flex">
         {/* Desktop: tree sidebar */}
         <div className="hidden md:flex flex-col w-[200px] border-r border-o-border flex-shrink-0">
-          <div className="px-3 py-2 text-[10px] text-o-muted uppercase tracking-widest font-semibold">
-            Explorer
+          <div className="px-3 py-2 flex items-center justify-between">
+            <span className="text-[10px] text-o-muted uppercase tracking-widest font-semibold">Explorer</span>
+            <div className="flex items-center gap-1">
+              <button onClick={addFile} className="text-o-muted hover:text-o-blueText transition-colors p-0.5" title="New File">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button onClick={() => fileInputRef.current?.click()} className="text-o-muted hover:text-o-blueText transition-colors p-0.5" title="Upload">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M8 10V3M5 5l3-3 3 3M3 13h10" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto select-none">
             {tree.map((node) => (
@@ -587,6 +663,8 @@ export default function FileExplorer({
                 onSelectFile={selectFile}
                 onRemoveFile={removeFile}
                 onStartRename={startRename}
+                onAddFileInFolder={addFileInFolder}
+                onRemoveFolder={removeFolder}
                 renamingIndex={renamingIndex}
                 renameValue={renameValue}
                 onRenameChange={(val) => {
@@ -650,60 +728,49 @@ export default function FileExplorer({
               Duplicate filename
             </div>
           )}
-          <div className="border-t border-o-border p-2 flex flex-col gap-0.5">
-            <button
-              onClick={addFile}
-              className="w-full px-2 py-1.5 text-xs text-o-textSecondary hover:text-o-blueText transition-colors text-left"
-            >
-              + New File
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full px-2 py-1.5 text-xs text-o-textSecondary hover:text-o-blueText transition-colors text-left"
-            >
-              ↑ Upload
-            </button>
-          </div>
         </div>
 
         {/* Editor area */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Tab bar (desktop) */}
-          <div className="hidden md:flex items-center border-b border-o-border overflow-x-auto">
-            {openTabs.map((tabIdx) => {
-              const file = files[tabIdx];
-              if (!file) return null;
-              const isActive = tabIdx === activeIndex;
-              return (
-                <div
-                  key={tabIdx}
-                  className={`group flex items-center gap-1.5 px-3 py-2 text-xs font-mono cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
-                    isActive
-                      ? "border-o-blueText text-o-text bg-o-bg/50"
-                      : "border-transparent text-o-muted hover:text-o-textSecondary hover:bg-o-bg/30"
-                  }`}
-                  onClick={() => setActiveIndex(tabIdx)}
-                >
-                  <FileIcon name={fileName(file.path)} />
-                  <span>{fileName(file.path)}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tabIdx);
-                    }}
-                    className={`ml-1 text-o-muted hover:text-o-red transition-opacity ${
+          <div className="hidden md:flex items-center border-b border-o-border">
+            {/* Scrollable tabs */}
+            <div className="flex-1 min-w-0 flex items-center overflow-x-auto">
+              {openTabs.map((tabIdx) => {
+                const file = files[tabIdx];
+                if (!file) return null;
+                const isActive = tabIdx === activeIndex;
+                return (
+                  <div
+                    key={tabIdx}
+                    className={`group flex items-center gap-1.5 px-3 py-2 text-xs font-mono cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
                       isActive
-                        ? "opacity-60 hover:opacity-100"
-                        : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        ? "border-o-blueText text-o-text bg-o-bg/50"
+                        : "border-transparent text-o-muted hover:text-o-textSecondary hover:bg-o-bg/30"
                     }`}
+                    onClick={() => setActiveIndex(tabIdx)}
                   >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
-            {/* Language indicator */}
-            <div className="ml-auto px-3 py-2 text-xs text-o-muted font-mono flex-shrink-0">
+                    <FileIcon name={fileName(file.path)} />
+                    <span>{fileName(file.path)}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(tabIdx);
+                      }}
+                      className={`ml-1 text-o-muted hover:text-o-red transition-opacity ${
+                        isActive
+                          ? "opacity-60 hover:opacity-100"
+                          : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                      }`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Pinned language indicator */}
+            <div className="px-3 py-2 text-xs text-o-muted font-mono flex-shrink-0 border-l border-o-border">
               {language}
             </div>
           </div>

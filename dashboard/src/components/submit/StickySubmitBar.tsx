@@ -16,6 +16,7 @@ interface StickySubmitBarProps {
   status: JobStatus;
   onSubmit: () => void;
   error: string | null;
+  validationErrors: string[];
 }
 
 export default function StickySubmitBar({
@@ -30,6 +31,7 @@ export default function StickySubmitBar({
   status,
   onSubmit,
   error,
+  validationErrors,
 }: StickySubmitBarProps) {
   const isSubmitting = status === "submitting" || status === "paying";
 
@@ -42,6 +44,18 @@ export default function StickySubmitBar({
             <div className="w-2 h-2 rounded-full bg-o-red flex-shrink-0" />
             <span className="text-xs text-o-red truncate">
               Submission Failed: {error}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Validation hints — shown when submit is disabled */}
+      {!canSubmit && !error && validationErrors.length > 0 && (
+        <div className="max-w-4xl mx-auto px-4 md:px-8 lg:px-12 py-2 border-b border-o-amber/20">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-o-amber flex-shrink-0" />
+            <span className="text-xs text-o-amber truncate">
+              {validationErrors[0]}
             </span>
           </div>
         </div>
