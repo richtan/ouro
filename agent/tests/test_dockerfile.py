@@ -106,12 +106,25 @@ class TestParseEntrypoint:
         with pytest.raises(ValueError, match="ENTRYPOINT or CMD"):
             parse_dockerfile("FROM base")
 
-    def test_no_entrypoint_no_cmd_not_required(self):
-        """When require_entrypoint=False, missing ENTRYPOINT/CMD returns empty list."""
-        parsed = parse_dockerfile("FROM python:3.12-slim\nRUN pip install cowsay\nWORKDIR /workspace", require_entrypoint=False)
-        assert parsed.from_image == "python:3.12-slim"
+    def test_no_entrypoint_no_cmd_not_required_prebuilt(self):
+        """When require_entrypoint=False on a prebuilt image, missing ENTRYPOINT/CMD returns empty list."""
+        parsed = parse_dockerfile("FROM python312\nRUN pip install cowsay\nWORKDIR /workspace", require_entrypoint=False)
+        assert parsed.from_image == "python312"
         assert parsed.entrypoint_cmd == []
         assert parsed.needs_build
+        assert not parsed.is_external_image
+
+    def test_no_entrypoint_external_image_raises(self):
+        """External images without ENTRYPOINT/CMD raise even with require_entrypoint=False."""
+        with pytest.raises(ValueError, match="External image.*requires ENTRYPOINT or CMD"):
+            parse_dockerfile("FROM ruby:latest", require_entrypoint=False)
+
+    def test_external_image_with_entrypoint_succeeds(self):
+        """External images with ENTRYPOINT succeed with require_entrypoint=False."""
+        parsed = parse_dockerfile('FROM ruby:latest\nENTRYPOINT ["ruby", "hello.rb"]', require_entrypoint=False)
+        assert parsed.from_image == "ruby:latest"
+        assert parsed.entrypoint_cmd == ["ruby", "hello.rb"]
+        assert parsed.is_external_image
 
     def test_no_from(self):
         with pytest.raises(ValueError, match="FROM"):

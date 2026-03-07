@@ -60,6 +60,7 @@ class DockerfileParsed:
     labels: dict[str, str] = field(default_factory=dict)
     shell: list[str] | None = None
     copy_instructions: list[tuple[str, str]] = field(default_factory=list)
+    is_external_image: bool = False
 
 
 def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> DockerfileParsed:
@@ -165,8 +166,17 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
     # Resolve entrypoint (skip if caller provides external entrypoint)
     resolved_entrypoint = _resolve_entrypoint(entrypoint, cmd, require=require_entrypoint)
 
-    # Determine needs_build
+    # External images (not prebuilt aliases) must specify ENTRYPOINT/CMD
+    # so the proxy knows which interpreter to use. Prebuilt images are fine
+    # without it because the proxy's extension-based executor map handles them.
     is_alias = from_image in PREBUILT_ALIASES
+    if not is_alias and not resolved_entrypoint:
+        raise ValueError(
+            f"External image '{from_image}' requires ENTRYPOINT or CMD in the Dockerfile "
+            f"to specify how to run the entrypoint file (e.g., ENTRYPOINT [\"ruby\", \"hello.rb\"])"
+        )
+
+    # Determine needs_build
     needs_build = (
         not is_alias
         or len(run_commands) > 0
@@ -191,6 +201,7 @@ def parse_dockerfile(content: str, *, require_entrypoint: bool = True) -> Docker
         entrypoint_cmd=resolved_entrypoint,
         needs_build=needs_build,
         needs_docker_build=needs_docker_build,
+        is_external_image=not is_alias,
         arg_vars=arg_vars,
         labels=labels,
         shell=shell,

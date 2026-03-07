@@ -10,6 +10,7 @@ import pytest
 
 from src.db.operations import (
     complete_job,
+    fail_job,
     get_available_credit,
     issue_credit,
     log_attribution,
@@ -133,6 +134,40 @@ async def test_complete_job_archives():
     await complete_job(db, str(job.id), "0xproof", b"\x01\x02", 0.001, 0.001, 15.0)
     db.execute.assert_awaited_once()  # INSERT into historical_data
     db.delete.assert_awaited_once_with(job)
+
+
+# --- fail_job ---
+
+
+async def test_fail_job_archives_and_deletes():
+    """Failed job → inserts into HistoricalData with status='failed' + deletes from ActiveJob."""
+    db = AsyncMock()
+    db.begin = MagicMock(return_value=_FakeBegin())
+
+    job = MagicMock()
+    job.id = uuid.uuid4()
+    job.slurm_job_id = 99
+    job.submitter_address = "0xuser"
+    job.payload = {"script": "exit 1"}
+    job.x402_tx_hash = "0xtx"
+    job.price_usdc = Decimal("0.05")
+    job.submitted_at = None
+    db.get.return_value = job
+
+    await fail_job(db, str(job.id), "script crashed")
+    db.execute.assert_awaited_once()  # INSERT into historical_data
+    db.delete.assert_awaited_once_with(job)
+
+
+async def test_fail_job_already_cleaned_up():
+    """Job not found → no-op (already cleaned up)."""
+    db = AsyncMock()
+    db.begin = MagicMock(return_value=_FakeBegin())
+    db.get.return_value = None
+
+    await fail_job(db, "nonexistent-id", "irrelevant")
+    db.execute.assert_not_awaited()
+    db.delete.assert_not_awaited()
 
 
 # --- redeem_credits ---

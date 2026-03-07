@@ -310,16 +310,24 @@ async def _ensure_capacity(deps: OracleDeps) -> None:
 
     deps.event_bus.emit("scaler", f"Booted {node_name}, waiting for it to become IDLE...")
 
-    # Poll until node appears as IDLE (timeout 180s)
-    for _ in range(18):
+    # Poll until node appears as IDLE (timeout 120s)
+    for attempt in range(12):
         await asyncio.sleep(10)
         info = await deps.slurm_client.get_cluster_info()
         for node in info.get("nodes_detail", []):
-            if node["name"] == node_name and "IDLE" in node.get("state", []):
-                deps.event_bus.emit("scaler", f"{node_name} is IDLE — proceeding")
-                return
+            if node["name"] == node_name:
+                state = node.get("state", [])
+                if "IDLE" in state:
+                    deps.event_bus.emit("scaler", f"{node_name} is IDLE — proceeding")
+                    return
+                if attempt % 3 == 2:  # Log every 30s
+                    deps.event_bus.emit(
+                        "scaler",
+                        f"Waiting for {node_name}... state={state} ({(attempt+1)*10}s)",
+                    )
+                break
 
-    raise RuntimeError(f"Spot node {node_name} did not become IDLE within 180s")
+    raise RuntimeError(f"Spot node {node_name} did not become IDLE within 120s")
 
 
 async def process_job_fast(deps: OracleDeps) -> JobResult:
@@ -334,6 +342,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         await resolve_image_if_needed(deps)
     except Exception as e:
         deps.event_bus.emit("agent_error", f"Image resolution failed: {e}")
+        deps.captured_error = f"Image resolution failed: {e}"
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 
@@ -342,6 +351,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         await _ensure_capacity(deps)
     except RuntimeError as e:
         deps.event_bus.emit("agent_error", f"Capacity check failed: {e}")
+        deps.captured_error = f"Capacity check failed: {e}"
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
 

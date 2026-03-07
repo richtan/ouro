@@ -16,7 +16,7 @@ from src.api.pricing import estimate_llm_cost, verify_job_profit
 from src.chain.client import BaseChainClient
 from src.config import settings
 from src.db.models import ActiveJob
-from src.db.operations import complete_job, issue_credit, log_audit, log_cost
+from src.db.operations import complete_job, fail_job, issue_credit, log_audit, log_cost
 from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
@@ -53,12 +53,12 @@ async def recover_stuck_jobs(
         recovered = proc_result.scalars().all()
 
         run_result = await db.execute(
-            update(ActiveJob)
-            .where(ActiveJob.status == "running")
-            .values(status="failed")
-            .returning(ActiveJob.id)
+            select(ActiveJob).where(ActiveJob.status == "running")
         )
-        failed = run_result.scalars().all()
+        running_jobs = run_result.scalars().all()
+        for rj in running_jobs:
+            await fail_job(db, str(rj.id), "recovered_on_startup")
+        failed = [rj.id for rj in running_jobs]
 
         await db.commit()
         if recovered:
@@ -78,12 +78,7 @@ async def _mark_failed(
     """Mark a job as failed and issue a credit to the submitter."""
     try:
         async with session_maker() as db:
-            await db.execute(
-                update(ActiveJob)
-                .where(ActiveJob.id == job.id)
-                .values(status="failed")
-            )
-            await db.commit()
+            await fail_job(db, str(job.id), reason)
 
         if job.submitter_address and float(job.price_usdc) > 0:
             async with session_maker() as db:
@@ -263,7 +258,10 @@ async def _process_one_job(
                 deps, llm_cost_usd, compute_duration_s,
             )
         else:
-            reason = job_result.status if job_result else "no result"
+            reason = (
+                deps.captured_error
+                or (job_result.status if job_result else "no result")
+            )
             # Store captured output/error even for failed jobs
             if deps.captured_output or deps.captured_error:
                 import json

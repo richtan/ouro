@@ -88,11 +88,13 @@ Full annotated tree: `docs/architecture.md`
 
 Tables: `active_jobs`, `historical_data`, `agent_costs`, `wallet_snapshots`, `payment_sessions`, `attribution_log`, `credits`, `audit_log`.
 
-Job lifecycle: `pending` → `processing` → `running` → `completed` (archived) or `failed`.
+Job lifecycle: `pending` → `processing` → `running` → `completed` (archived) or `failed` (archived).
 
 Retry: transient failures with retry_count < 2 reset to `pending`. After max retries, job fails and credit issued.
 
-Recovery on startup: `recover_stuck_jobs()` resets `processing` → `pending`, `running` → `failed`.
+Recovery on startup: `recover_stuck_jobs()` resets `processing` → `pending`, archives `running` → `failed` via `fail_job()`.
+
+Both `complete_job()` and `fail_job()` in `db/operations.py` archive to `historical_data` and delete from `active_jobs`.
 
 Full details: `docs/architecture.md` § Database Schema, `db/01-init.sql`
 
@@ -133,7 +135,12 @@ docker compose up --build
 - **Worker Docker hardening** — Workers run with `userns-remap: "default"` in Docker daemon config and iptables rules blocking the GCP metadata server (169.254.169.254) to prevent credential theft.
 - **Build time for custom images** is included in the Slurm job's `time_limit_min` since builds happen on-worker.
 - **Custom image cache** — Docker images accumulate on workers; no automatic cleanup yet.
+- **Failed jobs must be archived** — `_mark_failed()` and `recover_stuck_jobs()` must call `fail_job()` (which inserts into `historical_data` and deletes from `active_jobs`), not just update status to `"failed"`. Leaving failed rows in `active_jobs` causes the `MAX_ACTIVE_JOBS_PER_WALLET` check in `routes.py` to block new submissions with 429.
 - **MCP server 5xx resilience** — `_fetch_job()` and `_get_session_from_api()` now handle 5xx responses gracefully instead of crashing via `raise_for_status()`. A transient 502 from the agent API no longer kills the FastMCP process and all its StreamableHTTP sessions.
+- **External Docker images require ENTRYPOINT/CMD** — When using non-prebuilt images (e.g., `ruby:latest`), the Dockerfile must include `ENTRYPOINT` or `CMD`. The proxy's extension-based executor map only covers prebuilt aliases; for external images, the user must specify the interpreter. `parse_dockerfile()` enforces this even when `require_entrypoint=False`.
+- **Spot node boot too slow** — `node-startup.sh` previously blocked on `docker pull` (3 images) before registering IDLE with Slurm, causing multi-CPU jobs to timeout. Fix: (1) bake base images into the golden image (`build-golden-image.sh`), (2) reorder `node-startup.sh` to register IDLE first and run iptables/pulls in background, (3) oracle polling timeout set to 120s (`oracle.py:_ensure_capacity`, `range(12)`), (4) `ResumeTimeout=180` in `slurm.conf`.
+- **Autoscaler 409 "already exists" race** — Two independent `AutoScaler` instances (in `oracle.py` and `loop.py`) have separate `_booting` dicts. If both try to boot the same node, GCP returns 409. `_boot_spot_instance()` in `scaler.py` treats "already exists" errors as successful `scale_out` events so the caller proceeds to poll for the node becoming IDLE.
+- **NFS exports block spot instances** — `/etc/exports` on `ouro-slurm` originally listed only the two permanent worker IPs. Spot instances get dynamic IPs not in the allow list, so `mount` fails, `set -euo pipefail` kills `node-startup.sh`, and the node never registers IDLE. Fix: use subnet-based export `/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)` covering the full GCP us-central1 VPC subnet. `deploy/setup-elastic-infra.sh:92-94` has this fix; ensure `setup-slurm-cluster.sh` doesn't overwrite it.
 
 ## Workflow Preferences
 

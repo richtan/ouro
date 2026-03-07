@@ -39,16 +39,6 @@ EOF
     systemctl enable docker && systemctl start docker
 fi
 
-# Block metadata server from Docker containers
-iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP
-
-# Pre-pull base images (in background for fast startup)
-for img in ubuntu:22.04 python:3.12-slim node:20-slim; do
-    docker pull -q "$img" &
-done
-wait
-log "Docker ready, base images pulled"
-
 # 6. Copy auth keys from NFS (placed there by setup-elastic-infra.sh)
 cp /ouro-jobs/.cluster/munge.key /etc/munge/munge.key
 chown munge:munge /etc/munge/munge.key
@@ -72,6 +62,21 @@ systemctl restart munge
 systemctl restart slurmd
 sleep 2
 
-# 9. Tell Slurm we're ready (must run as root for auth)
+# 9. Tell Slurm we're ready — do this BEFORE docker pulls so the node
+#    becomes IDLE as fast as possible. Images are cached in the golden image
+#    so pulls below are just freshness checks.
 scontrol update NodeName="$NODE_NAME" State=IDLE Reason="spot-booted"
 log "Node $NODE_NAME is IDLE and ready for jobs"
+
+# 10. Docker hardening + image freshness checks (background, after IDLE)
+(
+  # Ensure Docker is running before adding iptables rule to DOCKER-USER chain
+  systemctl start docker 2>/dev/null || true
+  iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP
+
+  # Refresh base images (cached in golden image, so these are fast no-ops)
+  for img in ubuntu:22.04 python:3.12-slim node:20-slim; do
+      docker pull -q "$img" 2>/dev/null || true
+  done
+  log "Docker hardening and image refresh complete"
+) &

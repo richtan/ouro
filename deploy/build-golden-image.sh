@@ -51,6 +51,13 @@ gcloud compute ssh "$TEMP_VM" --project="$PROJECT" --zone="$ZONE" --command="
 DOCKEREOF
   sudo systemctl enable docker
 
+  # Pre-pull base images into golden image so spot instances skip the pull
+  sudo systemctl start docker
+  sudo docker pull ubuntu:22.04
+  sudo docker pull python:3.12-slim
+  sudo docker pull node:20-slim
+  sudo systemctl stop docker
+
   # Install gcloud CLI (needed by startup script to fetch secrets)
   curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
   echo 'deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main' | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list

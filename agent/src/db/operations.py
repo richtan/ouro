@@ -52,6 +52,34 @@ async def complete_job(
         await db.delete(job)
 
 
+async def fail_job(
+    db: AsyncSession,
+    job_id: str,
+    reason: str,
+) -> None:
+    """Move a failed job from active_jobs to historical_data."""
+    async with db.begin():
+        job = await db.get(ActiveJob, job_id)
+        if not job:
+            return  # Already cleaned up
+        await db.execute(
+            insert(HistoricalData).values(
+                id=job.id,
+                slurm_job_id=job.slurm_job_id,
+                submitter_address=job.submitter_address,
+                payload=dict(job.payload or {}, failure_reason=reason),
+                status="failed",
+                x402_tx_hash=job.x402_tx_hash,
+                price_usdc=job.price_usdc,
+                gas_paid_usd=0,
+                compute_duration_s=0,
+                llm_cost_usd=0,
+                submitted_at=job.submitted_at,
+            )
+        )
+        await db.delete(job)
+
+
 async def log_cost(
     db: AsyncSession,
     cost_type: str,

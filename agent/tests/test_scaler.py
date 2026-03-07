@@ -218,3 +218,63 @@ def test_cpus_for_node(scaler):
     assert scaler._cpus_for_node("ouro-spot-md-3") == 4
     assert scaler._cpus_for_node("ouro-spot-lg-1") == 8
     assert scaler._cpus_for_node("ouro-worker-1") == 2  # default
+
+
+# --- 409 "already exists" treated as success ---
+
+
+def _mock_compute_v1():
+    """Create a mock google.cloud.compute_v1 module for tests."""
+    mock_mod = MagicMock()
+    mock_mod.Instance.return_value = MagicMock()
+    mock_mod.InsertInstanceRequest.return_value = MagicMock()
+    return mock_mod
+
+
+async def test_boot_409_already_exists_treated_as_success(scaler):
+    """When GCP returns 409 'already exists', treat it as a successful boot."""
+    mock_compute = _mock_compute_v1()
+    with (
+        patch("src.slurm.scaler._get_gcp_client") as mock_client_fn,
+        patch.dict("sys.modules", {"google.cloud.compute_v1": mock_compute, "google.cloud": MagicMock(compute_v1=mock_compute)}),
+    ):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_op = MagicMock()
+        mock_op.result.side_effect = Exception(
+            "409 POST ... The resource "
+            "'projects/ouro-hpc-2026/zones/us-central1-a/instances/ouro-spot-md-1' "
+            "already exists"
+        )
+        mock_client.insert.return_value = mock_op
+
+        event = await scaler._boot_spot_instance(
+            "ouro-spot-md-1", "ouro-spot-md-template"
+        )
+
+    assert event is not None
+    assert event.action == "scale_out"
+    assert event.node_name == "ouro-spot-md-1"
+    assert "already exists" in event.reason
+
+
+async def test_boot_other_error_returns_boot_failed(scaler):
+    """Non-409 errors should still return boot_failed."""
+    mock_compute = _mock_compute_v1()
+    with (
+        patch("src.slurm.scaler._get_gcp_client") as mock_client_fn,
+        patch.dict("sys.modules", {"google.cloud.compute_v1": mock_compute, "google.cloud": MagicMock(compute_v1=mock_compute)}),
+    ):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_op = MagicMock()
+        mock_op.result.side_effect = Exception("quota exceeded")
+        mock_client.insert.return_value = mock_op
+
+        event = await scaler._boot_spot_instance(
+            "ouro-spot-sm-1", "ouro-spot-sm-template"
+        )
+
+    assert event is not None
+    assert event.action == "boot_failed"
+    assert "quota exceeded" in event.reason

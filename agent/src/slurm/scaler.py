@@ -200,6 +200,13 @@ class AutoScaler:
             return ScalingEvent("scale_out", node_name, "pending jobs, no idle capacity")
 
         except Exception as e:
+            # 409 = instance already exists — treat as success (already booting)
+            if "already exists" in str(e):
+                logger.info(
+                    "spot_instance_already_exists node=%s (treating as booted)",
+                    node_name,
+                )
+                return ScalingEvent("scale_out", node_name, "instance already exists")
             logger.error("spot_boot_failed node=%s error=%s", node_name, e)
             return ScalingEvent("boot_failed", node_name, str(e))
 
