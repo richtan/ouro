@@ -162,7 +162,7 @@ def wrap_in_docker(
 set -euo pipefail
 DOCKER_TAG={tag}
 cd {shlex.quote(workspace_path)}
-DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >&2
+DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >/dev/null 2>&1
 docker run \\
     {sec_flags} \\
     -v {shlex.quote(workspace_path)}:/workspace:ro \\
@@ -187,7 +187,7 @@ exit $EXIT_CODE
 
     return f"""#!/bin/bash
 set -euo pipefail
-docker pull -q {shlex.quote(image_ref)} 2>/dev/null || true
+docker pull -q {shlex.quote(image_ref)} >/dev/null 2>&1 || true
 docker run \\
     {sec_flags} \\
     -v {shlex.quote(workspace_path)}:/workspace:ro \\
