@@ -147,11 +147,16 @@ async def _finalize_success(
 ) -> None:
     """Archive a successful job and log profitability."""
     async with session_maker() as db:
-        if deps.captured_output:
+        if deps.captured_output or deps.captured_error:
+            import json
+            output_text = json.dumps({
+                "output": deps.captured_output[:10000],
+                "error_output": deps.captured_error[:5000],
+            })
             await db.execute(
                 update(ActiveJob)
                 .where(ActiveJob.id == job.id)
-                .values(payload=dict(job.payload, output_text=deps.captured_output[:10000]))
+                .values(payload=dict(job.payload, output_text=output_text))
             )
             await db.commit()
 
@@ -259,6 +264,23 @@ async def _process_one_job(
             )
         else:
             reason = job_result.status if job_result else "no result"
+            # Store captured output/error even for failed jobs
+            if deps.captured_output or deps.captured_error:
+                import json
+                output_text = json.dumps({
+                    "output": deps.captured_output[:10000],
+                    "error_output": deps.captured_error[:5000],
+                })
+                try:
+                    async with session_maker() as db:
+                        await db.execute(
+                            update(ActiveJob)
+                            .where(ActiveJob.id == job.id)
+                            .values(payload=dict(job.payload, output_text=output_text))
+                        )
+                        await db.commit()
+                except Exception:
+                    logger.warning("Failed to store error output for job %s", job.id)
             retried = await _maybe_retry(session_maker, event_bus, job, reason)
             if not retried:
                 await _mark_failed(session_maker, event_bus, job, reason)

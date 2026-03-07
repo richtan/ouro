@@ -39,7 +39,7 @@ def mock_slurm_client():
     client = AsyncMock()
     client.submit_job.return_value = 42
     client.get_job_status.return_value = {"state": "COMPLETED", "exit_code": 0, "reason": ""}
-    client.get_job_output.return_value = "Hello World"
+    client.get_job_output.return_value = {"output": "Hello World", "error_output": "", "output_hash": ""}
     client.create_workspace.return_value = "/ouro-jobs/workspaces/test-workspace"
     client.delete_workspace.return_value = True
     client.cancel_job.return_value = True

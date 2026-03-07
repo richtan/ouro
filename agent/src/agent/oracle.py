@@ -36,6 +36,7 @@ class OracleDeps:
     db: AsyncSession
     event_bus: EventBus
     captured_output: str = ""
+    captured_error: str = ""
     captured_gas_cost_usd: float = 0.0
     # Dockerfile-based fields
     dockerfile_content: str | None = None
@@ -129,12 +130,19 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
         reason = status.get("reason", "")
 
         if state == "COMPLETED":
-            output = await deps.slurm_client.get_job_output(slurm_job_id)
-            deps.captured_output = output
+            result = await deps.slurm_client.get_job_output(slurm_job_id)
+            deps.captured_output = result["output"]
+            deps.captured_error = result["error_output"]
             deps.event_bus.emit("slurm", f"Job {slurm_job_id} completed")
-            return f"COMPLETED: output_length={len(output)}, output_preview={output[:200]}"
+            return f"COMPLETED: output_length={len(deps.captured_output)}, output_preview={deps.captured_output[:200]}"
 
         if state in ("FAILED", "CANCELLED", "TIMEOUT"):
+            try:
+                result = await deps.slurm_client.get_job_output(slurm_job_id)
+                deps.captured_output = result["output"]
+                deps.captured_error = result["error_output"]
+            except Exception:
+                pass
             deps.event_bus.emit("slurm", f"Job {slurm_job_id} {state}")
             return f"FAILED: state={state}, exit_code={status.get('exit_code')}"
 

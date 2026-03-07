@@ -191,10 +191,15 @@ async def test_poll_completed(make_deps, mock_slurm_client):
 
 async def test_poll_failed_state(make_deps, mock_slurm_client):
     mock_slurm_client.get_job_status.return_value = {"state": "FAILED", "exit_code": 1}
+    mock_slurm_client.get_job_output.return_value = {
+        "output": "", "error_output": "segfault", "output_hash": "",
+    }
     deps = make_deps()
     result = await poll_slurm_status_impl(deps, slurm_job_id=42)
     assert result.startswith("FAILED:")
     assert "exit_code=1" in result
+    assert deps.captured_error == "segfault"
+    mock_slurm_client.get_job_output.assert_awaited()
 
 
 # --- submit_onchain_proof_impl ---
