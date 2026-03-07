@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWalletReady } from "@/hooks/useWalletReady";
+import { useJobEvents } from "@/hooks/useJobEvents";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
+import JobTimeline from "@/components/JobTimeline";
+import JobEventFeed from "@/components/JobEventFeed";
 
 interface ActiveJob {
   id: string;
@@ -17,6 +20,8 @@ interface ActiveJob {
   entrypoint?: string;
   file_count?: number;
   image?: string;
+  retry_count?: number;
+  failure_reason?: string;
 }
 
 interface HistoricalJob {
@@ -34,6 +39,7 @@ interface HistoricalJob {
   entrypoint?: string;
   file_count?: number;
   image?: string;
+  failure_reason?: string;
 }
 
 type AnyJob =
@@ -83,6 +89,10 @@ function ModeBadge({ mode }: { mode: string }) {
 function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
   const [open, setOpen] = useState(job.id === expandId);
   const isHist = job._type === "historical";
+  const { events, currentStage } = useJobEvents(
+    open && !isHist ? job.id : null,
+    job.status,
+  );
   const hist = isHist ? (job as HistoricalJob & { _type: "historical" }) : null;
   const ts = isHist
     ? new Date(hist!.completed_at).toLocaleString()
@@ -96,6 +106,11 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
           <div className="flex items-center gap-3 min-w-0">
             <span className="font-mono text-sm text-o-blueText">{job.id.slice(0, 8)}</span>
             <StatusBadge status={job.status} />
+            {!isHist && (job as ActiveJob).retry_count != null && (job as ActiveJob).retry_count! > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-o-amber/10 text-o-amber">
+                retry {(job as ActiveJob).retry_count}/2
+              </span>
+            )}
             {job.mode && <ModeBadge mode={job.mode} />}
           </div>
           <svg
@@ -125,6 +140,11 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
 
       {open && (
         <div className="mt-4 pt-4 border-t border-o-border space-y-4">
+          {isHist ? (
+            <JobTimeline stage={5} failed={job.status === "failed"} />
+          ) : (
+            <JobTimeline stage={currentStage} failed={job.status === "failed"} />
+          )}
           <div className={`grid grid-cols-2 gap-3 ${hist?.gas_paid_usd != null ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
             <div className="col-span-2 bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Job ID</div>
@@ -174,6 +194,13 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
             </div>
           )}
 
+          {(job as ActiveJob | HistoricalJob).failure_reason && (
+            <div className="bg-o-red/5 border border-o-red/20 rounded-lg p-3">
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Failure Reason</div>
+              <div className="font-mono text-xs text-o-red whitespace-pre-wrap">{(job as ActiveJob | HistoricalJob).failure_reason}</div>
+            </div>
+          )}
+
           {hist?.proof_tx_hash && (
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">On-Chain Proof</div>
@@ -211,6 +238,8 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
               <OutputDisplay raw={hist.output_text} />
             </div>
           )}
+
+          {!isHist && events.length > 0 && <JobEventFeed events={events} />}
         </div>
       )}
     </div>

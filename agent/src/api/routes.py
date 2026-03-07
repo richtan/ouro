@@ -633,6 +633,41 @@ async def event_stream(request: Request, _=Depends(require_admin_key)):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/jobs/{job_id}/events — SSE live event feed for a specific job
+# ---------------------------------------------------------------------------
+
+@router.get("/api/jobs/{job_id}/events")
+async def job_event_stream(job_id: str, request: Request):
+    # Validate UUID format
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid job ID format")
+
+    # Verify job exists in active_jobs or historical_data
+    async with async_session_maker() as db:
+        active = await db.get(ActiveJob, job_id)
+        if not active:
+            hist_q = await db.execute(
+                select(HistoricalData).where(HistoricalData.id == job_id).limit(1)
+            )
+            hist = hist_q.scalar_one_or_none()
+            if not hist:
+                raise HTTPException(404, f"Job {job_id} not found")
+
+    try:
+        _event_bus.check_job_connection_limit()
+    except ConnectionError as e:
+        raise HTTPException(429, str(e))
+
+    async def generate():
+        async for event in _event_bus.subscribe_job(job_id):
+            yield f"data: {event.model_dump_json(exclude_none=True)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
 # GET /api/stats — aggregate P&L, job counts, revenue breakdown
 # ---------------------------------------------------------------------------
 
@@ -831,6 +866,7 @@ async def get_jobs(db: AsyncSession = Depends(get_db), _=Depends(require_admin_k
                 "status": j.status,
                 "price_usdc": float(j.price_usdc),
                 "submitted_at": j.submitted_at.isoformat(),
+                "retry_count": j.retry_count,
                 **_job_summary(j.payload),
             }
             for j in active
@@ -946,6 +982,7 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
                 "status": j.status,
                 "price_usdc": float(j.price_usdc),
                 "submitted_at": j.submitted_at.isoformat(),
+                "retry_count": j.retry_count,
                 **_job_summary(j.payload),
             }
             for j in active

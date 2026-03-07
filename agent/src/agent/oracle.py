@@ -57,7 +57,7 @@ class JobResult(BaseModel):
 
 
 async def validate_request_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id}")
+    deps.event_bus.emit("agent", f"Validating request for job {deps.job_id}", job_id=deps.job_id)
 
     # Entrypoint comes from Dockerfile when dockerfile_content is set
     if not deps.dockerfile_content and not deps.entrypoint:
@@ -74,7 +74,7 @@ async def validate_request_impl(deps: OracleDeps) -> str:
 
 
 async def submit_to_slurm_impl(deps: OracleDeps) -> str:
-    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm")
+    deps.event_bus.emit("slurm", f"Submitting job {deps.job_id} to Slurm", job_id=deps.job_id)
 
     try:
         from sqlalchemy import update as sql_update
@@ -103,10 +103,11 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
             "slurm",
             f"Job {deps.job_id} submitted as Slurm job {slurm_job_id} "
             f"(partition={deps.partition}, cpus={deps.cpus})",
+            job_id=deps.job_id,
         )
         return f"SUBMITTED: slurm_job_id={slurm_job_id}"
     except Exception as e:
-        deps.event_bus.emit("slurm_error", f"Slurm submit failed: {e}")
+        deps.event_bus.emit("slurm_error", f"Slurm submit failed: {e}", job_id=deps.job_id)
         return f"ERROR: {e}"
 
 
@@ -122,7 +123,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
             status = await deps.slurm_client.get_job_status(slurm_job_id)
         except Exception as e:
             if attempt % 5 == 0:
-                deps.event_bus.emit("slurm", f"Poll error for {slurm_job_id}: {e} (retrying)")
+                deps.event_bus.emit("slurm", f"Poll error for {slurm_job_id}: {e} (retrying)", job_id=deps.job_id)
                 logger.warning("get_job_status failed (attempt %d): %s", attempt, e)
             await asyncio.sleep(5)
             continue
@@ -133,7 +134,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
             result = await deps.slurm_client.get_job_output(slurm_job_id)
             deps.captured_output = result["output"]
             deps.captured_error = result["error_output"]
-            deps.event_bus.emit("slurm", f"Job {slurm_job_id} completed")
+            deps.event_bus.emit("slurm", f"Job {slurm_job_id} completed", job_id=deps.job_id)
             return f"COMPLETED: output_length={len(deps.captured_output)}, output_preview={deps.captured_output[:200]}"
 
         if state in ("FAILED", "CANCELLED", "TIMEOUT"):
@@ -143,7 +144,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
                 deps.captured_error = result["error_output"]
             except Exception:
                 pass
-            deps.event_bus.emit("slurm", f"Job {slurm_job_id} {state}")
+            deps.event_bus.emit("slurm", f"Job {slurm_job_id} {state}", job_id=deps.job_id)
             return f"FAILED: state={state}, exit_code={status.get('exit_code')}"
 
         # Track transition to RUNNING
@@ -164,6 +165,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
                 deps.event_bus.emit(
                     "slurm",
                     f"Job {slurm_job_id} stuck PENDING: {reason} — cancelling",
+                    job_id=deps.job_id,
                 )
                 try:
                     await deps.slurm_client.cancel_job(slurm_job_id)
@@ -174,7 +176,7 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
             pending_count = 0
 
         if attempt % 5 == 0:
-            deps.event_bus.emit("slurm", f"Job {slurm_job_id} state={state} (poll {attempt})")
+            deps.event_bus.emit("slurm", f"Job {slurm_job_id} state={state} (poll {attempt})", job_id=deps.job_id)
 
         await asyncio.sleep(5)
 
@@ -182,10 +184,10 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
 
 
 async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
-    deps.event_bus.emit("chain", f"Computing output hash for job {deps.job_id}")
+    deps.event_bus.emit("chain", f"Computing output hash for job {deps.job_id}", job_id=deps.job_id)
 
     output_hash = hashlib.sha256(output_data.encode()).digest()
-    deps.event_bus.emit("chain", f"Submitting proof for job {deps.job_id} to Base")
+    deps.event_bus.emit("chain", f"Submitting proof for job {deps.job_id} to Base", job_id=deps.job_id)
 
     try:
         result = await deps.chain_client.submit_proof(
@@ -194,13 +196,14 @@ async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
             client_builder_code=deps.client_builder_code,
         )
     except Exception as e:
-        deps.event_bus.emit("chain_error", f"Proof submission failed: {e}")
+        deps.event_bus.emit("chain_error", f"Proof submission failed: {e}", job_id=deps.job_id)
         return f"ERROR: {e}"
 
     deps.captured_gas_cost_usd = result.gas_cost_usd
     deps.event_bus.emit(
         "chain",
         f"Proof posted for job {deps.job_id}: tx={result.tx_hash} (builder codes attached)",
+        job_id=deps.job_id,
     )
 
     # Log gas cost and attribution — DB errors must not mask a successful proof
@@ -241,19 +244,19 @@ async def resolve_image_if_needed(deps: OracleDeps) -> None:
         # Prebuilt alias, no RUN/ENV/COPY → use mapped Docker image directly
         deps.docker_image = DOCKER_IMAGES[parsed.from_image]
         deps.dockerfile_content = None  # No build needed
-        deps.event_bus.emit("agent", f"Using prebuilt image: {parsed.from_image}")
+        deps.event_bus.emit("agent", f"Using prebuilt image: {parsed.from_image}", job_id=deps.job_id)
         return
 
     if not parsed.needs_docker_build:
         # External image (e.g., ruby:latest) with no RUN/COPY → just pull, no build
         deps.docker_image = parsed.from_image
         deps.dockerfile_content = None  # No build needed
-        deps.event_bus.emit("agent", f"Using Docker image: {parsed.from_image}")
+        deps.event_bus.emit("agent", f"Using Docker image: {parsed.from_image}", job_id=deps.job_id)
         return
 
     # Needs docker build → pass dockerfile_content through to proxy
     deps.docker_image = None  # Worker will docker build
-    deps.event_bus.emit("agent", f"Job requires docker build (FROM {parsed.from_image})")
+    deps.event_bus.emit("agent", f"Job requires docker build (FROM {parsed.from_image})", job_id=deps.job_id)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +305,7 @@ async def _ensure_capacity(deps: OracleDeps) -> None:
     deps.event_bus.emit(
         "scaler",
         f"No node has {cpus_needed} CPUs (max: {max_node_cpus}), scaling out...",
+        job_id=deps.job_id,
     )
     node_name, template = _scaler._pick_node_for_cpus(cpus_needed, nodes)
     if not node_name:
@@ -313,7 +317,7 @@ async def _ensure_capacity(deps: OracleDeps) -> None:
     if not event or event.action != "scale_out":
         raise RuntimeError(f"Failed to boot spot node {node_name}: {event.reason if event else 'unknown'}")
 
-    deps.event_bus.emit("scaler", f"Booted {node_name}, waiting for it to become IDLE...")
+    deps.event_bus.emit("scaler", f"Booted {node_name}, waiting for it to become IDLE...", job_id=deps.job_id)
 
     # Poll until node appears as IDLE (timeout 120s)
     for attempt in range(12):
@@ -323,12 +327,13 @@ async def _ensure_capacity(deps: OracleDeps) -> None:
             if node["name"] == node_name:
                 state = node.get("state", [])
                 if "IDLE" in state:
-                    deps.event_bus.emit("scaler", f"{node_name} is IDLE — proceeding")
+                    deps.event_bus.emit("scaler", f"{node_name} is IDLE — proceeding", job_id=deps.job_id)
                     return
                 if attempt % 3 == 2:  # Log every 30s
                     deps.event_bus.emit(
                         "scaler",
                         f"Waiting for {node_name}... state={state} ({(attempt+1)*10}s)",
+                        job_id=deps.job_id,
                     )
                 break
 
@@ -346,7 +351,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     try:
         await resolve_image_if_needed(deps)
     except Exception as e:
-        deps.event_bus.emit("agent_error", f"Image resolution failed: {e}")
+        deps.event_bus.emit("agent_error", f"Image resolution failed: {e}", job_id=deps.job_id)
         deps.captured_error = f"Image resolution failed: {e}"
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")
@@ -355,7 +360,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     try:
         await _ensure_capacity(deps)
     except RuntimeError as e:
-        deps.event_bus.emit("agent_error", f"Capacity check failed: {e}")
+        deps.event_bus.emit("agent_error", f"Capacity check failed: {e}", job_id=deps.job_id)
         deps.captured_error = f"Capacity check failed: {e}"
         await _cleanup_workspace(deps)
         return JobResult(job_id=deps.job_id, status="failed")

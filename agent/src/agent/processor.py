@@ -97,7 +97,7 @@ async def _mark_failed(
                     detail={"reason": reason},
                 )
 
-        event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {reason}")
+        event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {reason}", job_id=str(job.id))
     except Exception:
         logger.exception("failed to mark job %s as failed", job.id)
 
@@ -124,6 +124,7 @@ async def _maybe_retry(
         event_bus.emit(
             "job",
             f"Job {str(job.id)[:8]} retrying ({retry_count + 1}/{MAX_RETRIES}): {reason}",
+            job_id=str(job.id),
         )
         return True
     except Exception:
@@ -194,12 +195,13 @@ async def _finalize_success(
         f"actual cost: ${pv.actual_cost_usd:.4f}, "
         f"profit: ${pv.actual_profit_usd:.4f} ({pv.actual_profit_pct:.1f}%) "
         f"{'PROFITABLE' if pv.profitable else 'LOSS'}",
+        job_id=str(job.id),
     )
     if not pv.profitable:
         logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
 
     suffix = " (no proof)" if not job_result.proof_tx else ""
-    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived{suffix}")
+    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived{suffix}", job_id=str(job.id))
 
 
 async def _process_one_job(
@@ -212,7 +214,7 @@ async def _process_one_job(
 ) -> None:
     """Process a single job. Runs as a concurrent task; releases semaphore when done."""
     try:
-        event_bus.emit("agent", f"Processing job {str(job.id)[:8]} (fast path)")
+        event_bus.emit("agent", f"Processing job {str(job.id)[:8]} (fast path)", job_id=str(job.id))
         job_start = time.monotonic()
         llm_cost_usd = 0.0
 
@@ -228,7 +230,7 @@ async def _process_one_job(
                 files = [{"path": "job.sh", "content": script}]
                 workspace_path = await slurm_client.create_workspace(str(job.id), files)
                 entrypoint = "job.sh"
-                event_bus.emit("agent", f"Legacy job {str(job.id)[:8]}: created workspace from inline script")
+                event_bus.emit("agent", f"Legacy job {str(job.id)[:8]}: created workspace from inline script", job_id=str(job.id))
 
             deps = OracleDeps(
                 job_id=str(job.id),
@@ -286,14 +288,14 @@ async def _process_one_job(
 
     except asyncio.TimeoutError:
         reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"
-        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} {reason}")
+        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} {reason}", job_id=str(job.id))
         logger.error("Fast path timed out for job %s", job.id)
         retried = await _maybe_retry(session_maker, event_bus, job, reason)
         if not retried:
             await _mark_failed(session_maker, event_bus, job, reason)
     except Exception as e:
         reason = str(e)
-        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} error: {reason}")
+        event_bus.emit("agent_error", f"Job {str(job.id)[:8]} error: {reason}", job_id=str(job.id))
         logger.exception("job processor error for %s", job.id)
         retried = await _maybe_retry(session_maker, event_bus, job, reason)
         if not retried:
