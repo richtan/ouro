@@ -8,7 +8,7 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key-not-real")
 
 import pytest
 
-from src.api.routes import ComputeSubmitRequest
+from src.api.routes import ComputeSubmitRequest, _job_summary
 
 
 def test_to_workspace_files_script():
@@ -47,3 +47,24 @@ def test_submission_mode_property():
         time_limit_min=1,
     )
     assert multi_req.submission_mode == "multi_file"
+
+
+# --- _job_summary ---
+
+
+def test_job_summary_empty():
+    assert _job_summary(None) == {}
+    assert _job_summary({}) == {}
+
+
+def test_job_summary_includes_failure_reason():
+    payload = {"entrypoint": "main.py", "failure_reason": "proof submission failed"}
+    result = _job_summary(payload)
+    assert result["failure_reason"] == "proof submission failed"
+    assert result["entrypoint"] == "main.py"
+
+
+def test_job_summary_no_failure_reason():
+    payload = {"entrypoint": "main.py", "file_count": 2}
+    result = _job_summary(payload)
+    assert "failure_reason" not in result

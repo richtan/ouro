@@ -59,7 +59,7 @@ async function runJob(script: string, cpus = 1, timeMin = 1) {
   while (true) {
     const res = await fetch(\`\${OURO_API}/api/jobs/\${job_id}\`);
     result = await res.json();
-    if (result.status === "completed" || result.status === "failed") break;
+    if (["completed", "completed_no_proof", "failed"].includes(result.status)) break;
     await new Promise((r) => setTimeout(r, 3000));
   }
 

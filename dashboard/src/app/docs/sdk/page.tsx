@@ -271,7 +271,7 @@ export default function SdkPage() {
             <ParamTable
               params={[
                 { name: "job_id", type: "str", description: "Job UUID" },
-                { name: "status", type: "str", description: 'Job status: "pending", "processing", "running", "completed", "failed"' },
+                { name: "status", type: "str", description: 'Job status: "pending", "processing", "running", "completed", "completed_no_proof", "failed"' },
                 { name: "output", type: "str", description: "stdout from the job" },
                 { name: "error_output", type: "str", description: "stderr from the job" },
                 { name: "output_hash", type: "str | None", description: "SHA-256 hash of the output" },

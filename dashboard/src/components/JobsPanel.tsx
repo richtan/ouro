@@ -18,6 +18,7 @@ interface Job {
   output_text: string | null;
   submitter_address: string | null;
   retry_count: number | null;
+  failure_reason?: string | null;
   mode?: string;
   entrypoint?: string;
   file_count?: number;
@@ -29,6 +30,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   processing: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
+  completed_no_proof: { bg: "bg-o-amber/10", text: "text-o-amber", dot: "bg-o-amber" },
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
@@ -177,6 +179,14 @@ function JobRow({ job }: { job: Job }) {
             </div>
           )}
 
+          {job.failure_reason && (
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Failure Reason</div>
+              <div className="text-xs text-o-red bg-o-red/5 border border-o-red/20 rounded-lg px-3 py-2 font-mono break-all">
+                {job.failure_reason}
+              </div>
+            </div>
+          )}
           {job.retry_count != null && job.retry_count > 0 && (
             <div className="text-xs text-o-amber">
               Retries: {job.retry_count}

@@ -193,6 +193,8 @@ def _job_summary(payload: dict | None) -> dict:
     img = payload.get("image")
     if img and img != "ouro-ubuntu":
         base["image"] = img
+    if "failure_reason" in payload:
+        base["failure_reason"] = payload["failure_reason"]
     return base
 
 
@@ -961,6 +963,7 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
             "proof_tx_hash": hist.proof_tx_hash,
             "compute_duration_s": hist.compute_duration_s,
             "gas_paid_usd": float(hist.gas_paid_usd) if hist.gas_paid_usd else None,
+            "failure_reason": hist.payload.get("failure_reason") if hist.payload else None,
         }
 
     raise HTTPException(404, f"Job {job_id} not found")

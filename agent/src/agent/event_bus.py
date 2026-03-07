@@ -36,6 +36,7 @@ class EventBus:
             raise ConnectionError(f"Maximum SSE connections ({MAX_SSE_CONNECTIONS}) exceeded")
 
     def emit(self, event_type: str, message: str) -> None:
+        logger.info("[%s] %s", event_type, message)
         event = Event(
             type=event_type,
             message=message,

@@ -198,7 +198,8 @@ async def _finalize_success(
     if not pv.profitable:
         logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
 
-    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived")
+    suffix = " (no proof)" if not job_result.proof_tx else ""
+    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived{suffix}")
 
 
 async def _process_one_job(
@@ -252,7 +253,7 @@ async def _process_one_job(
 
         compute_duration_s = time.monotonic() - job_start
 
-        if job_result and job_result.proof_tx:
+        if job_result and job_result.status in ("completed", "completed_no_proof"):
             await _finalize_success(
                 session_maker, event_bus, job, job_result,
                 deps, llm_cost_usd, compute_duration_s,

@@ -217,3 +217,14 @@ async def test_recover_stuck_nothing(event_bus):
     await recover_stuck_jobs(maker, event_bus)
     system_messages = [e for e in event_bus._history if e.type == "system"]
     assert system_messages == []
+
+
+# --- EventBus logging ---
+
+
+def test_event_bus_emit_logs(event_bus, caplog):
+    """EventBus.emit() should also log via Python logger."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="src.agent.event_bus"):
+        event_bus.emit("job", "Job abc123 completed")
+    assert any("Job abc123 completed" in record.message for record in caplog.records)
