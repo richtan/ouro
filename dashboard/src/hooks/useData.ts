@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchStats, fetchWallet, fetchAttribution } from "@/lib/api";
+import { fetchStats, fetchWallet, fetchPrice } from "@/lib/api";
 
 export function useStats() {
   return useQuery({
@@ -17,11 +17,11 @@ export function useWallet() {
   });
 }
 
-export function useAttribution() {
+export function usePricing() {
   return useQuery({
-    queryKey: ["attribution"],
-    queryFn: fetchAttribution,
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    queryKey: ["pricing"],
+    queryFn: fetchPrice,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
 }

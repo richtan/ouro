@@ -10,7 +10,6 @@ const ADMIN_ADDRESS =
   process.env.NEXT_PUBLIC_ADMIN_ADDRESS?.toLowerCase() ?? "";
 
 const BASE_NAV = [
-  { href: "/dashboard", label: "Dashboard" },
   { href: "/submit", label: "Submit" },
   { href: "/history", label: "My Jobs" },
 ];

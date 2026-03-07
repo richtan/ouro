@@ -37,15 +37,10 @@ export async function fetchJobs() {
   return jsonOrThrow(res);
 }
 
-export async function fetchAttribution() {
-  const res = await fetch(`${BASE}/api/attribution`, { cache: "no-store" });
-  return jsonOrThrow(res);
-}
-
-export async function decodeBuilderCodes(calldata: string) {
+export async function fetchPrice() {
   const res = await fetch(
-    `${BASE}/api/attribution/decode?calldata=${encodeURIComponent(calldata)}`,
-    { cache: "no-store" }
+    `${BASE}/api/proxy/price?cpus=1&time_limit_min=1&submission_mode=multi_file`,
+    { cache: "no-store" },
   );
   return jsonOrThrow(res);
 }

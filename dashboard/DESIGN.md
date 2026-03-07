@@ -262,18 +262,17 @@ Narrower pages (submit, history, pay): use `max-w-4xl` or `max-w-2xl`.
 
 ### Landing Page (`/`)
 
-The landing page is a standalone marketing page with its own header. The global `NavBar` is hidden on `/` (returns `null` when `pathname === "/"`). The page has its own sticky header with the OURO wordmark and a "Dashboard" link.
+The landing page is a standalone marketing page with its own header. The global `NavBar` is hidden on `/` (returns `null` when `pathname === "/"`). The page has its own sticky header with the OURO wordmark and links.
 
 Route structure:
-- `/` — Landing page (introduces Ouro, CTAs to submit and dashboard)
-- `/dashboard` — Operator dashboard (wallet, P&L, stats, attribution)
+- `/` — Landing page (introduces Ouro, CTAs to submit)
 - `/submit`, `/history`, `/admin`, `/pay/[sessionId]` — App pages (use NavBar)
 
 Design philosophy: **show, don't describe**. The terminal showing the real x402 API flow IS the "how it works" — no description cards. The page is ~2 viewports total, dense with actual information.
 
 Sections (top to bottom):
 
-1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Dashboard link, GitHub icon, ConnectButton. `h-14`.
+1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Docs link, GitHub icon. No ConnectButton (nothing on the landing page requires a wallet). `h-14`.
 2. **Hero** — `font-display` heading (`text-4xl` to `text-6xl`) with `tracking-tight`. One-sentence technical description + two CTAs (primary blue, secondary ghost). Spacing: `pt-24 pb-6 md:pt-32 md:pb-8`. Flows directly into terminal.
 3. **Terminal Window** — The centerpiece. Styled terminal with chrome (three dots + "terminal" label) showing the real x402 API conversation: curl request → 402 Payment Required with price headers → 200 OK with job result and proof hash. Uses `bg-o-surface`, `border-o-border`, `rounded-xl`. Lines animate in sequentially via `.terminal-line` class with staggered `animation-delay`. Spacing: `pb-10 md:pb-14`.
 4. **Stats Bar** — `border-t` separator + 4 inline stats with tight `gap-x-8`. Values `text-2xl sm:text-3xl` with `tabular-nums`. Always shows "—" placeholder. Spacing: `pt-6 pb-10 md:pt-8 md:pb-14`.
@@ -316,11 +315,8 @@ Write styles for mobile first, then add `sm:`, `md:`, `lg:` overrides:
 
 | Component | Mobile | Desktop |
 |---|---|---|
-| WalletBalance hero | Vertical (value above sparkline) | Horizontal |
-| RevenueModel flow | Vertical with down-arrows | Horizontal with right-arrows |
 | History job cards | 2-row header (ID+status, then meta) | Single row |
 | JobsPanel | Card layout | Grid with column headers |
-| AttributionPanel TXs | Stacked card per TX | Horizontal row |
 | AuditPanel | Horizontal scroll | Full table |
 
 ---

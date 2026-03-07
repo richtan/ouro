@@ -660,7 +660,31 @@ async def get_stats():
         except Exception:
             return 0
 
-    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, proof_count = (
+    async def _query_recent_jobs():
+        async with async_session_maker() as db:
+            historical = await db.execute(
+                select(
+                    HistoricalData.status,
+                    HistoricalData.price_usdc,
+                    HistoricalData.compute_duration_s,
+                    HistoricalData.completed_at,
+                    HistoricalData.proof_tx_hash,
+                )
+                .order_by(HistoricalData.completed_at.desc())
+                .limit(8)
+            )
+            active = await db.execute(
+                select(
+                    ActiveJob.status,
+                    ActiveJob.price_usdc,
+                    ActiveJob.submitted_at,
+                )
+                .order_by(ActiveJob.submitted_at.desc())
+                .limit(3)
+            )
+            return historical.all(), active.all()
+
+    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, proof_count, recent = (
         await asyncio.gather(
             _query_revenue(),
             _query_gas_costs(),
@@ -668,8 +692,10 @@ async def get_stats():
             _query_active_count(),
             _query_jobs_last_hour(),
             _query_proof_count(),
+            _query_recent_jobs(),
         )
     )
+    historical_rows, active_rows = recent
 
     total_revenue = float(rev_row.total_revenue)
     total_costs = gas_costs + llm_costs
@@ -700,6 +726,20 @@ async def get_stats():
         "avg_cost_per_job": avg_cost_per_job,
         "avg_price_per_job": avg_price_per_job,
         "avg_margin_per_job": avg_margin_per_job,
+        "recent_jobs": sorted(
+            [
+                {
+                    "status": r.status,
+                    "price_usdc": float(r.price_usdc or 0),
+                    "duration_s": float(r.compute_duration_s or 0) if hasattr(r, "compute_duration_s") else None,
+                    "timestamp": (r.completed_at if hasattr(r, "completed_at") else r.submitted_at).isoformat(),
+                    "has_proof": bool(r.proof_tx_hash) if hasattr(r, "proof_tx_hash") else False,
+                }
+                for r in list(active_rows) + list(historical_rows)
+            ],
+            key=lambda j: j["timestamp"],
+            reverse=True,
+        ),
     }
 
 

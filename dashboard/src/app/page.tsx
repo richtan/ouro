@@ -120,12 +120,6 @@ export default function LandingPage() {
             >
               Docs
             </Link>
-            <Link
-              href="/dashboard"
-              className="text-sm font-medium text-o-textSecondary hover:text-o-text transition-colors py-2"
-            >
-              Dashboard
-            </Link>
             <a
               href="https://github.com/richtan/ouro"
               target="_blank"
