@@ -87,12 +87,27 @@ async def test_mark_failed_archives_and_issues_credit(make_active_job, mock_sess
         patch("src.agent.processor.issue_credit", new_callable=AsyncMock) as mock_credit,
         patch("src.agent.processor.log_audit", new_callable=AsyncMock),
     ):
-        await _mark_failed(mock_session_maker, event_bus, job, "test failure")
+        await _mark_failed(mock_session_maker, event_bus, job, "test failure", compute_duration_s=7.3)
         mock_fail.assert_awaited_once()
         assert mock_fail.call_args[1].get("reason", mock_fail.call_args[0][-1]) == "test failure"
+        assert mock_fail.call_args.kwargs["compute_duration_s"] == pytest.approx(7.3)
         mock_credit.assert_awaited_once()
         assert mock_credit.call_args.kwargs["wallet_address"] == "0xuser"
         assert mock_credit.call_args.kwargs["amount_usdc"] == pytest.approx(0.05)
+
+
+async def test_mark_failed_with_failure_stage(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed passes failure_stage and compute_duration_s through to fail_job."""
+    job = make_active_job(submitter_address="0xuser", price_usdc=Decimal("0.05"))
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail,
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+    ):
+        await _mark_failed(mock_session_maker, event_bus, job, "slurm error", failure_stage=3, compute_duration_s=5.0)
+        mock_fail.assert_awaited_once()
+        assert mock_fail.call_args.kwargs.get("failure_stage") == 3
+        assert mock_fail.call_args.kwargs.get("compute_duration_s") == pytest.approx(5.0)
 
 
 async def test_mark_failed_no_submitter(make_active_job, mock_session_maker, event_bus):
@@ -189,7 +204,7 @@ async def test_recover_stuck_running(event_bus):
 
     with patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail:
         await recover_stuck_jobs(maker, event_bus)
-        mock_fail.assert_awaited_once_with(session, str(running_job.id), "recovered_on_startup")
+        mock_fail.assert_awaited_once_with(session, str(running_job.id), "recovered_on_startup", failure_stage=3)
 
     messages = [e.message for e in event_bus._history if e.type == "system"]
     assert any("1" in msg and "failed" in msg for msg in messages)

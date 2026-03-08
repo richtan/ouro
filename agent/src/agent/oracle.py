@@ -49,6 +49,7 @@ class JobResult(BaseModel):
     status: str
     output_hash: str | None = None
     proof_tx: str | None = None
+    failure_stage: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +346,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     validation = await validate_request_impl(deps)
     if validation.startswith("INVALID"):
         await _cleanup_workspace(deps)
-        return JobResult(job_id=deps.job_id, status="failed")
+        return JobResult(job_id=deps.job_id, status="failed", failure_stage=1)
 
     # Resolve Docker image from Dockerfile if present (instant — no network calls)
     try:
@@ -354,7 +355,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         deps.event_bus.emit("agent_error", f"Image resolution failed: {e}", job_id=deps.job_id)
         deps.captured_error = f"Image resolution failed: {e}"
         await _cleanup_workspace(deps)
-        return JobResult(job_id=deps.job_id, status="failed")
+        return JobResult(job_id=deps.job_id, status="failed", failure_stage=1)
 
     # Ensure cluster has capacity for this job's CPU needs
     try:
@@ -363,12 +364,12 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
         deps.event_bus.emit("agent_error", f"Capacity check failed: {e}", job_id=deps.job_id)
         deps.captured_error = f"Capacity check failed: {e}"
         await _cleanup_workspace(deps)
-        return JobResult(job_id=deps.job_id, status="failed")
+        return JobResult(job_id=deps.job_id, status="failed", failure_stage=1)
 
     submission = await submit_to_slurm_impl(deps)
     if submission.startswith("ERROR"):
         await _cleanup_workspace(deps)
-        return JobResult(job_id=deps.job_id, status="failed")
+        return JobResult(job_id=deps.job_id, status="failed", failure_stage=2)
 
     slurm_job_id = int(submission.split("slurm_job_id=")[1])
 
@@ -378,7 +379,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     await _cleanup_workspace(deps)
 
     if not poll_result.startswith("COMPLETED"):
-        return JobResult(job_id=deps.job_id, status="failed")
+        return JobResult(job_id=deps.job_id, status="failed", failure_stage=3)
 
     proof_result = await submit_onchain_proof_impl(deps, deps.captured_output)
     if proof_result.startswith("ERROR"):

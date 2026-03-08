@@ -199,6 +199,8 @@ def _job_summary(payload: dict | None) -> dict:
         base["image"] = img
     if "failure_reason" in payload:
         base["failure_reason"] = payload["failure_reason"]
+    if "failure_stage" in payload:
+        base["failure_stage"] = payload["failure_stage"]
     return base
 
 

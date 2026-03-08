@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWalletReady } from "@/hooks/useWalletReady";
 import { useJobEvents } from "@/hooks/useJobEvents";
@@ -22,6 +22,7 @@ interface ActiveJob {
   image?: string;
   retry_count?: number;
   failure_reason?: string;
+  failure_stage?: number;
 }
 
 interface HistoricalJob {
@@ -40,6 +41,7 @@ interface HistoricalJob {
   file_count?: number;
   image?: string;
   failure_reason?: string;
+  failure_stage?: number;
 }
 
 type AnyJob =
@@ -86,13 +88,22 @@ function ModeBadge({ mode }: { mode: string }) {
   );
 }
 
-function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
+function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string | null; onComplete?: () => void }) {
   const [open, setOpen] = useState(job.id === expandId);
   const isHist = job._type === "historical";
   const { events, currentStage } = useJobEvents(
-    open && !isHist ? job.id : null,
+    open ? job.id : null,
     job.status,
   );
+  const isTerminal = ["completed", "completed_no_proof", "failed"].includes(job.status) || currentStage >= 5;
+
+  const prevStageRef = useRef(currentStage);
+  useEffect(() => {
+    if (prevStageRef.current < 5 && currentStage >= 5) {
+      onComplete?.();
+    }
+    prevStageRef.current = currentStage;
+  }, [currentStage, onComplete]);
   const hist = isHist ? (job as HistoricalJob & { _type: "historical" }) : null;
   const ts = isHist
     ? new Date(hist!.completed_at).toLocaleString()
@@ -141,9 +152,9 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
       {open && (
         <div className="mt-4 pt-4 border-t border-o-border space-y-4">
           {isHist ? (
-            <JobTimeline stage={5} failed={job.status === "failed"} />
+            <JobTimeline stage={5} failed={job.status === "failed"} failedStage={(job as HistoricalJob).failure_stage} />
           ) : (
-            <JobTimeline stage={currentStage} failed={job.status === "failed"} />
+            <JobTimeline stage={currentStage} failed={job.status === "failed"} failedStage={job.status === "failed" ? currentStage : undefined} />
           )}
           <div className={`grid grid-cols-2 gap-3 ${hist?.gas_paid_usd != null ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
             <div className="col-span-2 bg-o-bg rounded-lg p-3 border border-o-border">
@@ -194,13 +205,6 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
             </div>
           )}
 
-          {(job as ActiveJob | HistoricalJob).failure_reason && (
-            <div className="bg-o-red/5 border border-o-red/20 rounded-lg p-3">
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Failure Reason</div>
-              <div className="font-mono text-xs text-o-red whitespace-pre-wrap">{(job as ActiveJob | HistoricalJob).failure_reason}</div>
-            </div>
-          )}
-
           {hist?.proof_tx_hash && (
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">On-Chain Proof</div>
@@ -230,16 +234,31 @@ function JobCard({ job, expandId }: { job: AnyJob; expandId: string | null }) {
             </div>
           )}
 
-          {hist?.output_text && (
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">
-                Output
-              </div>
-              <OutputDisplay raw={hist.output_text} />
-            </div>
-          )}
+          {(() => {
+            const outputText = hist?.output_text;
+            const failureReason = (job as ActiveJob | HistoricalJob).failure_reason;
+            const raw = outputText
+              ?? (failureReason ? JSON.stringify({ output: "", error_output: failureReason }) : null);
+            if (!raw) return null;
+            return (
+              <OutputDisplay raw={raw} />
+            );
+          })()}
 
-          {!isHist && events.length > 0 && <JobEventFeed events={events} />}
+          {events.length > 0 && (
+            isTerminal ? (
+              <details>
+                <summary className="text-xs text-o-textSecondary uppercase tracking-wider cursor-pointer hover:text-o-text transition-colors">
+                  Event Log
+                </summary>
+                <div className="mt-2">
+                  <JobEventFeed events={events} />
+                </div>
+              </details>
+            ) : (
+              <JobEventFeed events={events} />
+            )
+          )}
         </div>
       )}
     </div>
@@ -252,6 +271,7 @@ export default function HistoryPage() {
   const { address, isConnected, isReady } = useWalletReady();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const loadRef = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
     if (!address) return;
@@ -276,6 +296,7 @@ export default function HistoryPage() {
           setLoading(false);
         })
         .catch(() => setLoading(false));
+    loadRef.current = load;
     load();
     const id = setInterval(load, 10_000);
     return () => clearInterval(id);
@@ -354,7 +375,7 @@ export default function HistoryPage() {
             </div>
           </div>
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} expandId={expandId} />
+            <JobCard key={job.id} job={job} expandId={expandId} onComplete={() => loadRef.current?.()} />
           ))}
         </div>
       )}

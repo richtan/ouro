@@ -57,23 +57,28 @@ async def fail_job(
     db: AsyncSession,
     job_id: str,
     reason: str,
+    failure_stage: int | None = None,
+    compute_duration_s: float = 0,
 ) -> None:
     """Move a failed job from active_jobs to historical_data."""
     async with db.begin():
         job = await db.get(ActiveJob, job_id)
         if not job:
             return  # Already cleaned up
+        payload = dict(job.payload or {}, failure_reason=reason)
+        if failure_stage is not None:
+            payload["failure_stage"] = failure_stage
         await db.execute(
             insert(HistoricalData).values(
                 id=job.id,
                 slurm_job_id=job.slurm_job_id,
                 submitter_address=job.submitter_address,
-                payload=dict(job.payload or {}, failure_reason=reason),
+                payload=payload,
                 status="failed",
                 x402_tx_hash=job.x402_tx_hash,
                 price_usdc=job.price_usdc,
                 gas_paid_usd=0,
-                compute_duration_s=0,
+                compute_duration_s=compute_duration_s,
                 llm_cost_usd=0,
                 submitted_at=job.submitted_at,
             )

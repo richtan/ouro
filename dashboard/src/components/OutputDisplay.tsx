@@ -38,6 +38,7 @@ function parseOutput(raw: string): {
 
 export default function OutputDisplay({ raw }: OutputDisplayProps) {
   const [copied, setCopied] = useState(false);
+  const [copiedErr, setCopiedErr] = useState(false);
   const { stdout, stderr, hash } = useMemo(() => parseOutput(raw), [raw]);
 
   const handleCopy = () => {
@@ -46,24 +47,46 @@ export default function OutputDisplay({ raw }: OutputDisplayProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyErr = () => {
+    navigator.clipboard.writeText(stderr);
+    setCopiedErr(true);
+    setTimeout(() => setCopiedErr(false), 2000);
+  };
+
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <pre className="bg-o-green/5 border border-o-green/20 rounded-lg p-3 pr-16 font-mono text-xs text-o-green overflow-x-auto max-h-48 whitespace-pre-wrap break-words leading-relaxed">
-          {stdout || "(no output)"}
-        </pre>
-        <button
-          onClick={handleCopy}
-          className="absolute top-2 right-2 px-2 py-1 text-xs border border-o-border rounded bg-o-surface/90 backdrop-blur-sm text-o-muted hover:text-o-text hover:border-o-borderHover transition-colors"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      {stdout && (
+        <div>
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">STDOUT</div>
+          <div className="relative">
+            <pre className="bg-o-green/5 border border-o-green/20 rounded-lg p-3 pr-16 font-mono text-xs text-o-green overflow-x-auto max-h-48 whitespace-pre-wrap break-words leading-relaxed">
+              {stdout}
+            </pre>
+            <button
+              onClick={handleCopy}
+              className="absolute top-2 right-2 px-2 py-1 text-xs border border-o-border rounded bg-o-surface/90 backdrop-blur-sm text-o-muted hover:text-o-text hover:border-o-borderHover transition-colors"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {stderr && (
-        <pre className="bg-o-red/5 border border-o-red/20 rounded-lg p-3 font-mono text-xs text-o-red overflow-x-auto max-h-32 whitespace-pre-wrap break-words leading-relaxed">
-          {stderr}
-        </pre>
+        <div>
+          <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-2">STDERR</div>
+          <div className="relative">
+            <pre className="bg-o-red/5 border border-o-red/20 rounded-lg p-3 pr-16 font-mono text-xs text-o-red overflow-x-auto max-h-32 whitespace-pre-wrap break-words leading-relaxed">
+              {stderr}
+            </pre>
+            <button
+              onClick={handleCopyErr}
+              className="absolute top-2 right-2 px-2 py-1 text-xs border border-o-border rounded bg-o-surface/90 backdrop-blur-sm text-o-muted hover:text-o-text hover:border-o-borderHover transition-colors"
+            >
+              {copiedErr ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
       )}
 
       {hash && (

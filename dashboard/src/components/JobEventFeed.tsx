@@ -36,9 +36,6 @@ export default function JobEventFeed({ events }: { events: JobEvent[] }) {
 
   return (
     <div>
-      <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">
-        Live Events
-      </div>
       <div
         ref={feedRef}
         className="max-h-32 overflow-y-auto bg-o-bg rounded-lg border border-o-border p-2 font-mono text-xs"

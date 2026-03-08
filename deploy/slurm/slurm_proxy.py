@@ -186,7 +186,7 @@ exit $EXIT_CODE
         cmd_str = f"{executor} {shlex.quote(f'/workspace/{normalized}')}"
 
     is_prebuilt = image_ref in DOCKER_IMAGES.values()
-    cleanup_line = f"\ndocker rmi {shlex.quote(image_ref)} 2>/dev/null || true" if not is_prebuilt else ""
+    cleanup_line = f"\ndocker rmi {shlex.quote(image_ref)} >/dev/null 2>&1 || true" if not is_prebuilt else ""
 
     return f"""#!/bin/bash
 set -euo pipefail

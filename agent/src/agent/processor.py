@@ -57,7 +57,7 @@ async def recover_stuck_jobs(
         )
         running_jobs = run_result.scalars().all()
         for rj in running_jobs:
-            await fail_job(db, str(rj.id), "recovered_on_startup")
+            await fail_job(db, str(rj.id), "recovered_on_startup", failure_stage=3)
         failed = [rj.id for rj in running_jobs]
 
         await db.commit()
@@ -74,11 +74,13 @@ async def _mark_failed(
     event_bus: EventBus,
     job: ActiveJob,
     reason: str,
+    failure_stage: int | None = None,
+    compute_duration_s: float = 0,
 ) -> None:
     """Mark a job as failed and issue a credit to the submitter."""
     try:
         async with session_maker() as db:
-            await fail_job(db, str(job.id), reason)
+            await fail_job(db, str(job.id), reason, failure_stage=failure_stage, compute_duration_s=compute_duration_s)
 
         if job.submitter_address and float(job.price_usdc) > 0:
             async with session_maker() as db:
@@ -265,6 +267,7 @@ async def _process_one_job(
                 deps.captured_error
                 or (job_result.status if job_result else "no result")
             )
+            failure_stage = job_result.failure_stage if job_result else 3
             # Store captured output/error even for failed jobs
             if deps.captured_output or deps.captured_error:
                 import json
@@ -284,7 +287,7 @@ async def _process_one_job(
                     logger.warning("Failed to store error output for job %s", job.id)
             retried = await _maybe_retry(session_maker, event_bus, job, reason)
             if not retried:
-                await _mark_failed(session_maker, event_bus, job, reason)
+                await _mark_failed(session_maker, event_bus, job, reason, failure_stage=failure_stage, compute_duration_s=time.monotonic() - job_start)
 
     except asyncio.TimeoutError:
         reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"
@@ -292,14 +295,14 @@ async def _process_one_job(
         logger.error("Fast path timed out for job %s", job.id)
         retried = await _maybe_retry(session_maker, event_bus, job, reason)
         if not retried:
-            await _mark_failed(session_maker, event_bus, job, reason)
+            await _mark_failed(session_maker, event_bus, job, reason, failure_stage=3, compute_duration_s=time.monotonic() - job_start)
     except Exception as e:
         reason = str(e)
         event_bus.emit("agent_error", f"Job {str(job.id)[:8]} error: {reason}", job_id=str(job.id))
         logger.exception("job processor error for %s", job.id)
         retried = await _maybe_retry(session_maker, event_bus, job, reason)
         if not retried:
-            await _mark_failed(session_maker, event_bus, job, reason)
+            await _mark_failed(session_maker, event_bus, job, reason, failure_stage=3, compute_duration_s=time.monotonic() - job_start)
     finally:
         semaphore.release()
 

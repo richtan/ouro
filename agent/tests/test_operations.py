@@ -179,9 +179,35 @@ async def test_fail_job_archives_and_deletes():
     job.submitted_at = None
     db.get.return_value = job
 
-    await fail_job(db, str(job.id), "script crashed")
+    await fail_job(db, str(job.id), "script crashed", compute_duration_s=12.5)
     db.execute.assert_awaited_once()  # INSERT into historical_data
+    insert_stmt = db.execute.call_args[0][0]
+    params = insert_stmt.compile().params
+    assert params["compute_duration_s"] == 12.5
     db.delete.assert_awaited_once_with(job)
+
+
+async def test_fail_job_with_failure_stage():
+    """failure_stage is stored in the payload."""
+    db = AsyncMock()
+    db.begin = MagicMock(return_value=_FakeBegin())
+
+    job = MagicMock()
+    job.id = uuid.uuid4()
+    job.slurm_job_id = 99
+    job.submitter_address = "0xuser"
+    job.payload = {"script": "exit 1"}
+    job.x402_tx_hash = "0xtx"
+    job.price_usdc = Decimal("0.05")
+    job.submitted_at = None
+    db.get.return_value = job
+
+    await fail_job(db, str(job.id), "submit failed", failure_stage=2)
+    db.execute.assert_awaited_once()
+    insert_stmt = db.execute.call_args[0][0]
+    params = insert_stmt.compile().params
+    assert params["payload"]["failure_stage"] == 2
+    assert params["payload"]["failure_reason"] == "submit failed"
 
 
 async def test_fail_job_already_cleaned_up():

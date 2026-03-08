@@ -5,16 +5,25 @@ const STEPS = ["Validating", "Submitting", "Running", "Proving", "Done"];
 interface JobTimelineProps {
   stage: number;
   failed?: boolean;
+  failedStage?: number;
 }
 
-export default function JobTimeline({ stage, failed }: JobTimelineProps) {
+export default function JobTimeline({ stage, failed, failedStage }: JobTimelineProps) {
+  // For failed jobs: failedStage tells us WHERE it failed
+  // Everything before failedStage = green (completed)
+  // failedStage itself = red X
+  // Everything after failedStage = muted (never reached)
+  const effectiveFailStage = failed ? (failedStage ?? stage) : null;
+
   return (
     <div className="flex items-center justify-between w-full">
       {STEPS.map((label, i) => {
-        const stepStage = i + 1; // stage value when this step is active
-        const isCompleted = stage > stepStage || (stage === 5 && stepStage === 5);
-        const isCurrent = stage === stepStage && !failed;
-        const isFailed = failed && stage === stepStage;
+        const stepStage = i + 1;
+        const isCompleted = effectiveFailStage
+          ? stepStage < effectiveFailStage
+          : (stage > stepStage || (stage === 5 && stepStage === 5));
+        const isFailed = effectiveFailStage === stepStage;
+        const isCurrent = !failed && stage === stepStage;
 
         return (
           <div key={label} className="flex items-center flex-1 last:flex-none">
@@ -82,9 +91,13 @@ export default function JobTimeline({ stage, failed }: JobTimelineProps) {
             {i < STEPS.length - 1 && (
               <div
                 className={`flex-1 h-0.5 mx-1.5 mt-[-1rem] ${
-                  stage > stepStage
-                    ? "bg-o-green"
-                    : "bg-o-border"
+                  effectiveFailStage
+                    ? (stepStage + 1 < effectiveFailStage
+                        ? "bg-o-green"
+                        : stepStage + 1 === effectiveFailStage
+                          ? "bg-o-red"
+                          : "bg-o-border")
+                    : (stage > stepStage ? "bg-o-green" : "bg-o-border")
                 }`}
               />
             )}
