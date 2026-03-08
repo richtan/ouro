@@ -145,10 +145,11 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 4. Proxy forwards to agent's `POST /api/compute/submit`
 5. Agent verifies x402 payment via CDP facilitator
 6. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
-7. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
-8. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
-9. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace)
-10. On completion, job moved to `historical_data`
+7. Validate external Docker image exists (Docker Hub tag API check)
+8. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
+9. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
+10. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace)
+11. On completion, job moved to `historical_data`
 
 ### Job Submission (via MCP — Browser Flow)
 1. AI agent calls `run_compute_job` MCP tool (with `script` or `files` — `files` can include a Dockerfile; `entrypoint`/`image` optional when Dockerfile present)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch, MagicMock
+
+import httpx
 import pytest
 
 from src.agent.dockerfile import (
@@ -9,6 +12,7 @@ from src.agent.dockerfile import (
     DockerfileParsed,
     PREBUILT_ALIASES,
     parse_dockerfile,
+    validate_docker_image,
 )
 
 
@@ -699,3 +703,166 @@ ENTRYPOINT ["python", "main.py"]
             'FROM ouro-ubuntu\nARG DIR=src\nCOPY $DIR /app/src\nENTRYPOINT ["bash", "job.sh"]'
         )
         assert parsed.copy_instructions == [("src", "/app/src")]
+
+
+# ---------------------------------------------------------------------------
+# Docker Hub image validation tests
+# ---------------------------------------------------------------------------
+
+
+def _mock_response(status_code: int) -> httpx.Response:
+    """Create a mock httpx.Response with the given status code."""
+    return httpx.Response(status_code=status_code, request=httpx.Request("GET", "https://hub.docker.com"))
+
+
+class TestValidateDockerImage:
+    @pytest.mark.asyncio
+    async def test_prebuilt_alias_skipped(self):
+        """Prebuilt aliases make no HTTP call."""
+        with patch("src.agent.dockerfile.httpx.AsyncClient") as mock_cls:
+            await validate_docker_image("ouro-python")
+            mock_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_digest_reference_skipped(self):
+        """Digest references make no HTTP call."""
+        digest = "a" * 64
+        with patch("src.agent.dockerfile.httpx.AsyncClient") as mock_cls:
+            await validate_docker_image(f"python@sha256:{digest}")
+            mock_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_dockerhub_registry_skipped(self):
+        """Non-Docker-Hub registries make no HTTP call."""
+        with patch("src.agent.dockerfile.httpx.AsyncClient") as mock_cls:
+            await validate_docker_image("ghcr.io/org/repo:v1")
+            mock_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_quay_registry_skipped(self):
+        with patch("src.agent.dockerfile.httpx.AsyncClient") as mock_cls:
+            await validate_docker_image("quay.io/some/image:latest")
+            mock_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_docker_io_prefix_normalized(self):
+        """docker.io/ prefix is stripped and treated as Docker Hub."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(200))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("docker.io/library/python:3.12")
+            mock_client.get.assert_called_once_with(
+                "https://hub.docker.com/v2/namespaces/library/repositories/python/tags/3.12"
+            )
+
+    @pytest.mark.asyncio
+    async def test_valid_image_passes(self):
+        """200 response means image exists — no exception."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(200))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python:3.12-slim")
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_image_raises(self):
+        """404 response raises ValueError with image name."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(404))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError, match="pyhton:3.12.*not found"):
+                await validate_docker_image("pyhton:3.12")
+
+    @pytest.mark.asyncio
+    async def test_no_tag_defaults_to_latest(self):
+        """Image without tag queries for 'latest'."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(200))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python")
+            mock_client.get.assert_called_once_with(
+                "https://hub.docker.com/v2/namespaces/library/repositories/python/tags/latest"
+            )
+
+    @pytest.mark.asyncio
+    async def test_namespaced_image_parsing(self):
+        """myorg/repo:v1 queries correct namespace/repo/tag."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(200))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("myorg/myrepo:v1")
+            mock_client.get.assert_called_once_with(
+                "https://hub.docker.com/v2/namespaces/myorg/repositories/myrepo/tags/v1"
+            )
+
+    @pytest.mark.asyncio
+    async def test_timeout_fails_open(self):
+        """Timeout does not raise — fails open."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectTimeout("timeout"))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python:3.12")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_5xx_fails_open(self):
+        """500 response does not raise — fails open."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(500))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python:3.12")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_429_rate_limit_fails_open(self):
+        """429 response does not raise — fails open."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(429))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python:3.12")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_connect_error_fails_open(self):
+        """Network error does not raise — fails open."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("python:3.12")  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_index_docker_io_prefix_normalized(self):
+        """index.docker.io/ prefix is stripped and treated as Docker Hub."""
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=_mock_response(200))
+
+        with patch("src.agent.dockerfile.httpx.AsyncClient", return_value=mock_client):
+            await validate_docker_image("index.docker.io/library/nginx:latest")
+            mock_client.get.assert_called_once_with(
+                "https://hub.docker.com/v2/namespaces/library/repositories/nginx/tags/latest"
+            )

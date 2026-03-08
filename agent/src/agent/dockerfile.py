@@ -10,10 +10,15 @@ Rejected with clear errors: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shlex
 from dataclasses import dataclass, field
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 _DOCKER_IMAGE_RE = re.compile(
     r"^[a-zA-Z0-9]([a-zA-Z0-9._/-]*[a-zA-Z0-9])?"
@@ -464,3 +469,75 @@ def _resolve_entrypoint(
     if require:
         raise ValueError("Dockerfile must specify ENTRYPOINT or CMD")
     return []
+
+
+# ---------------------------------------------------------------------------
+# Docker Hub image validation
+# ---------------------------------------------------------------------------
+
+# Registries that are actually Docker Hub (strip prefix and validate normally)
+_DOCKER_HUB_HOSTS = {"docker.io", "index.docker.io", "registry-1.docker.io"}
+
+
+async def validate_docker_image(image: str) -> None:
+    """Check that an external Docker Hub image exists. Raises ValueError if not found.
+
+    Fails open on timeout/5xx/network errors — Docker Hub outages must not block submissions.
+    Skips validation for prebuilt aliases and digest references (@sha256:...).
+    Non-Docker-Hub registries (ghcr.io, quay.io, etc.) are also skipped.
+    """
+
+    # Skip prebuilt aliases
+    if image in PREBUILT_ALIASES:
+        return
+
+    # Skip digest references
+    if "@sha256:" in image:
+        return
+
+    # Parse registry prefix: if first component contains '.', it's a registry host
+    parts = image.split("/", 1)
+    if len(parts) == 2 and "." in parts[0]:
+        host = parts[0]
+        if host not in _DOCKER_HUB_HOSTS:
+            # Non-Docker-Hub registry — can't validate, skip
+            return
+        # Strip Docker Hub prefix and continue
+        image = parts[1]
+
+    # Parse namespace/repo:tag
+    if ":" in image:
+        name, tag = image.rsplit(":", 1)
+    else:
+        name = image
+        tag = "latest"
+
+    if "/" in name:
+        namespace, repo = name.split("/", 1)
+    else:
+        namespace = "library"
+        repo = name
+
+    url = f"https://hub.docker.com/v2/namespaces/{namespace}/repositories/{repo}/tags/{tag}"
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.ConnectError, OSError) as e:
+        logger.warning("Docker Hub validation timeout/error for %s: %s", image, e)
+        return  # fail open
+
+    if resp.status_code == 200:
+        return
+    if resp.status_code == 404:
+        raise ValueError(
+            f"Docker image '{image}' not found on Docker Hub. "
+            "Check the image name and tag."
+        )
+    if resp.status_code in (429, 500, 502, 503, 504):
+        logger.warning("Docker Hub returned %d for %s, failing open", resp.status_code, image)
+        return  # fail open
+
+    # Unexpected status — fail open
+    logger.warning("Docker Hub returned unexpected %d for %s", resp.status_code, image)
+    return

@@ -428,6 +428,15 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
                     f"Submitted files: {sorted(submitted)}",
                 )
 
+    # Validate external Docker image exists on Docker Hub (before payment)
+    if dockerfile_content:
+        from src.agent.dockerfile import validate_docker_image, PREBUILT_ALIASES
+        if parsed.from_image not in PREBUILT_ALIASES:
+            try:
+                await validate_docker_image(parsed.from_image)
+            except ValueError as e:
+                raise HTTPException(422, f"Invalid Dockerfile: {e}")
+
     # Validate file paths for multi-file mode
     if body.files:
         for f in body.files:
@@ -1233,6 +1242,33 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         job_params = dict(session.job_payload)
     else:
         job_params = {}
+
+    # Early Dockerfile validation (catches invalid images before payment)
+    _session_dockerfile_early = None
+    if job_params.get("files"):
+        for f in job_params["files"]:
+            if isinstance(f, dict) and f.get("path", "").lower() == "dockerfile":
+                _session_dockerfile_early = f.get("content")
+                break
+    if job_params.get("dockerfile_content"):
+        _session_dockerfile_early = job_params["dockerfile_content"]
+
+    if _session_dockerfile_early:
+        from src.agent.dockerfile import parse_dockerfile, validate_docker_image, PREBUILT_ALIASES
+        try:
+            _parsed_early = parse_dockerfile(
+                _session_dockerfile_early,
+                require_entrypoint=not job_params.get("entrypoint"),
+            )
+        except ValueError as e:
+            raise HTTPException(422, f"Invalid Dockerfile: {e}")
+        if _parsed_early.from_image not in PREBUILT_ALIASES:
+            try:
+                await validate_docker_image(_parsed_early.from_image)
+            except ValueError as e:
+                raise HTTPException(422, f"Invalid Dockerfile: {e}")
+    elif not job_params.get("dockerfile_content"):
+        _validate_image(job_params.get("image"))
 
     # Determine submission_mode for pricing (still relevant for cost calculation)
     mode = job_params.get("submission_mode", "script")
