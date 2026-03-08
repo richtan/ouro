@@ -235,17 +235,6 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
             </div>
           )}
 
-          {job.files && job.files.length > 0 ? (
-            <FileBrowser files={job.files} />
-          ) : job.script ? (
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Script</div>
-              <pre className="bg-o-bg border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
-                {job.script}
-              </pre>
-            </div>
-          ) : null}
-
           {(() => {
             const outputText = hist?.output_text;
             const failureReason = (job as ActiveJob | HistoricalJob).failure_reason;
@@ -256,6 +245,17 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
               <OutputDisplay raw={raw} />
             );
           })()}
+
+          {job.files && job.files.length > 0 ? (
+            <FileBrowser files={job.files} />
+          ) : job.script ? (
+            <div>
+              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Script</div>
+              <pre className="bg-o-bg border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
+                {job.script}
+              </pre>
+            </div>
+          ) : null}
 
           {events.length > 0 && (
             isTerminal ? (

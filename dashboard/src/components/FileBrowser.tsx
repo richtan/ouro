@@ -243,6 +243,7 @@ function TreeItem({
 
 export default function FileBrowser({ files }: FileBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [mobileTreeOpen, setMobileTreeOpen] = useState(true);
   const tree = useMemo(() => buildTree(files), [files]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => collectFolderPaths(tree),
@@ -283,22 +284,65 @@ export default function FileBrowser({ files }: FileBrowserProps) {
           </>
         ) : (
           <>
-            {/* Mobile: horizontal tab bar */}
-            <div className="md:hidden flex overflow-x-auto border-b border-o-border">
-              {files.map((f, i) => (
+            {/* Mobile: collapsible tree + editor */}
+            <div className="md:hidden">
+              {/* Collapse toggle */}
+              <div className="flex items-center justify-end px-3 py-1 border-b border-o-border">
                 <button
-                  key={f.path}
-                  onClick={() => setActiveIndex(i)}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-mono whitespace-nowrap border-b-2 ${
-                    i === activeIndex
-                      ? "border-o-blueText text-o-text"
-                      : "border-transparent text-o-textSecondary hover:text-o-text"
-                  }`}
+                  onClick={() => setMobileTreeOpen((v) => !v)}
+                  className="text-o-muted hover:text-o-text transition-colors p-1"
+                  title={mobileTreeOpen ? "Collapse" : "Expand"}
                 >
-                  <FileIcon name={f.path.split("/").pop() ?? f.path} />
-                  {f.path.split("/").pop()}
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    className={`transition-transform ${mobileTreeOpen ? "" : "-rotate-90"}`}
+                  >
+                    <path
+                      d="M4 6l4 4 4-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
-              ))}
+              </div>
+              {/* Collapsible tree */}
+              {mobileTreeOpen && (
+                <div className="max-h-52 overflow-y-auto select-none border-b border-o-border/50">
+                  {tree.map((node) => (
+                    <TreeItem
+                      key={node.path}
+                      node={node}
+                      depth={0}
+                      activeIndex={activeIndex}
+                      expandedFolders={expandedFolders}
+                      onToggleFolder={toggleFolder}
+                      onSelectFile={setActiveIndex}
+                    />
+                  ))}
+                </div>
+              )}
+              {/* File path + language bar */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-o-border">
+                <span className="text-xs font-mono text-o-textSecondary truncate">
+                  {activeFile.path}
+                </span>
+                <span className="text-xs text-o-muted font-mono flex-shrink-0 ml-2">
+                  {getLanguageForFile(activeFile.path, "ouro-ubuntu")}
+                </span>
+              </div>
+              {/* Editor */}
+              <CodeEditor
+                value={activeFile.content}
+                onChange={() => {}}
+                language={getLanguageForFile(activeFile.path, "ouro-ubuntu")}
+                height="256px"
+                readOnly
+              />
             </div>
 
             {/* Desktop: tree sidebar + content */}
@@ -328,17 +372,6 @@ export default function FileBrowser({ files }: FileBrowserProps) {
                   readOnly
                 />
               </div>
-            </div>
-
-            {/* Mobile: content pane */}
-            <div className="md:hidden">
-              <CodeEditor
-                value={activeFile.content}
-                onChange={() => {}}
-                language={getLanguageForFile(activeFile.path, "ouro-ubuntu")}
-                height="256px"
-                readOnly
-              />
             </div>
           </>
         )}
