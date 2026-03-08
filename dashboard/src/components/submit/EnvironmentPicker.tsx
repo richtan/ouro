@@ -110,7 +110,7 @@ export default function EnvironmentPicker({ onSelect, currentFromImage }: Enviro
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     const prebuilt = q
-      ? PREBUILT_ENVS.filter((e) => e.label.toLowerCase().includes(q) || e.id.includes(q))
+      ? PREBUILT_ENVS.filter((e) => e.label.toLowerCase().includes(q) || e.id.toLowerCase().includes(q))
       : PREBUILT_ENVS;
     return { prebuilt };
   }, [search]);
@@ -118,8 +118,8 @@ export default function EnvironmentPicker({ onSelect, currentFromImage }: Enviro
   // Parse search into base image and partial tag
   const { base, partialTag } = useMemo(() => {
     const colon = search.indexOf(":");
-    if (colon === -1) return { base: search.trim(), partialTag: "" };
-    return { base: search.slice(0, colon).trim(), partialTag: search.slice(colon + 1) };
+    if (colon === -1) return { base: search.trim().toLowerCase(), partialTag: "" };
+    return { base: search.slice(0, colon).trim().toLowerCase(), partialTag: search.slice(colon + 1) };
   }, [search]);
 
   // Debounced fetch of Docker Hub tags
@@ -163,7 +163,7 @@ export default function EnvironmentPicker({ onSelect, currentFromImage }: Enviro
     const sourceTags = tagResults.includes("latest") ? tagResults : ["latest", ...tagResults];
 
     const filtered = partialTag
-      ? sourceTags.filter((t) => t.includes(partialTag))
+      ? sourceTags.filter((t) => t.toLowerCase().includes(partialTag.toLowerCase()))
       : sourceTags;
 
     return filtered.slice(0, 10).map((tag) => `${base}:${tag}`);
