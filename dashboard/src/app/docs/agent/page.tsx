@@ -1,60 +1,39 @@
+import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
-import StepCard from "@/components/docs/StepCard";
 
 const PACKAGE_JSON = `{
   "dependencies": {
-    "x402-next": "^0.1.0",
+    "@x402/fetch": "^2.6.0",
+    "@x402/evm": "^2.6.0",
     "viem": "^2.0.0"
   }
 }`;
 
-const AGENT_TS = `import { createWalletClient, http, parseUnits } from "viem";
-import { base } from "viem/chains";
+const AGENT_TS = `import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
+import { ExactEvmScheme } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
-import { wrapEIP5792Actions } from "viem/experimental";
 
-// 1. Set up your wallet
+// 1. Set up wallet and x402-enabled fetch
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
-const wallet = createWalletClient({
-  account,
-  chain: base,
-  transport: http(),
+const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
+  schemes: [{ network: "eip155:8453", client: new ExactEvmScheme(account) }],
 });
+// fetchWithPayment handles 402 → sign → retry automatically
 
 const OURO_API = "https://api.ourocompute.com";
 
 async function runJob(script: string, cpus = 1, timeMin = 1) {
-  // 2. Get price and payment requirements
-  const quoteRes = await fetch(\`\${OURO_API}/api/compute/submit\`, {
+  // 2. Submit job — payment is handled automatically
+  const submitRes = await fetchWithPayment(\`\${OURO_API}/api/compute/submit\`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ script, cpus, time_limit_min: timeMin }),
-  });
-
-  if (quoteRes.status !== 402) throw new Error("Expected 402");
-
-  const paymentHeader = quoteRes.headers.get("payment-required");
-  const { price } = await quoteRes.json();
-  console.log(\`Price: \${price} USDC\`);
-
-  // 3. Sign x402 payment with your wallet
-  // (Use your x402 library to decode the header and sign)
-  const paymentSignature = await signX402Payment(paymentHeader, wallet);
-
-  // 4. Submit with signed payment
-  const submitRes = await fetch(\`\${OURO_API}/api/compute/submit\`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "payment-signature": paymentSignature,
-    },
     body: JSON.stringify({ script, cpus, time_limit_min: timeMin }),
   });
 
   const { job_id } = await submitRes.json();
   console.log(\`Job submitted: \${job_id}\`);
 
-  // 5. Poll for results
+  // 3. Poll for results
   let result;
   while (true) {
     const res = await fetch(\`\${OURO_API}/api/jobs/\${job_id}\`);
@@ -78,91 +57,56 @@ export default function AgentPage() {
           Building an Autonomous Agent
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Build an agent that pays for and runs HPC jobs with its own wallet.
+          Build an agent that pays for and runs compute jobs with its own wallet.
         </p>
       </div>
 
       {/* Overview */}
       <section className="mb-10">
         <p className="text-sm text-o-textSecondary leading-relaxed mb-4">
-          Autonomous agents interact with Ouro via the x402 payment protocol. The agent signs
-          USDC payments locally — no private keys leave your agent, only the opaque payment
-          signature is transmitted.
+          Use{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">@x402/fetch</span>{" "}
+          to wrap the standard <span className="font-mono text-xs text-o-text">fetch</span> function
+          with automatic x402 payment handling. When your request gets a 402 response, the library
+          signs the USDC payment with your wallet and retries — no manual payment code needed.
         </p>
         <div className="bg-o-surface border border-o-border rounded-xl p-4">
           <h3 className="font-display text-sm font-semibold text-o-text mb-3">Prerequisites</h3>
           <ul className="text-sm text-o-textSecondary space-y-1 ml-4 list-disc">
             <li>Node.js 18+ or Python 3.10+</li>
             <li>A wallet with USDC on Base</li>
-            <li>An x402-compatible signing library</li>
+            <li>
+              <span className="font-mono text-xs text-o-text">@x402/fetch</span> and{" "}
+              <span className="font-mono text-xs text-o-text">@x402/evm</span> packages
+            </li>
           </ul>
         </div>
       </section>
 
-      {/* Flow */}
+      {/* Payment flow link */}
       <section className="mb-10">
-        <h2 className="font-display text-lg font-bold text-o-text mb-6">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
           Payment Flow
         </h2>
-        <div>
-          <StepCard number={1} title="POST without payment → get price">
-            <p>
-              Send your job to{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                POST /api/compute/submit
-              </span>{" "}
-              without a payment header. You&apos;ll receive a 402 response with the price and
-              a{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                PAYMENT-REQUIRED
-              </span>{" "}
-              header.
-            </p>
-          </StepCard>
-          <StepCard number={2} title="Decode and sign locally">
-            <p>
-              Use your x402 library to decode the payment header and sign a USDC
-              authorization with your wallet. The signature is valid for ~30 seconds.
-            </p>
-          </StepCard>
-          <StepCard number={3} title="POST with payment → job created">
-            <p>
-              Re-send the same request with the{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                payment-signature
-              </span>{" "}
-              header. You&apos;ll get back a{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                job_id
-              </span>
-              .
-            </p>
-          </StepCard>
-          <StepCard number={4} title="Poll for results" last>
-            <p>
-              GET{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                /api/jobs/{"{job_id}"}
-              </span>{" "}
-              every 3 seconds. When{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                status
-              </span>{" "}
-              is{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                completed
-              </span>
-              , the output is included.
-            </p>
-          </StepCard>
-        </div>
+        <p className="text-sm text-o-textSecondary leading-relaxed">
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">@x402/fetch</span>{" "}
+          handles the full payment flow automatically. For the step-by-step details of what
+          happens under the hood, see the{" "}
+          <Link href="/docs/api#payment-flow" className="text-o-blueText hover:underline">
+            API payment flow
+          </Link>.
+        </p>
       </section>
 
       {/* Data flow diagram */}
       <section className="mb-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-4">
-          Data Flow
+          What Happens Under the Hood
         </h2>
+        <p className="text-xs text-o-muted mb-3">
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">@x402/fetch</span>{" "}
+          handles this entire flow automatically — you just call <span className="font-mono text-xs text-o-text">fetchWithPayment()</span>.
+        </p>
         <CodeBlock filename="architecture">
           <span className="text-o-textSecondary">{"Your Agent"}</span>
           <span className="text-o-muted">{" ──POST (no payment)──▶ "}</span>

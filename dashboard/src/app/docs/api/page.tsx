@@ -72,13 +72,17 @@ export default function ApiPage() {
       </section>
 
       {/* x402 flow */}
-      <section className="mb-10">
+      <section id="payment-flow" className="mb-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-4">
           x402 Payment Flow
         </h2>
+        <p className="text-sm text-o-textSecondary leading-relaxed mb-4">
+          Submit compute jobs via HTTP. Payment uses x402 — send a request, sign the
+          USDC payment locally, re-send with the signature.
+        </p>
         <p className="text-sm text-o-textSecondary leading-relaxed mb-6">
-          Ouro uses the x402 payment protocol. POST without payment to get the price,
-          sign the payment locally, then POST again with the signature.
+          x402 is built on HTTP 402 (Payment Required). No API keys or accounts — your
+          wallet is your identity.
         </p>
 
         <div className="mb-6">

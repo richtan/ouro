@@ -1,6 +1,6 @@
+import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
 import ParamTable from "@/components/docs/ParamTable";
-import StepCard from "@/components/docs/StepCard";
 
 const TOOLS = [
   {
@@ -135,7 +135,7 @@ export default function McpToolsPage() {
           MCP Tools Reference
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Full schemas and example responses for all 6 tools.
+          Reference for all MCP tools available to Cursor, Claude Desktop, and custom agents.
         </p>
       </div>
 
@@ -172,55 +172,24 @@ export default function McpToolsPage() {
 
       {/* Payment flow */}
       <section className="border-t border-o-border mt-10 pt-10">
-        <h2 className="font-display text-lg font-bold text-o-text mb-6">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
           Payment Flow
         </h2>
-        <p className="text-sm text-o-textSecondary leading-relaxed mb-6">
-          For agents with their own wallet. No human interaction needed.
+        <p className="text-sm text-o-textSecondary leading-relaxed">
+          For agents with their own wallet: call{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            get_payment_requirements
+          </span>
+          , sign the USDC payment locally, then call{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+            submit_and_pay
+          </span>{" "}
+          with the signature. See the{" "}
+          <Link href="/docs/api#payment-flow" className="text-o-blueText hover:underline">
+            full payment flow with examples
+          </Link>{" "}
+          on the API page.
         </p>
-        <div>
-          <StepCard number={1} title="Get payment requirements">
-            <p>
-              Call{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                get_payment_requirements
-              </span>{" "}
-              with your job details. Returns the x402 payment header.
-            </p>
-          </StepCard>
-          <StepCard number={2} title="Sign payment locally">
-            <p>
-              Decode the{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                payment_required_header
-              </span>{" "}
-              with your x402 library and sign the USDC payment with your wallet.
-              No private keys leave your agent.
-            </p>
-          </StepCard>
-          <StepCard number={3} title="Submit with payment">
-            <p>
-              Call{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                submit_and_pay
-              </span>{" "}
-              with the script and signed payment signature. Complete within 30 seconds of step 1.
-            </p>
-          </StepCard>
-          <StepCard number={4} title="Poll for results" last>
-            <p>
-              Call{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                get_job_status
-              </span>{" "}
-              with the returned{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                job_id
-              </span>
-              . Returns output when complete.
-            </p>
-          </StepCard>
-        </div>
       </section>
     </>
   );
