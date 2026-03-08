@@ -170,7 +170,7 @@ docker run \\
     "$DOCKER_TAG" \\
     {cmd_str}
 EXIT_CODE=$?
-docker rmi "$DOCKER_TAG" 2>/dev/null || true
+docker rmi "$DOCKER_TAG" >/dev/null 2>&1 || true
 exit $EXIT_CODE
 """
 
