@@ -26,6 +26,7 @@ interface ActiveJob {
   failure_reason?: string;
   failure_stage?: number;
   files?: WorkspaceFile[];
+  credit_applied?: number;
 }
 
 interface HistoricalJob {
@@ -44,6 +45,7 @@ interface HistoricalJob {
   failure_reason?: string;
   failure_stage?: number;
   files?: WorkspaceFile[];
+  credit_applied?: number;
 }
 
 type AnyJob =
@@ -145,7 +147,14 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
         </div>
         {/* Row 2: meta info */}
         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-          <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
+          {job.credit_applied != null && job.credit_applied > 0 ? (
+            <>
+              <span className="font-mono text-xs text-o-muted line-through">${(job.price_usdc ?? 0).toFixed(4)}</span>
+              <span className="font-mono text-xs text-o-green">${((job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
+            </>
+          ) : (
+            <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
+          )}
           {hist?.compute_duration_s != null && (
             <span className="font-mono text-xs text-o-textSecondary">{hist.compute_duration_s.toFixed(1)}s</span>
           )}
@@ -183,9 +192,16 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
             </div>
             <div className="bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Compute Cost</div>
-              <div className="font-mono text-xs text-o-green">
-                ${(job.price_usdc ?? 0).toFixed(4)}
-              </div>
+              {job.credit_applied != null && job.credit_applied > 0 ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-xs text-o-muted line-through">${(job.price_usdc ?? 0).toFixed(4)}</span>
+                  <span className="font-mono text-xs text-o-green">${((job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
+                </div>
+              ) : (
+                <div className="font-mono text-xs text-o-green">
+                  ${(job.price_usdc ?? 0).toFixed(4)}
+                </div>
+              )}
             </div>
           </div>
 
@@ -276,11 +292,12 @@ export default function HistoryPage() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [creditBalance, setCreditBalance] = useState(0);
 
   useEffect(() => {
     if (!address) return;
     setLoading(true);
-    const load = () =>
+    const load = () => {
       fetch(`/api/proxy/jobs?address=${address}`)
         .then((r) => r.json())
         .then((data) => {
@@ -300,6 +317,11 @@ export default function HistoryPage() {
           setLoading(false);
         })
         .catch(() => setLoading(false));
+      fetch(`/api/proxy/credits?address=${address}`)
+        .then((r) => r.json())
+        .then((data) => setCreditBalance(data.available ?? 0))
+        .catch(() => {});
+    };
     loadRef.current = load;
     load();
     const id = setInterval(load, 10_000);
@@ -402,6 +424,9 @@ export default function HistoryPage() {
               <div className="text-right shrink-0">
                 <div className="text-xs text-o-textSecondary uppercase tracking-wider">Total Spent</div>
                 <div className="font-mono text-lg font-semibold text-o-green mt-0.5">${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}</div>
+                {creditBalance > 0 && (
+                  <div className="font-mono text-xs text-o-amber mt-1">${creditBalance.toFixed(4)} credit available</div>
+                )}
               </div>
             </div>
           </div>

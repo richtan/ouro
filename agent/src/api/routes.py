@@ -32,6 +32,7 @@ from src.db.models import (
     AgentCost,
     AttributionLog,
     AuditLog,
+    Credit,
     HistoricalData,
     PaymentSession,
     WalletSnapshot,
@@ -41,6 +42,8 @@ from src.db.session import async_session_maker, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+X402_FACILITATOR_MIN_USD = 0.001
 
 
 def _get_client_ip(request: Request) -> str:
@@ -203,6 +206,8 @@ def _job_summary(payload: dict | None) -> dict:
         base["failure_reason"] = payload["failure_reason"]
     if "failure_stage" in payload:
         base["failure_stage"] = payload["failure_stage"]
+    if "credit_applied" in payload:
+        base["credit_applied"] = payload["credit_applied"]
     return base
 
 
@@ -470,26 +475,45 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
-    # Check if wallet has enough credits to skip x402 payment
+    # Read-only credit check — actual redemption is deferred until after
+    # x402 payment verification (or done immediately if fully covered) to
+    # prevent credit loss on the 402 round-trip.
+    credit_applied = 0.0
     paid_with_credit = False
     if submitter_address:
         credit_balance = await get_available_credit(db, submitter_address)
-        if credit_balance >= quote.price_usd:
-            # Redeem credits — skip x402 entirely
-            await redeem_credits(db, submitter_address, quote.price_usd)
-            paid_with_credit = True
+        if credit_balance > 0:
+            credit_applied = min(credit_balance, quote.price_usd)
+            if credit_applied >= quote.price_usd:
+                paid_with_credit = True
+            elif (quote.price_usd - credit_applied) < X402_FACILITATOR_MIN_USD:
+                paid_with_credit = True  # waive sub-minimum remainder
+
+    # Fully covered by credit — redeem now, skip x402
+    if paid_with_credit:
+        redeemed = credit_applied
+        await redeem_credits(db, submitter_address, redeemed)
+        waived = quote.price_usd - redeemed
+        if waived > 0:
             _event_bus.emit(
                 "credit",
-                f"Credits redeemed: ${quote.price_usd:.4f} from {submitter_address[:10]}... "
-                f"(remaining: ${credit_balance - quote.price_usd:.4f})",
+                f"Sub-minimum remainder ${waived:.4f} waived for {submitter_address[:10]}...",
             )
+            credit_applied = quote.price_usd  # for job record: show fully covered
+        _event_bus.emit(
+            "credit",
+            f"Credits redeemed: ${redeemed:.4f} from {submitter_address[:10]}... "
+            f"(remaining: ${credit_balance - redeemed:.4f})",
+        )
 
     if not paid_with_credit:
+        remaining_price = max(0, quote.price_usd - credit_applied)
+        remaining_price_str = f"${remaining_price:.4f}"
         config = ResourceConfig(
             scheme="exact",
             network=settings.CHAIN_CAIP2,
             pay_to=settings.WALLET_ADDRESS,
-            price=quote.price_str,
+            price=remaining_price_str,
         )
         try:
             requirements = _resource_server.build_payment_requirements(config)
@@ -543,8 +567,9 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
                 status_code=402,
                 content={
                     "error": "Payment required",
-                    "price": quote.price_str,
+                    "price": remaining_price_str,
                     "breakdown": quote.breakdown,
+                    "credit_applied": credit_applied,
                 },
                 headers={"PAYMENT-REQUIRED": encoded_header},
             )
@@ -579,9 +604,18 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
             logger.warning("x402 payment verification failed: %s", getattr(result, "error", "unknown"))
             raise HTTPException(403, "Payment verification failed")
 
+        # Payment verified — now redeem partial credits (deferred until here)
+        if credit_applied > 0:
+            await redeem_credits(db, submitter_address, credit_applied)
+            _event_bus.emit(
+                "credit",
+                f"Partial credits redeemed: ${credit_applied:.4f} from {submitter_address[:10]}... "
+                f"(x402 charged: {remaining_price_str})",
+            )
+
         _event_bus.emit(
             "x402",
-            f"Payment verified: {quote.price_str} from client "
+            f"Payment verified: {remaining_price_str} from client "
             f"(cost floor: ${quote.cost_floor_usd:.4f}, guaranteed profit: {quote.profit_pct:.1f}%)",
         )
 
@@ -613,6 +647,8 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     }
     if dockerfile_content:
         job_payload["dockerfile_content"] = dockerfile_content
+    if credit_applied > 0:
+        job_payload["credit_applied"] = credit_applied
 
     job = ActiveJob(
         id=job_id,
@@ -630,7 +666,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         job_id=uuid.UUID(job_id),
         wallet_address=submitter_address,
         amount_usdc=quote.price_usd,
-        detail={"price_str": quote.price_str, "paid_with_credit": paid_with_credit},
+        detail={"price_str": quote.price_str, "paid_with_credit": paid_with_credit, "credit_applied": credit_applied},
     )
 
     _event_bus.emit("job", f"Job {job_id[:8]} created, queued for processing")
@@ -639,6 +675,8 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         "job_id": job_id,
         "status": "pending",
         "price": quote.price_str,
+        "paid_with_credit": paid_with_credit,
+        "credit_applied": credit_applied,
         "profitability": {
             "guaranteed": quote.guaranteed_profitable,
             "estimated_profit_pct": round(quote.profit_pct, 1),
@@ -1022,6 +1060,30 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
 
 
 # ---------------------------------------------------------------------------
+# GET /api/credits/user — credit balance + history for a wallet
+# ---------------------------------------------------------------------------
+
+@router.get("/api/credits/user")
+async def get_user_credits(address: str, db: AsyncSession = Depends(get_db), _=Depends(require_admin_key)):
+    wallet = address.lower()
+    available = await get_available_credit(db, wallet)
+    result = await db.execute(
+        select(Credit).where(Credit.wallet_address == wallet)
+        .order_by(Credit.created_at.desc()).limit(20)
+    )
+    history = [
+        {
+            "amount_usdc": float(c.amount_usdc),
+            "reason": c.reason,
+            "redeemed": c.redeemed,
+            "created_at": c.created_at.isoformat(),
+        }
+        for c in result.scalars()
+    ]
+    return {"available": available, "history": history}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/jobs/{job_id} — single job detail (used by SDK polling)
 # ---------------------------------------------------------------------------
 
@@ -1299,6 +1361,18 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     if submitter_address and not _ETH_ADDRESS_RE.match(submitter_address):
         raise HTTPException(422, "Invalid submitter_address format")
 
+    # Advisory lock per wallet to serialize count-check + credit + insert
+    if submitter_address:
+        lock_key = int.from_bytes(submitter_address.lower().encode()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+        active_count_q = await db.execute(
+            select(func.count(ActiveJob.id))
+            .where(func.lower(ActiveJob.submitter_address) == submitter_address.lower())
+        )
+        if active_count_q.scalar_one() >= MAX_ACTIVE_JOBS_PER_WALLET:
+            raise HTTPException(429, f"Too many active jobs (max {MAX_ACTIVE_JOBS_PER_WALLET})")
+
     # 3. Calculate price and verify payment
     cache_key = (mode, cpus, time_limit_min, pricing_state.current_phase, pricing_state.demand_multiplier)
     quote = _price_cache.get(cache_key)
@@ -1306,25 +1380,43 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
-    # Check if wallet has enough credits to skip x402 payment
+    # Read-only credit check — deferred redemption (see submit_compute)
+    credit_applied = 0.0
     paid_with_credit = False
     if submitter_address:
         credit_balance = await get_available_credit(db, submitter_address)
-        if credit_balance >= quote.price_usd:
-            await redeem_credits(db, submitter_address, quote.price_usd)
-            paid_with_credit = True
+        if credit_balance > 0:
+            credit_applied = min(credit_balance, quote.price_usd)
+            if credit_applied >= quote.price_usd:
+                paid_with_credit = True
+            elif (quote.price_usd - credit_applied) < X402_FACILITATOR_MIN_USD:
+                paid_with_credit = True  # waive sub-minimum remainder
+
+    # Fully covered by credit — redeem now, skip x402
+    if paid_with_credit:
+        redeemed = credit_applied
+        await redeem_credits(db, submitter_address, redeemed)
+        waived = quote.price_usd - redeemed
+        if waived > 0:
             _event_bus.emit(
                 "credit",
-                f"Credits redeemed: ${quote.price_usd:.4f} from {submitter_address[:10]}... "
-                f"(remaining: ${credit_balance - quote.price_usd:.4f})",
+                f"Sub-minimum remainder ${waived:.4f} waived for {submitter_address[:10]}...",
             )
+            credit_applied = quote.price_usd  # for job record: show fully covered
+        _event_bus.emit(
+            "credit",
+            f"Credits redeemed: ${redeemed:.4f} from {submitter_address[:10]}... "
+            f"(remaining: ${credit_balance - redeemed:.4f})",
+        )
 
     if not paid_with_credit:
+        remaining_price = max(0, quote.price_usd - credit_applied)
+        remaining_price_str = f"${remaining_price:.4f}"
         config = ResourceConfig(
             scheme="exact",
             network=settings.CHAIN_CAIP2,
             pay_to=settings.WALLET_ADDRESS,
-            price=quote.price_str,
+            price=remaining_price_str,
         )
         try:
             requirements = _resource_server.build_payment_requirements(config)
@@ -1362,7 +1454,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
             )
             return JSONResponse(
                 status_code=402,
-                content={"error": "Payment required", "price": quote.price_str},
+                content={"error": "Payment required", "price": remaining_price_str, "credit_applied": credit_applied},
                 headers={"PAYMENT-REQUIRED": encoded_header},
             )
 
@@ -1378,6 +1470,15 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
 
         if not result.is_valid:
             raise HTTPException(403, "Payment verification failed")
+
+        # Payment verified — now redeem partial credits (deferred)
+        if credit_applied > 0:
+            await redeem_credits(db, submitter_address, credit_applied)
+            _event_bus.emit(
+                "credit",
+                f"Partial credits redeemed: ${credit_applied:.4f} from {submitter_address[:10]}... "
+                f"(x402 charged: {remaining_price_str})",
+            )
 
     # 4. Validate entrypoint + image
     session_dockerfile = job_params.get("dockerfile_content")
@@ -1426,6 +1527,8 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     job_params["files"] = files_list
     if session_dockerfile:
         job_params["dockerfile_content"] = session_dockerfile
+    if credit_applied > 0:
+        job_params["credit_applied"] = credit_applied
 
     # 6. Create job
     job_params["cpus"] = cpus
@@ -1450,12 +1553,12 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         job_id=uuid.UUID(job_id),
         wallet_address=submitter_address,
         amount_usdc=quote.price_usd,
-        detail={"price_str": quote.price_str, "via_session": body.session_id, "paid_with_credit": paid_with_credit},
+        detail={"price_str": quote.price_str, "via_session": body.session_id, "paid_with_credit": paid_with_credit, "credit_applied": credit_applied},
     )
 
     _event_bus.emit("job", f"Job {job_id[:8]} created via session {body.session_id[:8]}")
 
-    return {"job_id": job_id, "status": "pending", "price": quote.price_str}
+    return {"job_id": job_id, "status": "pending", "price": quote.price_str, "paid_with_credit": paid_with_credit, "credit_applied": credit_applied}
 
 
 # ---------------------------------------------------------------------------

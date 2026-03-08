@@ -103,6 +103,16 @@ export default function SubmitPage() {
   const [priceEstimate, setPriceEstimate] = useState<string | null>(null);
   const [priceLoading, setPriceLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [creditBalance, setCreditBalance] = useState(0);
+
+  // Fetch credit balance when wallet connects
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/proxy/credits?address=${address}`)
+      .then((r) => r.json())
+      .then((data) => setCreditBalance(data.available ?? 0))
+      .catch(() => {});
+  }, [address]);
 
   // Parse Dockerfile from files
   const dockerfileInfo = useMemo(() => {
@@ -218,12 +228,21 @@ export default function SubmitPage() {
     <main className="min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-4xl mx-auto pb-24">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
-          Submit Job
-        </h1>
-        <p className="font-body text-sm text-o-textSecondary mt-1">
-          Write code, configure resources, pay with USDC
-        </p>
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4">
+          <div>
+            <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
+              Submit Job
+            </h1>
+            <p className="font-body text-sm text-o-textSecondary mt-1">
+              Write code, configure resources, pay with USDC
+            </p>
+          </div>
+          {creditBalance > 0 && isConnected && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-amber/10 text-o-amber md:mt-1 self-start">
+              ${creditBalance.toFixed(4)} credit available
+            </span>
+          )}
+        </div>
       </div>
 
       {!isReady ? (
@@ -322,6 +341,7 @@ export default function SubmitPage() {
           onSubmit={handleSubmit}
           error={status === "error" ? error : null}
           validationErrors={validationErrors}
+          creditBalance={creditBalance}
         />
       )}
     </main>

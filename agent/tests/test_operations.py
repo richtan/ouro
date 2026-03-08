@@ -244,7 +244,7 @@ async def test_fail_job_already_cleaned_up():
 
 
 async def test_redeem_credits_full():
-    """2 credits totaling $3, redeem $3 → both marked redeemed."""
+    """2 credits totaling $3, redeem $3 → both marked redeemed, no change row."""
     db = AsyncMock()
     credit1 = MagicMock()
     credit1.amount_usdc = Decimal("1.00")
@@ -260,18 +260,23 @@ async def test_redeem_credits_full():
     await redeem_credits(db, "0xABC", 3.0)
     assert credit1.redeemed is True
     assert credit2.redeemed is True
-    db.commit.assert_awaited_once()
+    db.add.assert_not_called()  # No change row needed
+    db.commit.assert_not_awaited()  # Caller commits
 
 
-async def test_redeem_credits_partial():
-    """2 credits ($1 each), redeem $1.50 → both marked (remaining goes negative)."""
+async def test_redeem_credits_partial_split():
+    """2 credits ($1 each), redeem $1.50 → first fully redeemed, second split with $0.50 change."""
     db = AsyncMock()
     credit1 = MagicMock()
     credit1.amount_usdc = Decimal("1.00")
     credit1.redeemed = False
+    credit1.wallet_address = "0xabc"
+    credit1.reason = "refund"
     credit2 = MagicMock()
     credit2.amount_usdc = Decimal("1.00")
     credit2.redeemed = False
+    credit2.wallet_address = "0xabc"
+    credit2.reason = "refund"
 
     mock_result = MagicMock()
     mock_result.scalars.return_value = [credit1, credit2]
@@ -279,5 +284,47 @@ async def test_redeem_credits_partial():
 
     await redeem_credits(db, "0xABC", 1.50)
     assert credit1.redeemed is True
-    assert credit2.redeemed is True  # remaining=0.50, still marks this one
-    db.commit.assert_awaited_once()
+    assert credit2.redeemed is True
+    # Change row created for $0.50
+    db.add.assert_called_once()
+    change = db.add.call_args[0][0]
+    assert float(change.amount_usdc) == 0.5
+    assert "change from" in change.reason
+    db.commit.assert_not_awaited()
+
+
+async def test_redeem_credits_exact_single():
+    """Single credit exactly matches amount → redeemed, no change row."""
+    db = AsyncMock()
+    credit1 = MagicMock()
+    credit1.amount_usdc = Decimal("0.005")
+    credit1.redeemed = False
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value = [credit1]
+    db.execute.return_value = mock_result
+
+    await redeem_credits(db, "0xABC", 0.005)
+    assert credit1.redeemed is True
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
+
+
+async def test_redeem_credits_near_zero_change():
+    """Change amount rounds to zero → no change row created."""
+    db = AsyncMock()
+    credit1 = MagicMock()
+    credit1.amount_usdc = Decimal("0.0050001")
+    credit1.redeemed = False
+    credit1.wallet_address = "0xabc"
+    credit1.reason = "refund"
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value = [credit1]
+    db.execute.return_value = mock_result
+
+    # Redeem exactly $0.005 from $0.0050001 → change = $0.000000 (rounds to 0)
+    await redeem_credits(db, "0xABC", 0.0050001)
+    assert credit1.redeemed is True
+    db.add.assert_not_called()  # Near-zero change rounds away
+    db.commit.assert_not_awaited()

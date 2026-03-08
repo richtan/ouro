@@ -133,7 +133,15 @@ async def get_available_credit(db: AsyncSession, wallet_address: str) -> float:
 async def redeem_credits(
     db: AsyncSession, wallet_address: str, amount_usdc: float
 ) -> None:
-    """Mark credits as redeemed up to the given amount (oldest first)."""
+    """Mark credits as redeemed up to the given amount (oldest first).
+
+    When the last credit row exceeds the remaining amount, it is still marked
+    redeemed but a "change" credit row is created for the unused portion so
+    that exact credit accounting is preserved.
+
+    Does NOT commit — the caller is responsible for committing so that credit
+    redemption and job creation happen atomically under the advisory lock.
+    """
     remaining = amount_usdc
     result = await db.execute(
         select(Credit)
@@ -147,9 +155,22 @@ async def redeem_credits(
     for credit in result.scalars():
         if remaining <= 0:
             break
-        credit.redeemed = True
-        remaining -= float(credit.amount_usdc)
-    await db.commit()
+        credit_val = float(credit.amount_usdc)
+        if credit_val <= remaining:
+            credit.redeemed = True
+            remaining -= credit_val
+        else:
+            # Split: redeem this row, create change for the overshoot
+            credit.redeemed = True
+            change_amount = round(credit_val - remaining, 6)
+            if change_amount > 0:
+                change = Credit(
+                    wallet_address=credit.wallet_address,
+                    amount_usdc=change_amount,
+                    reason=f"change from {credit.reason}",
+                )
+                db.add(change)
+            remaining = 0
 
 
 async def log_audit(

@@ -13,6 +13,7 @@
 | `GET` | `/api/jobs` | Admin key | Recent active (20) + historical (50) jobs. |
 | `GET` | `/api/jobs/{job_id}` | None | Single job detail with output. UUID serves as capability token. |
 | `GET` | `/api/jobs/user?address=0x...` | Admin key | Jobs for a specific submitter wallet (50 active, 100 historical). |
+| `GET` | `/api/credits/user?address=0x...` | Admin key | Credit balance + history for a wallet. Returns `{available: number, history: [{amount_usdc, reason, redeemed, created_at}]}`. |
 | `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
 | `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
 | `POST` | `/api/sessions` | None | Create payment session (called by MCP server). Body: `{script, nodes, time_limit_min, price}`. |
@@ -56,5 +57,6 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
 | `POST /api/proxy/submit/from-session` | `AGENT_URL/api/compute/submit/from-session` | None | Session-based submit, forwards `payment-signature` |
 | `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
+| `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | None | Forwards `X-Admin-Key` (credit balance is wallet-scoped) |
 | `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | None | Payment session lookup |
 | `POST /api/proxy/sessions/{id}/complete` | `AGENT_URL/api/sessions/{id}/complete` | Mark session paid |

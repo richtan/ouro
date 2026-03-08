@@ -23,7 +23,7 @@ interface Session {
 
 type PayStatus = "loading" | "ready" | "submitting" | "paying" | "success" | "error" | "not_found";
 
-function JobSummary({ session }: { session: Session }) {
+function JobSummary({ session, creditBalance }: { session: Session; creditBalance: number }) {
   const payload = session.job_payload;
   const entrypoint = payload?.entrypoint as string | undefined;
   const fileCount = (payload?.file_count as number) ?? (payload?.files as unknown[])?.length;
@@ -84,7 +84,28 @@ function JobSummary({ session }: { session: Session }) {
           </div>
           <div className="flex justify-between items-center">
             <span className="text-xs text-o-textSecondary">Price</span>
-            <span className="font-mono text-sm font-semibold text-o-green">{session.price} USDC</span>
+            <div className="flex items-center gap-2">
+              {(() => {
+                const numericPrice = parseFloat(session.price.replace("$", ""));
+                if ((numericPrice - creditBalance) < 0.001) {
+                  return (
+                    <>
+                      <span className="font-mono text-sm text-o-muted line-through">{session.price} USDC</span>
+                      <span className="font-mono text-sm font-semibold text-o-green">$0.0000</span>
+                    </>
+                  );
+                }
+                if (creditBalance > 0) {
+                  return (
+                    <>
+                      <span className="font-mono text-sm text-o-muted line-through">{session.price} USDC</span>
+                      <span className="font-mono text-sm font-semibold text-o-green">${(numericPrice - creditBalance).toFixed(4)} USDC</span>
+                    </>
+                  );
+                }
+                return <span className="font-mono text-sm font-semibold text-o-green">{session.price} USDC</span>;
+              })()}
+            </div>
           </div>
         </div>
       </div>
@@ -110,6 +131,15 @@ export default function PayPage() {
   const [status, setStatus] = useState<PayStatus>("loading");
   const [error, setError] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
+  const [creditBalance, setCreditBalance] = useState(0);
+
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/proxy/credits?address=${address}`)
+      .then((r) => r.json())
+      .then((data) => setCreditBalance(data.available ?? 0))
+      .catch(() => {});
+  }, [address]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -219,7 +249,7 @@ export default function PayPage() {
         </p>
       </div>
 
-      {session && <JobSummary session={session} />}
+      {session && <JobSummary session={session} creditBalance={creditBalance} />}
 
       {status === "success" ? (
         <div className="card border-o-green/30">
@@ -263,7 +293,12 @@ export default function PayPage() {
                   ? "Preparing..."
                   : status === "paying"
                     ? "Sign Payment..."
-                    : `Pay ${session?.price} USDC`}
+                    : (() => {
+                        const np = session ? parseFloat(session.price.replace("$", "")) : 0;
+                        if ((np - creditBalance) < 0.001) return "Submit";
+                        if (creditBalance > 0) return `Pay $${(np - creditBalance).toFixed(4)} USDC`;
+                        return `Pay ${session?.price} USDC`;
+                      })()}
               </button>
             </div>
           </div>

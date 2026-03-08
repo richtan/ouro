@@ -17,6 +17,7 @@ interface StickySubmitBarProps {
   onSubmit: () => void;
   error: string | null;
   validationErrors: string[];
+  creditBalance?: number;
 }
 
 export default function StickySubmitBar({
@@ -32,8 +33,12 @@ export default function StickySubmitBar({
   onSubmit,
   error,
   validationErrors,
+  creditBalance,
 }: StickySubmitBarProps) {
   const isSubmitting = status === "submitting" || status === "paying";
+  const numericPrice = priceEstimate ? parseFloat(priceEstimate.replace("$", "")) : null;
+  const coveredByCredit = creditBalance != null && creditBalance > 0 && numericPrice != null && (numericPrice - creditBalance) < 0.001;
+  const hasPartialCredit = !coveredByCredit && creditBalance != null && creditBalance > 0;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-o-border bg-o-surface/95 backdrop-blur-sm">
@@ -81,13 +86,23 @@ export default function StickySubmitBar({
 
           <div className="flex items-center gap-4 w-full md:w-auto justify-end">
             {/* Price */}
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 flex items-center gap-2">
               {priceLoading ? (
                 <div className="w-4 h-4 border-2 border-o-border border-t-o-blueText rounded-full animate-spin" />
               ) : priceEstimate ? (
-                <span className="font-mono text-sm text-o-green whitespace-nowrap">
-                  {priceEstimate}
-                </span>
+                coveredByCredit ? (
+                  <>
+                    <span className="font-mono text-sm text-o-muted line-through whitespace-nowrap">{priceEstimate}</span>
+                    <span className="font-mono text-sm text-o-green whitespace-nowrap">$0.0000</span>
+                  </>
+                ) : hasPartialCredit ? (
+                  <>
+                    <span className="font-mono text-sm text-o-muted line-through whitespace-nowrap">{priceEstimate}</span>
+                    <span className="font-mono text-sm text-o-green whitespace-nowrap">${(numericPrice! - creditBalance!).toFixed(4)}</span>
+                  </>
+                ) : (
+                  <span className="font-mono text-sm text-o-green whitespace-nowrap">{priceEstimate}</span>
+                )
               ) : null}
             </div>
 
@@ -102,7 +117,9 @@ export default function StickySubmitBar({
                   ? "Preparing..."
                   : status === "paying"
                     ? "Sign Payment..."
-                    : "Submit & Pay"}
+                    : coveredByCredit
+                      ? "Submit"
+                      : "Submit & Pay"}
               </button>
             ) : (
               <ConnectButton />
