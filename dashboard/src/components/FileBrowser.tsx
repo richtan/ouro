@@ -6,6 +6,7 @@ import CodeEditor, { getLanguageForFile } from "@/components/submit/CodeEditor";
 
 interface FileBrowserProps {
   files: WorkspaceFile[];
+  hideLabel?: boolean;
 }
 
 interface TreeNode {
@@ -241,7 +242,7 @@ function TreeItem({
 
 /* ──────────────────── main component ─────────────────────── */
 
-export default function FileBrowser({ files }: FileBrowserProps) {
+export default function FileBrowser({ files, hideLabel }: FileBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [mobileTreeOpen, setMobileTreeOpen] = useState(true);
   const tree = useMemo(() => buildTree(files), [files]);
@@ -266,7 +267,7 @@ export default function FileBrowser({ files }: FileBrowserProps) {
 
   return (
     <div>
-      <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Files</div>
+      {!hideLabel && <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Files</div>}
       <div className="bg-o-bg border border-o-border rounded-lg overflow-hidden">
         {isSingleFile ? (
           /* Single file — no tree sidebar */

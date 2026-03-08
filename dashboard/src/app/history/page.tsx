@@ -216,14 +216,25 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
           })()}
 
           {job.files && job.files.length > 0 ? (
-            <FileBrowser files={job.files} />
+            <details>
+              <summary className="text-xs text-o-textSecondary uppercase tracking-wider cursor-pointer hover:text-o-text transition-colors">
+                Files
+              </summary>
+              <div className="mt-2">
+                <FileBrowser files={job.files} hideLabel />
+              </div>
+            </details>
           ) : job.script ? (
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Script</div>
-              <pre className="bg-o-bg border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
-                {job.script}
-              </pre>
-            </div>
+            <details>
+              <summary className="text-xs text-o-textSecondary uppercase tracking-wider cursor-pointer hover:text-o-text transition-colors">
+                Script
+              </summary>
+              <div className="mt-2">
+                <pre className="bg-o-bg border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
+                  {job.script}
+                </pre>
+              </div>
+            </details>
           ) : null}
 
           {events.length > 0 && (
