@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-interface JobEvent {
+export interface JobEvent {
   type: string;
   message: string;
   timestamp: string;
@@ -56,15 +56,28 @@ function eventsToStageInfo(events: JobEvent[]): StageInfo {
 const MAX_SSE_CONNECTIONS = 3;
 let activeConnections = 0;
 
-export function useJobEvents(jobId: string | null, jobStatus: string) {
+export function useJobEvents(jobId: string | null, jobStatus: string, persistedEvents?: JobEvent[]) {
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [sseStage, setSseStage] = useState<number | null>(null);
   const [sseFailed, setSseFailed] = useState(false);
   const [sseFailedStage, setSseFailedStage] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const loadedPersistedRef = useRef(false);
 
   const isTerminal = ["completed", "failed"].includes(jobStatus);
   const currentStage = sseStage ?? statusToStage(jobStatus);
+
+  // Load persisted events for terminal jobs that have no SSE events
+  useEffect(() => {
+    if (isTerminal && persistedEvents && persistedEvents.length > 0 && !loadedPersistedRef.current) {
+      loadedPersistedRef.current = true;
+      setEvents(persistedEvents);
+      const info = eventsToStageInfo(persistedEvents);
+      setSseStage(info.stage);
+      setSseFailed(info.sseFailed);
+      setSseFailedStage(info.sseFailedStage);
+    }
+  }, [isTerminal, persistedEvents]);
 
   useEffect(() => {
     if (!jobId) {
@@ -72,6 +85,7 @@ export function useJobEvents(jobId: string | null, jobStatus: string) {
       setSseStage(null);
       setSseFailed(false);
       setSseFailedStage(0);
+      loadedPersistedRef.current = false;
       return;
     }
     if (isTerminal) {

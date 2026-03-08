@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWalletReady } from "@/hooks/useWalletReady";
-import { useJobEvents } from "@/hooks/useJobEvents";
+import { useJobEvents, type JobEvent } from "@/hooks/useJobEvents";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
 import JobTimeline from "@/components/JobTimeline";
@@ -27,6 +27,7 @@ interface ActiveJob {
   failure_stage?: number;
   files?: WorkspaceFile[];
   credit_applied?: number;
+  event_log?: JobEvent[];
 }
 
 interface HistoricalJob {
@@ -46,6 +47,7 @@ interface HistoricalJob {
   failure_stage?: number;
   files?: WorkspaceFile[];
   credit_applied?: number;
+  event_log?: JobEvent[];
 }
 
 type AnyJob =
@@ -103,6 +105,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
   const { events, currentStage, sseFailed, sseFailedStage } = useJobEvents(
     open ? job.id : null,
     job.status,
+    job.event_log,
   );
   const isTerminal = ["completed", "failed"].includes(job.status) || currentStage >= 4;
 
@@ -263,18 +266,14 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
           ) : null}
 
           {events.length > 0 && (
-            isTerminal ? (
-              <details>
-                <summary className="text-xs text-o-textSecondary uppercase tracking-wider cursor-pointer hover:text-o-text transition-colors">
-                  Event Log
-                </summary>
-                <div className="mt-2">
-                  <JobEventFeed events={events} />
-                </div>
-              </details>
-            ) : (
-              <JobEventFeed events={events} />
-            )
+            <details open={!isTerminal}>
+              <summary className="text-xs text-o-textSecondary uppercase tracking-wider cursor-pointer hover:text-o-text transition-colors">
+                Event Log
+              </summary>
+              <div className="mt-2">
+                <JobEventFeed events={events} />
+              </div>
+            </details>
           )}
         </div>
       )}

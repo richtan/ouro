@@ -89,6 +89,14 @@ class EventBus:
             if q in self._subscribers:
                 self._subscribers.remove(q)
 
+    def get_job_events(self, job_id: str) -> list[dict]:
+        """Return all events for a specific job as serializable dicts."""
+        return [
+            {"type": e.type, "message": e.message, "timestamp": e.timestamp}
+            for e in self._history
+            if e.job_id == str(job_id)
+        ]
+
     async def subscribe_job(self, job_id: str):
         """Subscribe to events for a specific job only."""
         q: asyncio.Queue[Event] = asyncio.Queue(maxsize=100)

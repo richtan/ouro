@@ -107,6 +107,19 @@ async def _mark_failed(
     try:
         fault = classify_failure(failure_stage, reason, exit_code=exit_code, slurm_state=slurm_state)
 
+        # Persist event_log before archival (re-read to avoid overwriting output_text)
+        try:
+            async with session_maker() as db:
+                fresh = await db.get(ActiveJob, str(job.id))
+                if fresh:
+                    updated = dict(fresh.payload or {}, event_log=event_bus.get_job_events(str(job.id)))
+                    await db.execute(
+                        update(ActiveJob).where(ActiveJob.id == job.id).values(payload=updated)
+                    )
+                    await db.commit()
+        except Exception:
+            logger.warning("Failed to persist event_log for job %s", job.id)
+
         async with session_maker() as db:
             await fail_job(
                 db, str(job.id), reason,
@@ -182,18 +195,20 @@ async def _finalize_success(
 ) -> None:
     """Archive a successful job and log profitability."""
     async with session_maker() as db:
+        updated_payload = dict(job.payload)
         if deps.captured_output or deps.captured_error:
             import json
-            output_text = json.dumps({
+            updated_payload["output_text"] = json.dumps({
                 "output": deps.captured_output[:10000],
                 "error_output": deps.captured_error[:5000],
             })
-            await db.execute(
-                update(ActiveJob)
-                .where(ActiveJob.id == job.id)
-                .values(payload=dict(job.payload, output_text=output_text))
-            )
-            await db.commit()
+        updated_payload["event_log"] = event_bus.get_job_events(str(job.id))
+        await db.execute(
+            update(ActiveJob)
+            .where(ActiveJob.id == job.id)
+            .values(payload=updated_payload)
+        )
+        await db.commit()
 
         await complete_job(
             db=db,

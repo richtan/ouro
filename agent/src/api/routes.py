@@ -208,6 +208,8 @@ def _job_summary(payload: dict | None) -> dict:
         base["failure_stage"] = payload["failure_stage"]
     if "credit_applied" in payload:
         base["credit_applied"] = payload["credit_applied"]
+    if "event_log" in payload:
+        base["event_log"] = payload["event_log"]
     return base
 
 
