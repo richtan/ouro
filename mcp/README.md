@@ -31,7 +31,7 @@ Add to your MCP client config (works with Cursor, Claude Code, Claude Desktop, V
 }
 ```
 
-> **Claude Code** also supports: `claude mcp add ouro -- npx -y ouro-mcp`
+> **Claude Code CLI:** `claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp`
 
 ## Usage Examples
 

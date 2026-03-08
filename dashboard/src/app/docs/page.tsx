@@ -18,18 +18,9 @@ const CLIENT_CONFIGS = [
   },
   {
     name: "Claude Code",
-    file: "~/.claude/mcp.json",
-    language: "json" as const,
-    code: `{
-  "mcpServers": {
-    "ouro": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
+    file: "Terminal",
+    language: "bash" as const,
+    code: `claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp`,
   },
   {
     name: "Claude Desktop",

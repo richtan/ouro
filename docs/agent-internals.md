@@ -119,6 +119,11 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
+**Claude Code CLI:**
+```bash
+claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp
+```
+
 See `mcp/README.md` for setup instructions (works with any MCP-compatible client).
 
 MCP tools:

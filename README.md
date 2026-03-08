@@ -26,6 +26,8 @@ Add to your `.cursor/mcp.json`:
 
 Works with Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, OpenClaw, and OpenAI Agents SDK. See [`mcp/README.md`](mcp/README.md) for all client configs.
 
+**Claude Code CLI:** `claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp`
+
 Then ask your agent: *"Run `echo hello world` on the Ouro cluster."* Payment is automatic — your wallet signs USDC via x402.
 
 ### REST API
