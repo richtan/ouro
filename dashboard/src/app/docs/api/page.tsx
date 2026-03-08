@@ -163,31 +163,6 @@ export default function ApiPage() {
           </EndpointCard>
 
           <EndpointCard
-            method="POST"
-            path="/api/compute/submit/from-session"
-            auth="x402"
-            description="Submit a job from a payment session"
-          >
-            <p className="text-xs text-o-textSecondary mb-4">
-              Used by the pay page for session-based payment flow. Job parameters are read from the
-              session&apos;s stored payload, so only the session ID is needed.
-            </p>
-            <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Request Body</h4>
-            <ParamTable
-              params={[
-                { name: "session_id", type: "string", description: "Payment session ID from MCP flow", required: true },
-                { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
-              ]}
-            />
-            <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>
-            <ParamTable
-              params={[
-                { name: "payment-signature", type: "string", description: "Signed x402 payment", required: true },
-              ]}
-            />
-          </EndpointCard>
-
-          <EndpointCard
             method="GET"
             path="/api/jobs/{job_id}"
             description="Get job details and output"
@@ -245,43 +220,6 @@ export default function ApiPage() {
             description="Readiness probe (checks DB, wallet)"
           />
 
-          <EndpointCard
-            method="POST"
-            path="/api/sessions"
-            description="Create a payment session (used by MCP server)"
-          >
-            <ParamTable
-              params={[
-                { name: "script", type: "string", description: "Shell script to execute (script mode, optional)" },
-                { name: "job_payload", type: "object", description: "Job parameters for non-script modes (files, entrypoint, image, etc.)" },
-                { name: "cpus", type: "int", description: "Number of CPU cores", required: true },
-                { name: "time_limit_min", type: "int", description: "Max runtime in minutes", required: true },
-                { name: "price", type: "string", description: "Price string from quote", required: true },
-              ]}
-            />
-            <p className="text-xs text-o-textSecondary mt-3">
-              Provide either <code className="text-o-blueText">script</code> for script mode
-              or <code className="text-o-blueText">job_payload</code> for multi-file and other modes.
-            </p>
-          </EndpointCard>
-
-          <EndpointCard
-            method="GET"
-            path="/api/sessions/{session_id}"
-            description="Get payment session details (10-min TTL)"
-          />
-
-          <EndpointCard
-            method="POST"
-            path="/api/sessions/{session_id}/complete"
-            description="Mark payment session as paid"
-          >
-            <ParamTable
-              params={[
-                { name: "job_id", type: "string", description: "Job ID from successful payment", required: true },
-              ]}
-            />
-          </EndpointCard>
         </div>
       </section>
     </>

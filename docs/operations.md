@@ -162,7 +162,7 @@ No automated test suite. Manual verification:
 ## Companion Documentation
 
 - **`README.md`** — Project overview: live URLs, architecture summary, environment variable tables for all services, deployment instructions, MCP config snippet, Slurm cluster overview, and smart contract deployment.
-- **`mcp-server/README.md`** — MCP-specific quick start for Cursor/Claude Desktop, tool reference (run_compute_job, submit_compute_job, get_job_status, get_price_quote), self-hosting instructions, and the browser payment workflow.
+- **`mcp-server/README.md`** — MCP-specific quick start for Cursor/Claude Desktop, tool reference (get_payment_requirements, submit_and_pay, get_job_status, get_price_quote), self-hosting instructions, and the x402 payment flow.
 - **`.env.example`** — All environment variables with comments explaining each group. Copy to `.env` for local dev.
 - **`db/01-init.sql`** — Full PostgreSQL schema: all CREATE TABLE statements, indexes, and the monthly partition generator for historical_data.
 - **`db/02-seed.sql`** — Sample seed data: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.

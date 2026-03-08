@@ -63,7 +63,6 @@ Uses `cookieStorage` from wagmi so wallet connection survives page reloads with 
 All dashboard API calls go through Next.js API routes that proxy to the agent:
 - `/api/stats` → `AGENT_URL/api/stats`
 - `/api/proxy/submit` → `AGENT_URL/api/compute/submit` (forwards x402 payment headers)
-- `/api/proxy/sessions/{id}` → `AGENT_URL/api/sessions/{id}`
 
 This avoids exposing `AGENT_URL` to the client and works with Railway's internal networking.
 
@@ -117,10 +116,9 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 ```
 
 MCP tools:
-- `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`. Include a `Dockerfile` in `files` for custom environments (supports FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL; rejects USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD); `entrypoint`/`image` optional when Dockerfile present.
-- `get_job_status(job_id_or_session_id)` → Returns job details and output
+- `get_job_status(job_id)` → Returns job details and output
 - `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
-- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing. `files` can include a Dockerfile.
-- `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)
+- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for signing. `files` can include a Dockerfile.
+- `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment
 - `get_allowed_images()` → Returns available container images (ouro-ubuntu, ouro-python, ouro-nodejs)
 - `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access

@@ -10,11 +10,11 @@ const MCP_JSON = `{
 }`;
 
 const MCP_TOOLS = [
-  { name: "run_compute_job", description: "Submit a script and get a payment link" },
   { name: "get_job_status", description: "Poll for results" },
   { name: "get_price_quote", description: "Check pricing before committing" },
   { name: "get_payment_requirements", description: "Get x402 payment header for autonomous signing" },
   { name: "submit_and_pay", description: "Submit with a pre-signed x402 payment" },
+  { name: "get_allowed_images", description: "List available container images" },
   { name: "get_api_endpoint", description: "Get the direct API URL and schema" },
 ];
 
@@ -80,8 +80,12 @@ export default function DocsGetStarted() {
         </div>
         <p className="text-sm text-o-textSecondary mt-4">
           Your AI tool will call{" "}
-          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">run_compute_job</span>,
-          show you a payment link, and once you pay with USDC on Base, poll for results automatically.
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">get_payment_requirements</span>{" "}
+          to get the x402 payment header, sign the USDC payment with your wallet, then call{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">submit_and_pay</span>{" "}
+          with the signed payment. Finally, it polls{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">get_job_status</span>{" "}
+          for results automatically.
         </p>
       </section>
 

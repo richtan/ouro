@@ -11,7 +11,6 @@ from pydantic import ValidationError
 
 from src.api.routes import (
     ComputeSubmitRequest,
-    CreateSessionRequest,
     WorkspaceFile,
     _job_summary,
     _validate_image,
@@ -116,23 +115,6 @@ def test_image_field():
     req = ComputeSubmitRequest(script="echo hello", image="ouro-python")
     assert req.image == "ouro-python"
 
-
-# --- CreateSessionRequest ---
-
-
-def test_session_script():
-    req = CreateSessionRequest(script="echo hello")
-    assert req.script == "echo hello"
-
-
-def test_session_job_payload():
-    req = CreateSessionRequest(job_payload={"submission_mode": "multi_file", "entrypoint": "main.py"})
-    assert req.job_payload is not None
-
-
-def test_session_empty_raises():
-    with pytest.raises(ValidationError):
-        CreateSessionRequest()
 
 
 # --- _job_summary ---

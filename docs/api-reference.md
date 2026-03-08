@@ -5,7 +5,6 @@
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. |
-| `POST` | `/api/compute/submit/from-session` | x402 payment | Session-based submit for pay page. Body: `{session_id, submitter_address}`. Reads job params from session's `job_payload`. |
 | `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
@@ -16,9 +15,6 @@
 | `GET` | `/api/credits/user?address=0x...` | Admin key | Credit balance + history for a wallet. Returns `{available: number, history: [{amount_usdc, reason, redeemed, created_at}]}`. |
 | `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
 | `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
-| `POST` | `/api/sessions` | None | Create payment session (called by MCP server). Body: `{script, nodes, time_limit_min, price}`. |
-| `GET` | `/api/sessions/{session_id}` | None | Get payment session details. 10-minute TTL; returns 404 if expired. |
-| `POST` | `/api/sessions/{session_id}/complete` | None | Mark session as paid. Body: `{job_id}`. Called by pay page after successful x402 payment. |
 | `GET` | `/health` | None | Liveness probe. Returns `{"status": "ok"}`. |
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
@@ -55,8 +51,5 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
 | `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
-| `POST /api/proxy/submit/from-session` | `AGENT_URL/api/compute/submit/from-session` | None | Session-based submit, forwards `payment-signature` |
 | `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
 | `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | None | Forwards `X-Admin-Key` (credit balance is wallet-scoped) |
-| `GET /api/proxy/sessions/{id}` | `AGENT_URL/api/sessions/{id}` | None | Payment session lookup |
-| `POST /api/proxy/sessions/{id}/complete` | `AGENT_URL/api/sessions/{id}/complete` | Mark session paid |

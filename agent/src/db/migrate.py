@@ -32,26 +32,8 @@ async def run_migrations(engine) -> None:
             "ALTER TABLE active_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0"
         ))
 
-        # Phase 5a: multi-file workspaces
-        await conn.execute(text(
-            "ALTER TABLE payment_sessions ADD COLUMN IF NOT EXISTS job_payload JSONB"
-        ))
-        await conn.execute(text(
-            "ALTER TABLE payment_sessions ALTER COLUMN script DROP NOT NULL"
-        ))
-
-        # Phase 5a: CHECK constraint — sessions must have script or job_payload
-        await conn.execute(text("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint WHERE conname = 'chk_session_has_content'
-                ) THEN
-                    ALTER TABLE payment_sessions ADD CONSTRAINT chk_session_has_content
-                    CHECK (script IS NOT NULL OR job_payload IS NOT NULL);
-                END IF;
-            END $$;
-        """))
+        # Drop legacy payment_sessions table
+        await conn.execute(text("DROP TABLE IF EXISTS payment_sessions"))
 
         # Remove proof system columns (no longer used)
         await conn.execute(text(

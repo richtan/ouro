@@ -54,18 +54,6 @@ CREATE TABLE wallet_snapshots (
   recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE payment_sessions (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  status          TEXT NOT NULL DEFAULT 'pending',
-  script          TEXT NOT NULL,
-  cpus            INTEGER NOT NULL,
-  time_limit_min  INTEGER NOT NULL,
-  price           TEXT NOT NULL,
-  agent_url       TEXT,
-  job_id          UUID,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE TABLE attribution_log (
   id          SERIAL PRIMARY KEY,
   tx_hash     TEXT NOT NULL,

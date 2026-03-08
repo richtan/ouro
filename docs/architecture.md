@@ -48,8 +48,6 @@ ouro/
 │       │       ├── audit/route.ts          # Proxies to agent /api/audit (JWT-gated)
 │       │       ├── proxy/submit/route.ts   # Proxies to agent /api/compute/submit
 │       │       ├── proxy/jobs/route.ts     # Proxies to agent /api/jobs/user (admin key, no JWT)
-│       │       ├── proxy/sessions/[sessionId]/route.ts          # GET session
-│       │       ├── proxy/sessions/[sessionId]/complete/route.ts # POST complete
 │       │       ├── jobs/route.ts       # Proxies to agent /api/jobs (JWT-gated)
 │       │       ├── stats/route.ts      # Proxies to agent /api/stats (public)
 │       │       ├── wallet/route.ts     # Proxies to agent /api/wallet (public)
@@ -88,7 +86,7 @@ ouro/
 ├── mcp-server/
 │   ├── Dockerfile
 │   ├── pyproject.toml
-│   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote, get_payment_requirements, submit_and_pay, get_api_endpoint
+│   └── src/ouro_mcp/server.py  # MCP tools: get_job_status, get_price_quote, get_payment_requirements, submit_and_pay, get_api_endpoint
 ├── .mcp/
 │   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
@@ -146,16 +144,7 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 10. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace)
 11. On completion, job moved to `historical_data`
 
-### Job Submission (via MCP — Browser Flow)
-1. AI agent calls `run_compute_job` MCP tool (with `script` or `files` — `files` can include a Dockerfile; `entrypoint`/`image` optional when Dockerfile present)
-2. MCP server creates payment session via `POST {AGENT_URL}/api/sessions` (stores `job_payload` JSONB for non-script modes)
-3. Returns payment URL: `https://dashboard.../pay/{sessionId}`
-4. User opens link, connects wallet — pay page shows FROM image from Dockerfile if present, or file count/entrypoint summary
-5. Pay page submits to `POST /api/proxy/submit/from-session` with just `{session_id, submitter_address}` + payment header (no large payload re-sent)
-6. Agent reads `session.job_payload`, normalizes via `to_workspace_files()`, creates workspace, creates job, marks session paid
-7. AI agent polls with `get_job_status(session_id)` to get results
-
-### Job Submission (via MCP — Autonomous Flow)
+### Job Submission (via MCP)
 1. AI agent calls `get_payment_requirements` MCP tool with job details (script or files — `files` can include a Dockerfile)
 2. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` without payment → receives 402 + `PAYMENT-REQUIRED` header
 3. Returns price + raw payment header to calling agent
@@ -165,9 +154,6 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 7. Agent polls with `get_job_status(job_id)` to get results
 8. No private keys leave the calling agent — only the opaque payment signature is transmitted
 
-### Payment Sessions
-Sessions are stored in PostgreSQL (not in-memory) so they survive MCP server restarts and work across replicas. The MCP server creates/reads sessions via the agent API. Sessions support `job_payload` JSONB for storing submission parameters. On submit, payloads are normalized to workspace+entrypoint like all other submissions.
-
 ## Database Schema
 
 See `db/01-init.sql` for full schema. Key tables:
@@ -176,7 +162,6 @@ See `db/01-init.sql` for full schema. Key tables:
 - **historical_data** — Completed jobs archive (partitioned by month via `completed_at`)
 - **agent_costs** — Cost ledger (gas, llm_inference entries)
 - **wallet_snapshots** — Periodic ETH/USDC balance records
-- **payment_sessions** — MCP payment flow sessions (pending → paid, TTL 10min). `script` (nullable, legacy) and `job_payload` (JSONB) store the submission parameters; both are normalized to workspace+entrypoint on submit
 - **attribution_log** — ERC-8021 builder code records per transaction
 - **credits** — USDC credits issued to wallets when jobs fail after payment (auto-redeemable)
 - **audit_log** — Structured audit trail for all financial events (payment_received, job_completed, credit_issued, errors)

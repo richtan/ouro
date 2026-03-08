@@ -1,4 +1,4 @@
-"""Standalone MCP server for Ouro HPC compute with browser payment."""
+"""Standalone MCP server for Ouro HPC compute via x402 payments."""
 
 from __future__ import annotations
 
@@ -25,13 +25,6 @@ def _get_api_url() -> str:
         print("Error: OURO_API_URL environment variable is required.", file=sys.stderr)
         sys.exit(1)
     return url
-
-
-def _get_dashboard_url() -> str:
-    return os.environ.get(
-        "DASHBOARD_URL",
-        "https://ourocompute.com",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -154,50 +147,6 @@ async def _fetch_job(job_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Payment sessions (stored in agent DB via API; survives restarts and replicas)
-# ---------------------------------------------------------------------------
-
-
-def _payment_url(session_id: str) -> str:
-    return f"{_get_dashboard_url()}/pay/{session_id}"
-
-
-async def _create_session_via_api(
-    *,
-    script: str | None = None,
-    job_payload: dict | None = None,
-    cpus: int,
-    time_limit_min: int,
-    price: str,
-) -> dict:
-    """Create a payment session via the agent API (persisted in DB)."""
-    body: dict = {"cpus": cpus, "time_limit_min": time_limit_min, "price": price}
-    if script:
-        body["script"] = script
-    if job_payload:
-        body["job_payload"] = job_payload
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{_get_api_url()}/api/sessions",
-            json=body,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def _get_session_from_api(session_id: str) -> dict | None:
-    """Fetch a payment session from the agent API."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{_get_api_url()}/api/sessions/{session_id}")
-        if resp.status_code == 404:
-            return None
-        if resp.status_code >= 500:
-            return None
-        resp.raise_for_status()
-        return resp.json()
-
-
-# ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
 
@@ -205,11 +154,7 @@ mcp = FastMCP(
     "Ouro Compute",
     instructions=(
         "Ouro runs HPC compute jobs on a real Slurm cluster, paid in USDC via x402 on Base.\n\n"
-        "Two payment flows are available:\n\n"
-        "BROWSER FLOW (human pays):\n"
-        "  run_compute_job -> show payment_url to user -> user pays in browser -> "
-        "get_job_status with session_id\n\n"
-        "AUTONOMOUS FLOW (agent pays with own wallet):\n"
+        "Payment flow:\n"
         "  get_payment_requirements -> decode header, sign payment locally -> "
         "submit_and_pay with signature -> get_job_status with job_id\n\n"
         "SUBMISSION MODES:\n"
@@ -245,103 +190,14 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def get_job_status(job_id: str) -> dict:
-    """Check the status of a compute job or payment session.
+    """Check the status of a compute job.
 
-    Accepts either a job_id (from a completed payment) or a session_id
-    (from submit_compute_job / run_compute_job). Returns full job details
-    including output when completed.
+    Returns full job details including output when completed.
 
     Args:
-        job_id: The job ID or session ID to check
+        job_id: The job ID to check
     """
-    session = await _get_session_from_api(job_id)
-    if session:
-        if session.get("status") == "pending":
-            return {
-                "status": "awaiting_payment",
-                "payment_url": _payment_url(session["id"]),
-                "message": "User has not completed payment yet.",
-            }
-        real_job_id = session.get("job_id")
-        if not real_job_id:
-            return {"error": "session_error", "message": "Session marked paid but no job_id"}
-        job_id = real_job_id
-
     return await _fetch_job(job_id)
-
-
-@mcp.tool()
-async def run_compute_job(
-    script: str | None = None,
-    files: list[dict] | None = None,
-    entrypoint: str | None = None,
-    image: str = "ouro-ubuntu",
-    cpus: int = 1,
-    time_limit_min: int = 1,
-) -> dict:
-    """Submit a compute job to run on Ouro's HPC cluster (browser payment flow).
-
-    Returns a one-time payment link. The user must open it in their browser,
-    connect their wallet, and pay with USDC on Base. After paying, call
-    get_job_status with the returned session_id to get the result.
-
-    Provide ONE of: script or files.
-    - script: shell script string (simplest)
-    - files: list of {path, content} dicts for multi-file workspaces
-
-    Include a Dockerfile in files to configure the environment. Supported instructions:
-    FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL.
-    Not supported (returns error): USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD.
-    Without a Dockerfile, provide entrypoint and image params.
-
-    IMPORTANT: Always show the payment_url to the user so they can open it.
-
-    Args:
-        script: Shell script to execute (e.g. "echo hello" or "python3 -c 'print(42)'")
-        files: List of {path, content} file dicts for multi-file workspace
-        entrypoint: File to execute (required with files unless a Dockerfile is included)
-        image: Container image (default "ouro-ubuntu"). Options: ouro-ubuntu, ouro-python, ouro-nodejs
-        cpus: Number of CPU cores (default 1, max 8)
-        time_limit_min: Maximum runtime in minutes (default 1)
-    """
-    if not script and not files:
-        return {"error": "Provide one of: script or files"}
-    if files and not entrypoint and not _has_dockerfile(files):
-        return {"error": "entrypoint required when using files (or include a Dockerfile)"}
-    if not (1 <= cpus <= 8):
-        return {"error": "cpus must be between 1 and 8"}
-    if not (1 <= time_limit_min <= 60):
-        return {"error": "time_limit_min must be between 1 and 60"}
-
-    mode = _submission_mode(script, files)
-    quote = await _get_quote(cpus, time_limit_min, mode)
-
-    if script:
-        session = await _create_session_via_api(script=script, cpus=cpus, time_limit_min=time_limit_min, price=quote["price"])
-    else:
-        job_payload = {
-            "submission_mode": "multi_file",
-            "files": files,
-            "entrypoint": entrypoint,
-            "image": image,
-            "cpus": cpus,
-            "time_limit_min": time_limit_min,
-        }
-        session = await _create_session_via_api(job_payload=job_payload, cpus=cpus, time_limit_min=time_limit_min, price=quote["price"])
-
-    url = _payment_url(session["id"])
-
-    return {
-        "status": "awaiting_payment",
-        "payment_url": url,
-        "session_id": session["id"],
-        "price": quote["price"],
-        "message": (
-            f"Payment of {quote['price']} USDC required. "
-            f"Please open this link to pay with your wallet: {url}\n"
-            f"After paying, call get_job_status with session_id '{session['id']}' to get the result."
-        ),
-    }
 
 
 @mcp.tool()

@@ -4,28 +4,6 @@ import StepCard from "@/components/docs/StepCard";
 
 const TOOLS = [
   {
-    name: "run_compute_job",
-    description:
-      "Submit a job to run on the HPC cluster. Provide either a script (single command) or files + entrypoint (multi-file project). Returns a payment link for the user to pay in their browser. After payment, poll with get_job_status.",
-    params: [
-      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
-      { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
-      { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
-      { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
-      { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
-      { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-    ],
-    response: `{
-  "status": "awaiting_payment",
-  "payment_url": "https://ourocompute.com/pay/sess_f2a9c1...",
-  "session_id": "sess_f2a9c1...",
-  "price": "$0.0841",
-  "submission_mode": "script",
-  "setup_cost": 0.0,
-  "message": "Payment of $0.0841 USDC required..."
-}`,
-  },
-  {
     name: "get_job_status",
     description:
       "Check the status of a job or payment session. Accepts either a job_id or session_id. Returns full details including output when completed.",
@@ -157,7 +135,7 @@ export default function McpToolsPage() {
           MCP Tools Reference
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Full schemas and example responses for all 7 tools.
+          Full schemas and example responses for all 6 tools.
         </p>
       </div>
 
@@ -192,52 +170,10 @@ export default function McpToolsPage() {
         </section>
       ))}
 
-      {/* Payment flows */}
+      {/* Payment flow */}
       <section className="border-t border-o-border mt-10 pt-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-6">
-          Browser Payment Flow
-        </h2>
-        <p className="text-sm text-o-textSecondary leading-relaxed mb-6">
-          Best for when a human user is present to approve the payment in their browser.
-        </p>
-        <div>
-          <StepCard number={1} title="Submit the job">
-            <p>
-              Call{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                run_compute_job
-              </span>{" "}
-              with your script, CPUs, and time limit.
-            </p>
-          </StepCard>
-          <StepCard number={2} title="Show the payment link">
-            <p>
-              Display the returned{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                payment_url
-              </span>{" "}
-              to the user. They connect their wallet and pay USDC on Base.
-            </p>
-          </StepCard>
-          <StepCard number={3} title="Poll for results">
-            <p>
-              Call{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                get_job_status
-              </span>{" "}
-              with the{" "}
-              <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-                session_id
-              </span>
-              . Returns output when complete.
-            </p>
-          </StepCard>
-        </div>
-      </section>
-
-      <section className="border-t border-o-border mt-10 pt-10">
-        <h2 className="font-display text-lg font-bold text-o-text mb-6">
-          Autonomous Payment Flow
+          Payment Flow
         </h2>
         <p className="text-sm text-o-textSecondary leading-relaxed mb-6">
           For agents with their own wallet. No human interaction needed.
