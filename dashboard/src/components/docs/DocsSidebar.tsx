@@ -8,7 +8,6 @@ const NAV_ITEMS = [
   { href: "/docs/mcp", label: "MCP Tools" },
   { href: "/docs/agent", label: "Autonomous Agents" },
   { href: "/docs/api", label: "REST API" },
-  { href: "/docs/sdk", label: "Python SDK" },
   { href: "/docs/pricing", label: "Pricing" },
 ];
 

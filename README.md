@@ -74,23 +74,6 @@ curl https://api.ourocompute.com/api/jobs/{job_id}
 # { "status": "completed", "output": "hello\n", ... }
 ```
 
-### Python SDK
-
-```bash
-pip install ./ouro-sdk
-```
-
-```python
-from ouro_sdk import OuroClient
-
-async with OuroClient() as ouro:
-    quote = await ouro.quote(nodes=1, time_limit_min=1)
-    print(f"Price: {quote.price}")
-
-    result = await ouro.run("echo hello world")
-    print(result.output)  # "hello world\n"
-```
-
 ## How It Works
 
 1. **No signup** — POST your code with a Dockerfile that defines the environment (or just a script)
@@ -141,7 +124,6 @@ ouro/
 ├── contracts/      # Foundry Solidity project
 ├── db/             # SQL schema + seed data
 ├── mcp-server/     # Standalone MCP server for AI agents
-├── ouro-sdk/       # Python SDK for programmatic access
 └── deploy/         # Railway deploy scripts + Slurm cluster setup
 ```
 

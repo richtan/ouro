@@ -54,7 +54,6 @@ ouro/
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm/ (proxy, configs)
 ├── mcp-server/     # FastMCP server (run_compute_job, get_job_status, etc.)
-├── ouro-sdk/       # Python SDK (OuroClient: run, submit, wait, quote)
 ├── docs/           # Detailed reference docs (see table below)
 └── .mcp/           # MCP Registry manifest
 ```

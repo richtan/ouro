@@ -114,7 +114,6 @@ export default function DocsGetStarted() {
             { href: "/docs/mcp", title: "MCP Tools Reference", desc: "Full schemas and example responses for all 6 tools" },
             { href: "/docs/agent", title: "Build an Autonomous Agent", desc: "TypeScript agent with x402 payment flow" },
             { href: "/docs/api", title: "REST API", desc: "Direct HTTP endpoints with x402 payments" },
-            { href: "/docs/sdk", title: "Python SDK", desc: "OuroClient for programmatic access" },
           ].map((item) => (
             <Link
               key={item.href}

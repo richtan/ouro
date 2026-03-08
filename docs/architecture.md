@@ -89,11 +89,6 @@ ouro/
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── src/ouro_mcp/server.py  # MCP tools: run_compute_job, get_job_status, get_price_quote, get_payment_requirements, submit_and_pay, get_api_endpoint
-├── ouro-sdk/               # Python SDK for programmatic access
-│   ├── pyproject.toml
-│   └── src/ouro_sdk/
-│       ├── client.py       # OuroClient: run, submit, wait, quote, capabilities
-│       └── models.py       # JobResult, Quote dataclasses
 ├── .mcp/
 │   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
