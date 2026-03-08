@@ -8,6 +8,8 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
 import JobTimeline from "@/components/JobTimeline";
 import JobEventFeed from "@/components/JobEventFeed";
+import FileBrowser from "@/components/FileBrowser";
+import type { WorkspaceFile } from "@/lib/types";
 
 interface ActiveJob {
   id: string;
@@ -23,6 +25,7 @@ interface ActiveJob {
   retry_count?: number;
   failure_reason?: string;
   failure_stage?: number;
+  files?: WorkspaceFile[];
 }
 
 interface HistoricalJob {
@@ -42,6 +45,7 @@ interface HistoricalJob {
   image?: string;
   failure_reason?: string;
   failure_stage?: number;
+  files?: WorkspaceFile[];
 }
 
 type AnyJob =
@@ -231,14 +235,16 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
             </div>
           )}
 
-          {job.script && (
+          {job.files && job.files.length > 0 ? (
+            <FileBrowser files={job.files} />
+          ) : job.script ? (
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Script</div>
               <pre className="bg-o-bg border border-o-border rounded-lg p-3 font-mono text-xs text-o-text/80 overflow-x-auto max-h-32 whitespace-pre-wrap">
                 {job.script}
               </pre>
             </div>
-          )}
+          ) : null}
 
           {(() => {
             const outputText = hist?.output_text;

@@ -194,6 +194,8 @@ def _job_summary(payload: dict | None) -> dict:
         base["entrypoint"] = payload["entrypoint"]
     if "file_count" in payload:
         base["file_count"] = payload["file_count"]
+    if "files" in payload:
+        base["files"] = payload["files"]
     img = payload.get("image")
     if img and img != "ouro-ubuntu":
         base["image"] = img
@@ -579,6 +581,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         "entrypoint": entrypoint,
         "file_count": len(files_data),
         "workspace_path": workspace_path,
+        "files": files_data,
     }
     if dockerfile_content:
         job_payload["dockerfile_content"] = dockerfile_content
@@ -1377,6 +1380,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     job_params["workspace_path"] = workspace_path
     job_params["entrypoint"] = entrypoint
     job_params["file_count"] = len(files_list)
+    job_params["files"] = files_list
     if session_dockerfile:
         job_params["dockerfile_content"] = session_dockerfile
 

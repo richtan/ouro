@@ -108,3 +108,41 @@ def test_active_job_dict_includes_retry_count():
     assert result["retry_count"] == 1
     assert result["status"] == "pending"
     assert result["entrypoint"] == "main.py"
+
+
+# --- _job_summary with files ---
+
+
+def test_job_summary_includes_files():
+    payload = {
+        "entrypoint": "main.py",
+        "file_count": 2,
+        "files": [
+            {"path": "main.py", "content": "print('hi')"},
+            {"path": "helper.py", "content": "x = 1"},
+        ],
+    }
+    result = _job_summary(payload)
+    assert result["files"] == payload["files"]
+    assert result["file_count"] == 2
+    assert result["entrypoint"] == "main.py"
+
+
+def test_job_summary_omits_files_when_absent():
+    """Backward compat: old jobs without files in payload."""
+    payload = {"entrypoint": "main.py", "file_count": 2}
+    result = _job_summary(payload)
+    assert "files" not in result
+    assert result["file_count"] == 2
+
+
+def test_job_summary_includes_single_script_file():
+    """Script-mode jobs store files as [{path: 'job.sh', content: '...'}]."""
+    payload = {
+        "entrypoint": "job.sh",
+        "file_count": 1,
+        "files": [{"path": "job.sh", "content": "echo hello"}],
+    }
+    result = _job_summary(payload)
+    assert len(result["files"]) == 1
+    assert result["files"][0]["path"] == "job.sh"
