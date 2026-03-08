@@ -11,7 +11,7 @@ interface JobEvent {
 function statusToStage(status: string): number {
   switch (status) {
     case "pending":
-      return 0;
+      return 1;
     case "processing":
       return 1;
     case "running":
