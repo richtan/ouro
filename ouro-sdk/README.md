@@ -60,7 +60,6 @@ from ouro_sdk import OuroClient
 async with OuroClient() as ouro:
     caps = await ouro.capabilities()
     print(caps["payment"]["protocol"])  # "x402"
-    print(caps["trust"]["on_chain_proofs"])
 ```
 
 ## API

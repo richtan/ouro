@@ -16,7 +16,5 @@ class JobResult:
     status: str
     output: str = ""
     error_output: str = ""
-    output_hash: str | None = None
-    proof_tx_hash: str | None = None
     compute_duration_s: float | None = None
     price_usdc: float | None = None

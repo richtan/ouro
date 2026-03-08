@@ -1,6 +1,6 @@
-# Ouro — Proof-of-Compute Oracle
+# Ouro Compute
 
-A self-sustaining autonomous agent on Base that sells HPC compute via x402, posts on-chain proofs with ERC-8021 Builder Codes, registers its identity via ERC-8004, and exposes a public dashboard with real-time P&L.
+A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses ERC-8021 Builder Codes for attribution, registers its identity via ERC-8004, and exposes a public dashboard with real-time P&L.
 
 ## Architecture Overview
 
@@ -32,7 +32,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 
 | Service | Tech | Port | Location | Purpose |
 |---------|------|------|----------|---------|
-| **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, on-chain proofs, autonomous pricing loop |
+| **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop |
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
 | **MCP Server** | Python/FastMCP | 8080 | Railway | Standalone MCP server for AI agents (Cursor, Claude Desktop) to submit compute jobs |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, payment sessions |
@@ -50,7 +50,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, post
 ouro/
 ├── agent/          # Python FastAPI backend (src/: main, config, agent/, api/, chain/, db/, slurm/)
 ├── dashboard/      # Next.js 15 App Router (src/: app/, components/, lib/)
-├── contracts/      # Foundry Solidity (ProofOfCompute)
+├── contracts/      # Foundry Solidity (reserved for future contracts)
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm/ (proxy, configs)
 ├── mcp-server/     # FastMCP server (run_compute_job, get_job_status, etc.)
@@ -65,7 +65,7 @@ Full annotated tree: `docs/architecture.md`
 
 - **x402** — HTTP 402 payment protocol; USDC authorization via Coinbase CDP (mainnet) or x402.org (testnet)
 - **ERC-8021** — Builder Code attribution in transaction calldata (`agent/src/chain/erc8021.py`)
-- **ERC-8004** — On-chain agent identity registry at `0x8004...9432` with reputation feedback
+- **ERC-8004** — On-chain agent identity registry at `0x8004...9432`
 - **PydanticAI** — Typed LLM agent; deterministic fast path in production, LLM fallback for error recovery
 - **Slurm** — HPC workload manager via custom REST proxy (`deploy/slurm/slurm_proxy.py`)
 - **Docker** — Container isolation on Slurm workers; hardened `docker run` with `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, etc. Workers use `userns-remap: "default"` and iptables blocking the metadata server
@@ -141,8 +141,6 @@ docker compose up --build
 - **Spot node boot too slow** — `node-startup.sh` previously blocked on `docker pull` (3 images) before registering IDLE with Slurm, causing multi-CPU jobs to timeout. Fix: (1) bake base images into the golden image (`build-golden-image.sh`), (2) reorder `node-startup.sh` to register IDLE first and run iptables/pulls in background, (3) oracle polling timeout set to 120s (`oracle.py:_ensure_capacity`, `range(12)`), (4) `ResumeTimeout=180` in `slurm.conf`.
 - **Autoscaler 409 "already exists" race** — Two independent `AutoScaler` instances (in `oracle.py` and `loop.py`) have separate `_booting` dicts. If both try to boot the same node, GCP returns 409. `_boot_spot_instance()` in `scaler.py` treats "already exists" errors as successful `scale_out` events so the caller proceeds to poll for the node becoming IDLE.
 - **NFS exports block spot instances** — `/etc/exports` on `ouro-slurm` originally listed only the two permanent worker IPs. Spot instances get dynamic IPs not in the allow list, so `mount` fails, `set -euo pipefail` kills `node-startup.sh`, and the node never registers IDLE. Fix: use subnet-based export `/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)` covering the full GCP us-central1 VPC subnet. `deploy/setup-elastic-infra.sh:92-94` has this fix; ensure `setup-slurm-cluster.sh` doesn't overwrite it.
-- **Proof submission masked by DB errors** — `submit_onchain_proof_impl` in `oracle.py` previously had `log_cost`/`log_attribution` DB calls inside the same `try` block as the chain call. If the DB session went stale (held open 5-10 min during Slurm polling), the DB write threw, the broad `except` caught it, and the function returned `"ERROR: ..."` even though the proof was successfully posted on-chain. Fix: separated the chain call from DB logging into distinct try blocks so DB errors can't mask a successful proof. The `completed_no_proof` status in `processor.py` now correctly handles cases where the proof genuinely fails.
-- **`completed_no_proof` status** — Jobs where compute succeeds but proof submission fails are now archived as `completed_no_proof` instead of being marked `failed` with a credit refund. The `complete_job()` function in `db/operations.py` sets status based on whether `proof_tx` is provided.
 
 ## Workflow Preferences
 

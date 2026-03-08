@@ -36,7 +36,7 @@ const TERM_LINES: { text: string; color: string; delay: number }[] = [
   { text: "", color: "", delay: 0 },
   { text: '200 OK \u00b7 job_id: f2a9c1e8-...', color: "text-o-green", delay: 1400 },
   { text: "", color: "", delay: 0 },
-  { text: '\u2713 completed \u00b7 accuracy: 98.7% \u00b7 proof: 0x4f2a...c981', color: "text-o-green", delay: 1800 },
+  { text: '\u2713 completed \u00b7 accuracy: 98.7%', color: "text-o-green", delay: 1800 },
 ];
 
 function Terminal() {
@@ -87,8 +87,8 @@ const STEPS = [
   },
   {
     num: "3",
-    title: "Proven results",
-    desc: "Every result gets a SHA-256 proof posted on Base. Verifiable by anyone.",
+    title: "Get results",
+    desc: "Poll for output. Jobs run in isolated containers on a real Slurm cluster.",
   },
 ];
 
@@ -198,7 +198,6 @@ export default function LandingPage() {
               { label: "jobs completed", value: stats ? stats.completed_jobs : "\u2014" },
               { label: "active now", value: stats ? stats.active_jobs : "\u2014" },
               { label: "earned", value: stats ? `$${(stats.total_revenue_usdc ?? 0).toFixed(2)}` : "\u2014" },
-              { label: "on-chain proofs", value: stats ? stats.on_chain_proof_count : "\u2014" },
             ].map((s, i) => (
               <div key={s.label} className={`reveal${statsVisible ? " visible" : ""} reveal-delay-${i + 1}`}>
                 <Stat label={s.label} value={s.value} />

@@ -59,13 +59,12 @@ async function runJob(script: string, cpus = 1, timeMin = 1) {
   while (true) {
     const res = await fetch(\`\${OURO_API}/api/jobs/\${job_id}\`);
     result = await res.json();
-    if (["completed", "completed_no_proof", "failed"].includes(result.status)) break;
+    if (["completed", "failed"].includes(result.status)) break;
     await new Promise((r) => setTimeout(r, 3000));
   }
 
   console.log(\`Status: \${result.status}\`);
   console.log(\`Output: \${result.output}\`);
-  console.log(\`Proof: \${result.proof_tx_hash}\`);
   return result;
 }
 
@@ -153,7 +152,7 @@ export default function AgentPage() {
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
                 completed
               </span>
-              , the output and on-chain proof hash are included.
+              , the output is included.
             </p>
           </StepCard>
         </div>
@@ -183,10 +182,7 @@ export default function AgentPage() {
           <span className="text-o-muted">{" ──submit──▶ "}</span>
           <span className="text-o-textSecondary">{"Slurm Cluster"}</span>
           <span className="text-o-muted">{" ──run──▶ "}</span>
-          <span className="text-o-textSecondary">{"Workers"}</span>{"\n"}
-          <span className="text-o-blueText">{"Ouro API"}</span>
-          <span className="text-o-muted">{" ──proof──▶ "}</span>
-          <span className="text-o-textSecondary">{"Base (on-chain)"}</span>
+          <span className="text-o-textSecondary">{"Workers"}</span>
         </CodeBlock>
       </section>
 

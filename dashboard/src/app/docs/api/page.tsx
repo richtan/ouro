@@ -190,11 +190,11 @@ export default function ApiPage() {
           <EndpointCard
             method="GET"
             path="/api/jobs/{job_id}"
-            description="Get job details, output, and proof hash"
+            description="Get job details and output"
           >
             <p className="text-xs text-o-textSecondary">
               The job UUID serves as a capability token — anyone with the ID can view the job.
-              Returns status, output, error_output, output_hash, proof_tx_hash, compute_duration_s, and price_usdc.
+              Returns status, output, error_output, compute_duration_s, and price_usdc.
             </p>
           </EndpointCard>
 
@@ -229,7 +229,7 @@ export default function ApiPage() {
           >
             <p className="text-xs text-o-textSecondary">
               Returns payment protocol info, compute limits (max CPUs, max time), trust metrics
-              (on-chain proofs, uptime), and rate limits. Useful for agent discovery.
+              (uptime), and rate limits. Useful for agent discovery.
             </p>
           </EndpointCard>
 

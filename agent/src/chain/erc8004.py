@@ -127,10 +127,10 @@ async def register_agent(chain_client, dashboard_url: str, api_url: str) -> tupl
     """
     registration = {
         "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
-        "name": "Ouro Proof-of-Compute Oracle",
+        "name": "Ouro Compute",
         "description": (
             "Autonomous HPC compute oracle on Base. Accepts x402 USDC payments "
-            "for running scripts on Slurm clusters, posts verifiable on-chain proofs. "
+            "for running scripts on Slurm clusters. "
             "Self-sustaining via dynamic pricing."
         ),
         "image": "",

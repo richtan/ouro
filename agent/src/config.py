@@ -37,7 +37,6 @@ class Settings(BaseSettings):
     WALLET_ADDRESS: str = ""
 
     # Contracts
-    PROOF_CONTRACT_ADDRESS: str = ""
     USDC_CONTRACT_ADDRESS: str = "0x..."
 
     # ERC-8021
@@ -46,7 +45,6 @@ class Settings(BaseSettings):
 
     # ERC-8004
     ERC8004_AGENT_ID: str = ""
-    ERC8004_REPUTATION_REGISTRY: str = ""
 
     # x402
     X402_FACILITATOR_URL: str = "https://x402.org/facilitator"

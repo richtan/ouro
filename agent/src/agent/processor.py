@@ -21,7 +21,7 @@ from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
 
-FAST_PATH_TIMEOUT_S = 900  # 10-min image build + 5-min Slurm poll + proof
+FAST_PATH_TIMEOUT_S = 900  # 10-min image build + 5-min Slurm poll
 LLM_FALLBACK_TIMEOUT_S = 900
 MAX_RETRIES = 2
 MAX_CONCURRENT_JOBS = 3
@@ -158,13 +158,9 @@ async def _finalize_success(
             )
             await db.commit()
 
-        output_hash = bytes.fromhex(job_result.output_hash) if job_result.output_hash else b""
         await complete_job(
             db=db,
             job_id=str(job.id),
-            proof_tx=job_result.proof_tx,
-            output_hash=output_hash,
-            gas_cost_usd=deps.captured_gas_cost_usd,
             llm_cost_usd=llm_cost_usd,
             compute_duration_s=compute_duration_s,
         )
@@ -176,8 +172,6 @@ async def _finalize_success(
             wallet_address=job.submitter_address,
             amount_usdc=float(job.price_usdc),
             detail={
-                "proof_tx": job_result.proof_tx,
-                "gas_cost_usd": deps.captured_gas_cost_usd,
                 "duration_s": compute_duration_s,
             },
         )
@@ -185,7 +179,6 @@ async def _finalize_success(
     pv = verify_job_profit(
         job_id=str(job.id),
         price_charged_usd=float(job.price_usdc),
-        gas_cost_usd=deps.captured_gas_cost_usd,
         llm_cost_usd=llm_cost_usd,
         compute_duration_s=compute_duration_s,
         cpus=deps.cpus,
@@ -202,8 +195,7 @@ async def _finalize_success(
     if not pv.profitable:
         logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
 
-    suffix = " (no proof)" if not job_result.proof_tx else ""
-    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived{suffix}", job_id=str(job.id))
+    event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived", job_id=str(job.id))
 
 
 async def _process_one_job(
@@ -242,7 +234,6 @@ async def _process_one_job(
                 partition=payload.get("partition", "default"),
                 cpus=payload.get("cpus", 1),
                 time_limit_min=payload.get("time_limit_min", 1),
-                client_builder_code=job.client_builder_code,
                 slurm_client=slurm_client,
                 chain_client=chain_client,
                 db=db,
@@ -257,7 +248,7 @@ async def _process_one_job(
 
         compute_duration_s = time.monotonic() - job_start
 
-        if job_result and job_result.status in ("completed", "completed_no_proof"):
+        if job_result and job_result.status == "completed":
             await _finalize_success(
                 session_maker, event_bus, job, job_result,
                 deps, llm_cost_usd, compute_duration_s,

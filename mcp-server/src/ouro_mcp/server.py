@@ -249,7 +249,7 @@ async def get_job_status(job_id: str) -> dict:
 
     Accepts either a job_id (from a completed payment) or a session_id
     (from submit_compute_job / run_compute_job). Returns full job details
-    including output and on-chain proof hash when completed.
+    including output when completed.
 
     Args:
         job_id: The job ID or session ID to check

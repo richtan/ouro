@@ -11,7 +11,7 @@ import Footer from "@/components/Footer";
 export const metadata: Metadata = {
   title: "Ouro Compute",
   description:
-    "Autonomous HPC compute on Base. Submit jobs, pay with USDC via x402, get verifiable on-chain proofs.",
+    "Autonomous HPC compute on Base. Submit jobs, pay with USDC via x402.",
 };
 
 export default async function RootLayout({

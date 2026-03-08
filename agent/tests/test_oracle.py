@@ -12,7 +12,6 @@ from src.agent.oracle import (
     poll_slurm_status_impl,
     process_job_fast,
     resolve_image_if_needed,
-    submit_onchain_proof_impl,
     submit_to_slurm_impl,
     validate_request_impl,
 )
@@ -29,7 +28,6 @@ def make_deps(event_bus, mock_slurm_client, mock_chain_client):
             partition="default",
             cpus=1,
             time_limit_min=1,
-            client_builder_code=None,
             slurm_client=mock_slurm_client,
             chain_client=mock_chain_client,
             db=AsyncMock(),
@@ -83,10 +81,7 @@ async def test_fast_path_happy(make_deps, mock_slurm_client, mock_chain_client):
     deps = make_deps()
     result = await process_job_fast(deps)
     assert result.status == "completed"
-    assert result.proof_tx == "0xabc123"
-    assert result.output_hash is not None
     mock_slurm_client.submit_job.assert_awaited_once()
-    mock_chain_client.submit_proof.assert_awaited_once()
     # Workspace should always be cleaned up
     mock_slurm_client.delete_workspace.assert_awaited_once()
 
@@ -98,19 +93,11 @@ async def test_fast_path_validation_fail(make_deps, mock_slurm_client):
     mock_slurm_client.submit_job.assert_not_awaited()
 
 
-async def test_fast_path_slurm_error(make_deps, mock_slurm_client, mock_chain_client):
+async def test_fast_path_slurm_error(make_deps, mock_slurm_client):
     mock_slurm_client.submit_job.side_effect = RuntimeError("cluster down")
     deps = make_deps()
     result = await process_job_fast(deps)
     assert result.status == "failed"
-    mock_chain_client.submit_proof.assert_not_awaited()
-
-
-async def test_fast_path_proof_error(make_deps, mock_chain_client):
-    mock_chain_client.submit_proof.side_effect = RuntimeError("rpc error")
-    deps = make_deps()
-    result = await process_job_fast(deps)
-    assert result.status == "completed_no_proof"
 
 
 # --- validate_request_impl boundary cases ---
@@ -192,7 +179,7 @@ async def test_poll_completed(make_deps, mock_slurm_client):
 async def test_poll_failed_state(make_deps, mock_slurm_client):
     mock_slurm_client.get_job_status.return_value = {"state": "FAILED", "exit_code": 1}
     mock_slurm_client.get_job_output.return_value = {
-        "output": "", "error_output": "segfault", "output_hash": "",
+        "output": "", "error_output": "segfault",
     }
     deps = make_deps()
     result = await poll_slurm_status_impl(deps, slurm_job_id=42)
@@ -200,20 +187,6 @@ async def test_poll_failed_state(make_deps, mock_slurm_client):
     assert "exit_code=1" in result
     assert deps.captured_error == "segfault"
     mock_slurm_client.get_job_output.assert_awaited()
-
-
-# --- submit_onchain_proof_impl ---
-
-
-async def test_submit_proof_success(make_deps, mock_chain_client):
-    deps = make_deps()
-    # Need a mock db that supports log_cost and log_attribution
-    deps.db = AsyncMock()
-    result = await submit_onchain_proof_impl(deps, "Hello World")
-    assert result.startswith("PROOF_POSTED:")
-    assert "tx_hash=0xabc123" in result
-    assert deps.captured_gas_cost_usd == 0.001
-    mock_chain_client.submit_proof.assert_awaited_once()
 
 
 # --- Dockerfile integration (resolve_image_if_needed) ---
@@ -279,7 +252,6 @@ async def test_fast_path_with_dockerfile_prebuilt(make_deps, mock_slurm_client, 
     )
     result = await process_job_fast(deps)
     assert result.status == "completed"
-    assert result.proof_tx == "0xabc123"
     # submit_job should have been called with docker_image and entrypoint_cmd
     call_kwargs = mock_slurm_client.submit_job.call_args.kwargs
     assert call_kwargs["docker_image"] == "ubuntu:22.04"

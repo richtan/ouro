@@ -10,47 +10,6 @@ ERC20_BALANCE_OF_ABI = [
     }
 ]
 
-PROOF_OF_COMPUTE_ABI = [
-    {
-        "inputs": [
-            {"name": "jobId", "type": "string"},
-            {"name": "outputHash", "type": "bytes32"},
-        ],
-        "name": "submitProof",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-    {
-        "inputs": [{"name": "jobId", "type": "string"}],
-        "name": "verifyProof",
-        "outputs": [
-            {"name": "outputHash", "type": "bytes32"},
-            {"name": "timestamp", "type": "uint256"},
-            {"name": "submitter", "type": "address"},
-        ],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "inputs": [],
-        "name": "proofCount",
-        "outputs": [{"name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "name": "jobHash", "type": "bytes32"},
-            {"indexed": False, "name": "outputHash", "type": "bytes32"},
-            {"indexed": False, "name": "submitter", "type": "address"},
-        ],
-        "name": "ProofSubmitted",
-        "type": "event",
-    },
-]
-
 CODE_REGISTRY_ABI = [
     {
         "inputs": [{"name": "code", "type": "string"}],
@@ -92,60 +51,6 @@ ERC8004_ABI = [
     },
 ]
 
-# ERC-8004 Reputation Registry — on-chain feedback for agents
-ERC8004_REPUTATION_ABI = [
-    {
-        "inputs": [
-            {"name": "agentId", "type": "uint256"},
-            {"name": "score", "type": "uint8"},
-            {"name": "weight", "type": "uint256"},
-            {"name": "serviceType", "type": "string"},
-            {"name": "comment", "type": "string"},
-            {"name": "endpoint", "type": "string"},
-            {"name": "extra", "type": "string"},
-            {"name": "ref", "type": "bytes32"},
-        ],
-        "name": "giveFeedback",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-    {
-        "inputs": [
-            {"name": "agentId", "type": "uint256"},
-            {"name": "filters", "type": "string[]"},
-            {"name": "serviceType", "type": "string"},
-            {"name": "endpoint", "type": "string"},
-        ],
-        "name": "getSummary",
-        "outputs": [
-            {"name": "totalScore", "type": "uint256"},
-            {"name": "count", "type": "uint256"},
-            {"name": "weightedSum", "type": "uint256"},
-            {"name": "totalWeight", "type": "uint256"},
-        ],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "inputs": [
-            {"name": "agentId", "type": "uint256"},
-            {"name": "reviewer", "type": "address"},
-            {"name": "serviceType", "type": "string"},
-            {"name": "endpoint", "type": "string"},
-        ],
-        "name": "readFeedback",
-        "outputs": [
-            {"name": "score", "type": "uint8"},
-            {"name": "weight", "type": "uint256"},
-            {"name": "comment", "type": "string"},
-            {"name": "timestamp", "type": "uint256"},
-        ],
-        "stateMutability": "view",
-        "type": "function",
-    },
-]
-
 MULTICALL3_ABI = [
     {
         "inputs": [
@@ -175,15 +80,3 @@ MULTICALL3_ABI = [
     },
 ]
 
-PROOF_OF_COMPUTE_REPUTATION_ABI = [
-    {
-        "inputs": [{"name": "submitter", "type": "address"}],
-        "name": "getReputation",
-        "outputs": [
-            {"name": "totalProofs", "type": "uint256"},
-            {"name": "firstProofTimestamp", "type": "uint256"},
-        ],
-        "stateMutability": "view",
-        "type": "function",
-    },
-]

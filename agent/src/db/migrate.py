@@ -53,6 +53,29 @@ async def run_migrations(engine) -> None:
             END $$;
         """))
 
+        # Remove proof system columns (no longer used)
+        await conn.execute(text(
+            "ALTER TABLE historical_data DROP COLUMN IF EXISTS proof_tx_hash"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE historical_data DROP COLUMN IF EXISTS output_hash"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE historical_data DROP COLUMN IF EXISTS gas_paid_wei"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE historical_data DROP COLUMN IF EXISTS gas_paid_usd"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE historical_data DROP COLUMN IF EXISTS builder_reward_usd"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE active_jobs DROP COLUMN IF EXISTS client_builder_code"
+        ))
+        await conn.execute(text(
+            "UPDATE historical_data SET status = 'completed' WHERE status = 'completed_no_proof'"
+        ))
+
         # Performance indexes (Phase 4)
         logger.info("Running auto-migration: create performance indexes ...")
         await conn.execute(text(

@@ -14,10 +14,6 @@ from src.chain import erc8021
 from src.chain.abi import (
     CODE_REGISTRY_ABI,
     ERC20_BALANCE_OF_ABI,
-    ERC8004_ABI,
-    ERC8004_REPUTATION_ABI,
-    PROOF_OF_COMPUTE_ABI,
-    PROOF_OF_COMPUTE_REPUTATION_ABI,
 )
 from src.config import settings
 
@@ -39,11 +35,6 @@ class BaseChainClient:
     def __init__(self) -> None:
         self.w3 = AsyncWeb3(AsyncHTTPProvider(settings.BASE_RPC_URL))
         self.account = Account.from_key(settings.WALLET_PRIVATE_KEY)
-        self.contract = self.w3.eth.contract(
-            address=self.w3.to_checksum_address(settings.PROOF_CONTRACT_ADDRESS),
-            abi=PROOF_OF_COMPUTE_ABI,
-        )
-        self.contract_address = settings.PROOF_CONTRACT_ADDRESS
         self.usdc_contract = self.w3.eth.contract(
             address=self.w3.to_checksum_address(settings.USDC_CONTRACT_ADDRESS),
             abi=ERC20_BALANCE_OF_ABI,
@@ -129,16 +120,6 @@ class BaseChainClient:
         except Exception:
             return 100_000
 
-    async def submit_proof(
-        self,
-        job_id: str,
-        output_hash: bytes,
-        client_builder_code: str | None = None,
-    ) -> TxResult:
-        calldata = self.contract.encode_abi("submitProof", args=[job_id, output_hash])
-        extra = [client_builder_code] if client_builder_code else None
-        return await self.send_tx(self.contract_address, calldata, extra_codes=extra)
-
     async def send_heartbeat(self) -> TxResult:
         return await self.send_tx(self.account.address, b"", value=0)
 
@@ -179,60 +160,3 @@ class BaseChainClient:
             else None
         )
         return {"code": code, "registered": is_registered, "payout_address": payout}
-
-    async def get_on_chain_proof_count(self) -> int:
-        try:
-            reputation_contract = self.w3.eth.contract(
-                address=self.w3.to_checksum_address(settings.PROOF_CONTRACT_ADDRESS),
-                abi=PROOF_OF_COMPUTE_REPUTATION_ABI,
-            )
-            result = await reputation_contract.functions.getReputation(
-                self.account.address
-            ).call()
-            return result[0]
-        except Exception:
-            try:
-                return await self.contract.functions.proofCount().call()
-            except Exception:
-                return 0
-
-    async def get_reputation_feedback(self, agent_id: int) -> dict | None:
-        """Read reputation summary from the ERC-8004 Reputation Registry."""
-        if not settings.ERC8004_REPUTATION_REGISTRY:
-            return None
-        try:
-            registry = self.w3.eth.contract(
-                address=self.w3.to_checksum_address(settings.ERC8004_REPUTATION_REGISTRY),
-                abi=ERC8004_REPUTATION_ABI,
-            )
-            result = await registry.functions.getSummary(
-                agent_id, [], "compute", ""
-            ).call()
-            total_score, count, weighted_sum, total_weight = result
-            return {
-                "feedback_count": count,
-                "average_score": round(weighted_sum / total_weight, 2) if total_weight > 0 else None,
-                "total_score": total_score,
-                "registry": settings.ERC8004_REPUTATION_REGISTRY,
-            }
-        except Exception as e:
-            logger.warning("Failed to read reputation feedback: %s", e)
-            return None
-
-    def encode_feedback_calldata(self, agent_id: int, score: int, job_id: str) -> bytes:
-        """Encode giveFeedback() calldata for client agents to submit on-chain."""
-        import hashlib
-
-        registry = self.w3.eth.contract(
-            address=self.w3.to_checksum_address(settings.ERC8004_REPUTATION_REGISTRY),
-            abi=ERC8004_REPUTATION_ABI,
-        )
-        # Use job_id hash as the ref bytes32
-        ref = hashlib.sha256(job_id.encode()).digest()
-        api_url = settings.PUBLIC_API_URL or "https://api.ourocompute.com"
-        return bytes.fromhex(
-            registry.encode_abi(
-                "giveFeedback",
-                args=[agent_id, score, 0, "compute", "", f"{api_url}/api/compute/submit", "", ref],
-            ).removeprefix("0x")
-        )

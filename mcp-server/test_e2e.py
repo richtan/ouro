@@ -149,7 +149,6 @@ async def step4_poll_job(client: httpx.AsyncClient, job_id: str) -> None:
         if status in ("completed", "failed"):
             print(f"  Output: {data.get('output', '')[:200]}")
             print(f"  Error: {data.get('error_output', '')[:200]}")
-            print(f"  Proof TX: {data.get('proof_tx_hash')}")
             print(f"  Duration: {data.get('compute_duration_s')}s")
             return
 

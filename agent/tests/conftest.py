@@ -25,12 +25,6 @@ def event_bus():
 @pytest.fixture
 def mock_chain_client():
     client = AsyncMock()
-    client.submit_proof.return_value = MagicMock(
-        tx_hash="0xabc123",
-        gas_cost_usd=0.001,
-        gas_cost_wei=100000,
-        codes=["ouro"],
-    )
     return client
 
 
@@ -39,7 +33,7 @@ def mock_slurm_client():
     client = AsyncMock()
     client.submit_job.return_value = 42
     client.get_job_status.return_value = {"state": "COMPLETED", "exit_code": 0, "reason": ""}
-    client.get_job_output.return_value = {"output": "Hello World", "error_output": "", "output_hash": ""}
+    client.get_job_output.return_value = {"output": "Hello World", "error_output": ""}
     client.create_workspace.return_value = "/ouro-jobs/workspaces/test-workspace"
     client.delete_workspace.return_value = True
     client.cancel_job.return_value = True
@@ -70,7 +64,6 @@ def make_active_job():
             "payload": {"workspace_path": "/ouro-jobs/workspaces/test", "entrypoint": "job.sh", "cpus": 1, "time_limit_min": 1},
             "slurm_job_id": None,
             "x402_tx_hash": None,
-            "client_builder_code": None,
             "submitted_at": None,
             "updated_at": None,
         }

@@ -9,8 +9,6 @@ interface Job {
   slurm_job_id: number | null;
   status: string;
   price_usdc: number;
-  gas_paid_usd: number | null;
-  proof_tx_hash: string | null;
   compute_duration_s: number | null;
   submitted_at: string;
   completed_at: string | null;
@@ -30,7 +28,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   processing: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
-  completed_no_proof: { bg: "bg-o-amber/10", text: "text-o-amber", dot: "bg-o-amber" },
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
@@ -147,11 +144,7 @@ function JobRow({ job }: { job: Job }) {
             </div>
             <div>
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Submitter</div>
-              <div className="font-mono text-xs text-o-text truncate">{job.submitter_address ?? "—"}</div>
-            </div>
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Gas</div>
-              <div className="font-mono text-xs text-o-red">${(job.gas_paid_usd ?? 0).toFixed(6)}</div>
+              <div className="font-mono text-xs text-o-text truncate">{job.submitter_address ?? "\u2014"}</div>
             </div>
           </div>
 
@@ -190,19 +183,6 @@ function JobRow({ job }: { job: Job }) {
           {job.retry_count != null && job.retry_count > 0 && (
             <div className="text-xs text-o-amber">
               Retries: {job.retry_count}
-            </div>
-          )}
-          {job.proof_tx_hash && (
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Proof TX</div>
-              <a
-                href={`https://basescan.org/tx/${job.proof_tx_hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-xs text-o-blueText hover:underline"
-              >
-                {job.proof_tx_hash.slice(0, 14)}...{job.proof_tx_hash.slice(-8)}
-              </a>
             </div>
           )}
           {job.script && (

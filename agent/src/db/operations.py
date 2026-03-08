@@ -20,9 +20,6 @@ from src.db.models import (
 async def complete_job(
     db: AsyncSession,
     job_id: str,
-    proof_tx: str | None,
-    output_hash: bytes,
-    gas_cost_usd: float,
     llm_cost_usd: float,
     compute_duration_s: float,
 ) -> None:
@@ -32,19 +29,15 @@ async def complete_job(
         if not job:
             raise ValueError(f"Active job {job_id} not found")
 
-        status = "completed" if proof_tx else "completed_no_proof"
         await db.execute(
             insert(HistoricalData).values(
                 id=job.id,
                 slurm_job_id=job.slurm_job_id,
                 submitter_address=job.submitter_address,
                 payload=job.payload,
-                status=status,
+                status="completed",
                 x402_tx_hash=job.x402_tx_hash,
                 price_usdc=job.price_usdc,
-                gas_paid_usd=gas_cost_usd,
-                output_hash=output_hash,
-                proof_tx_hash=proof_tx,
                 llm_cost_usd=llm_cost_usd,
                 compute_duration_s=compute_duration_s,
                 submitted_at=job.submitted_at,
@@ -77,7 +70,6 @@ async def fail_job(
                 status="failed",
                 x402_tx_hash=job.x402_tx_hash,
                 price_usdc=job.price_usdc,
-                gas_paid_usd=0,
                 compute_duration_s=compute_duration_s,
                 llm_cost_usd=0,
                 submitted_at=job.submitted_at,

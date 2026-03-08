@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 from dataclasses import dataclass, field
 
@@ -30,14 +29,12 @@ class OracleDeps:
     partition: str
     cpus: int
     time_limit_min: int
-    client_builder_code: str | None
     slurm_client: SlurmClient
     chain_client: BaseChainClient
     db: AsyncSession
     event_bus: EventBus
     captured_output: str = ""
     captured_error: str = ""
-    captured_gas_cost_usd: float = 0.0
     # Dockerfile-based fields
     dockerfile_content: str | None = None
     docker_image: str | None = None
@@ -47,8 +44,6 @@ class OracleDeps:
 class JobResult(BaseModel):
     job_id: str
     status: str
-    output_hash: str | None = None
-    proof_tx: str | None = None
     failure_stage: int | None = None
 
 
@@ -182,44 +177,6 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
         await asyncio.sleep(5)
 
     return "TIMEOUT: polling exceeded 5 minutes"
-
-
-async def submit_onchain_proof_impl(deps: OracleDeps, output_data: str) -> str:
-    deps.event_bus.emit("chain", f"Computing output hash for job {deps.job_id}", job_id=deps.job_id)
-
-    output_hash = hashlib.sha256(output_data.encode()).digest()
-    deps.event_bus.emit("chain", f"Submitting proof for job {deps.job_id} to Base", job_id=deps.job_id)
-
-    try:
-        result = await deps.chain_client.submit_proof(
-            job_id=deps.job_id,
-            output_hash=output_hash,
-            client_builder_code=deps.client_builder_code,
-        )
-    except Exception as e:
-        deps.event_bus.emit("chain_error", f"Proof submission failed: {e}", job_id=deps.job_id)
-        return f"ERROR: {e}"
-
-    deps.captured_gas_cost_usd = result.gas_cost_usd
-    deps.event_bus.emit(
-        "chain",
-        f"Proof posted for job {deps.job_id}: tx={result.tx_hash} (builder codes attached)",
-        job_id=deps.job_id,
-    )
-
-    # Log gas cost and attribution — DB errors must not mask a successful proof
-    try:
-        from src.db.operations import log_attribution, log_cost
-
-        await log_cost(deps.db, "gas", result.gas_cost_usd, {
-            "tx_hash": result.tx_hash, "gas_wei": str(result.gas_cost_wei),
-            "job_id": deps.job_id,
-        })
-        await log_attribution(deps.db, result.tx_hash, result.codes, result.gas_cost_wei)
-    except Exception as e:
-        logger.warning("Failed to log proof cost/attribution for job %s: %s", deps.job_id, e)
-
-    return f"PROOF_POSTED: tx_hash={result.tx_hash}, output_hash={output_hash.hex()}"
 
 
 # ---------------------------------------------------------------------------
@@ -381,18 +338,7 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     if not poll_result.startswith("COMPLETED"):
         return JobResult(job_id=deps.job_id, status="failed", failure_stage=3)
 
-    proof_result = await submit_onchain_proof_impl(deps, deps.captured_output)
-    if proof_result.startswith("ERROR"):
-        return JobResult(job_id=deps.job_id, status="completed_no_proof")
-
-    tx_hash = proof_result.split("tx_hash=")[1].split(",")[0]
-    output_hash = proof_result.split("output_hash=")[1]
-    return JobResult(
-        job_id=deps.job_id,
-        status="completed",
-        output_hash=output_hash,
-        proof_tx=tx_hash,
-    )
+    return JobResult(job_id=deps.job_id, status="completed")
 
 
 # ---------------------------------------------------------------------------
@@ -404,10 +350,10 @@ oracle_agent = Agent(
     deps_type=OracleDeps,
     output_type=JobResult,
     system_prompt=(
-        "You are Ouro, a Proof-of-Compute Oracle. You receive compute requests, "
-        "submit them to the HPC cluster, monitor execution, and post verifiable "
-        "proofs on-chain. You MUST use the tools in order: validate -> submit_to_slurm "
-        "-> poll_status -> submit_proof. Report results precisely."
+        "You are Ouro Compute. You receive compute requests, "
+        "submit them to the HPC cluster, and monitor execution. "
+        "You MUST use the tools in order: validate -> submit_to_slurm "
+        "-> poll_status. Report results precisely."
     ),
 )
 
@@ -425,8 +371,3 @@ async def submit_to_slurm(ctx: RunContext[OracleDeps]) -> str:
 @oracle_agent.tool
 async def poll_slurm_status(ctx: RunContext[OracleDeps], slurm_job_id: int) -> str:
     return await poll_slurm_status_impl(ctx.deps, slurm_job_id)
-
-
-@oracle_agent.tool
-async def submit_onchain_proof(ctx: RunContext[OracleDeps], output_data: str) -> str:
-    return await submit_onchain_proof_impl(ctx.deps, output_data)

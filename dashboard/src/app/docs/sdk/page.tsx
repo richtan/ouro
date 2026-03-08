@@ -15,7 +15,6 @@ async def main():
         # Submit and wait for results (requires x402-capable HTTP client)
         result = await ouro.run(script="echo hello world")
         print(f"Output: {result.output}")
-        print(f"Proof: {result.proof_tx_hash}")
 
 asyncio.run(main())`;
 
@@ -271,11 +270,9 @@ export default function SdkPage() {
             <ParamTable
               params={[
                 { name: "job_id", type: "str", description: "Job UUID" },
-                { name: "status", type: "str", description: 'Job status: "pending", "processing", "running", "completed", "completed_no_proof", "failed"' },
+                { name: "status", type: "str", description: 'Job status: "pending", "processing", "running", "completed", "failed"' },
                 { name: "output", type: "str", description: "stdout from the job" },
                 { name: "error_output", type: "str", description: "stderr from the job" },
-                { name: "output_hash", type: "str | None", description: "SHA-256 hash of the output" },
-                { name: "proof_tx_hash", type: "str | None", description: "On-chain proof transaction hash" },
                 { name: "compute_duration_s", type: "float | None", description: "Actual compute time in seconds" },
                 { name: "price_usdc", type: "float | None", description: "Price charged in USDC" },
               ]}

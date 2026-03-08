@@ -114,8 +114,6 @@ class OuroClient:
             status=data["status"],
             output=data.get("output", ""),
             error_output=data.get("error_output", ""),
-            output_hash=data.get("output_hash"),
-            proof_tx_hash=data.get("proof_tx_hash"),
             compute_duration_s=data.get("compute_duration_s"),
             price_usdc=data.get("price_usdc"),
         )

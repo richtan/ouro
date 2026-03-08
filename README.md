@@ -2,7 +2,7 @@
 
 Pay for compute over HTTP. No accounts. No API keys. Just USDC and a POST request.
 
-Submit a script via HTTP, get an x402 price quote, sign a USDC payment on Base, and your job runs on an HPC cluster. Results come back with an on-chain SHA-256 proof — verifiable by anyone. Integrate via MCP (AI agents), REST API (any HTTP client), or the Python SDK.
+Submit a script via HTTP, get an x402 price quote, sign a USDC payment on Base, and your job runs on an HPC cluster. Integrate via MCP (AI agents), REST API (any HTTP client), or the Python SDK.
 
 **[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)** · **[MCP](https://mcp.ourocompute.com/mcp)**
 
@@ -71,7 +71,7 @@ Include a `Dockerfile` in `files` to configure the environment — `FROM` picks 
 ```bash
 curl https://api.ourocompute.com/api/jobs/{job_id}
 
-# { "status": "completed", "output": "hello\n", "proof_tx_hash": "0x...", ... }
+# { "status": "completed", "output": "hello\n", ... }
 ```
 
 ### Python SDK
@@ -95,10 +95,10 @@ async with OuroClient() as ouro:
 
 1. **No signup** — POST your code with a Dockerfile that defines the environment (or just a script)
 2. **Pay per job** — the 402 response tells you the price, sign one USDC payment on Base
-3. **Proven results** — SHA-256 proof posted on-chain, verifiable by anyone
+3. **Get results** — stdout, stderr, and compute duration returned when complete
 
 ```
-POST → 402 + price → sign USDC → 200 + job_id → poll → results + on-chain proof
+POST → 402 + price → sign USDC → 200 + job_id → poll → results
 ```
 
 ## Architecture
@@ -125,10 +125,9 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results + on-ch
                      └─────────────────────┘
 ```
 
-- **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, posts on-chain proofs, runs autonomous pricing loop
+- **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, runs autonomous pricing loop
 - **Dashboard** (Next.js 15) — Public stats, wallet-gated admin, job submission UI, payment page for MCP flow
 - **MCP Server** (FastMCP) — MCP tools for AI agents to submit compute jobs
-- **Contracts** (Foundry/Solidity) — `ProofOfCompute.sol` on Base for proof attestation
 - **Database** (PostgreSQL 16) — Jobs, cost ledger, wallet snapshots, attribution log, audit trail
 
 Key protocols: [x402](https://www.x402.org/) (HTTP payments), [ERC-8021](https://eip.tools/eip/8021) (builder attribution), [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) (agent identity)
@@ -169,19 +168,9 @@ For secrets management via Doppler: `doppler run -- docker compose up --build`
 ./deploy/setup-slurm-cluster.sh       # Provision/update GCP Slurm cluster
 ```
 
-Smart contracts:
-
-```bash
-cd contracts && forge create src/ProofOfCompute.sol:ProofOfCompute \
-  --rpc-url https://mainnet.base.org --private-key $WALLET_PRIVATE_KEY
-```
-
 ## Testing
 
 ```bash
 # Agent tests
 cd agent && python -m pytest tests/ -v
-
-# Smart contract tests
-cd contracts && forge test
 ```

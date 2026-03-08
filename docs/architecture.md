@@ -20,7 +20,7 @@ ouro/
 │       │   ├── routes.py   # All HTTP endpoints (compute, jobs, stats, sessions, etc.)
 │       │   └── pricing.py  # Dynamic pricing engine (4-phase survival, demand elasticity)
 │       ├── chain/
-│       │   ├── client.py   # Web3 client (proofs, heartbeat, balances)
+│       │   ├── client.py   # Web3 client (heartbeat, balances)
 │       │   ├── erc8021.py  # Builder Code suffix encoder/decoder
 │       │   ├── erc8004.py  # Agent identity registration
 │       │   └── abi.py      # Minimal ABI definitions
@@ -73,11 +73,8 @@ ouro/
 │           ├── api.ts          # Client-side fetch helpers
 │           ├── admin-auth.ts   # JWT sign/verify helpers, cookie name constant
 │           └── dockerfile.ts   # Lightweight Dockerfile parser for UI validation and display
-├── contracts/              # Foundry Solidity project
-│   ├── foundry.toml
-│   ├── src/ProofOfCompute.sol
-│   ├── script/Deploy.s.sol
-│   └── test/ProofOfCompute.t.sol
+├── contracts/              # Foundry Solidity project (reserved for future contracts)
+│   └── foundry.toml
 ├── db/
 │   ├── 01-init.sql         # Full schema (tables, indexes, partitions)
 │   └── 02-seed.sql
@@ -108,8 +105,8 @@ ouro/
 
 - **x402** — HTTP 402 payment protocol. Agent returns 402 with PAYMENT-REQUIRED header; client signs USDC authorization. Facilitated by Coinbase CDP on mainnet, x402.org on testnet.
 - **ERC-8021** — Builder Code attribution appended to every on-chain transaction calldata. Format: `codesJoined + length(1 byte) + schemaId(0x00) + marker(16 bytes)`. See `agent/src/chain/erc8021.py`.
-- **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent resolves or registers its `agentId` on startup (stored in `ERC8004_AGENT_ID`). Supports the Reputation Registry (`ERC8004_REPUTATION_REGISTRY`) for on-chain feedback via `giveFeedback()`.
-- **PydanticAI** — Typed LLM agent with tools. The oracle agent has 4 tools: validate_request, submit_to_slurm, poll_slurm_status, submit_onchain_proof. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
+- **ERC-8004** — On-chain agent identity registry at `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`. Agent resolves or registers its `agentId` on startup (stored in `ERC8004_AGENT_ID`).
+- **PydanticAI** — Typed LLM agent with tools. The oracle agent has tools: validate_request, build_image_if_needed, submit_to_slurm, poll_slurm_status. In production, the deterministic fast path (`process_job_fast`) executes these directly without the LLM; the LLM agent is a fallback for complex error recovery.
 - **Slurm** — HPC workload manager. Jobs are submitted via a custom REST proxy (`slurm_proxy.py`) that wraps sbatch with Docker container isolation.
 - **Docker** — Container isolation for user scripts on Slurm workers. Containers run with hardened flags: `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, `--memory`, `--pids-limit`, `--tmpfs /tmp`. Workers use `userns-remap: "default"` and iptables rules blocking the GCP metadata server.
 - **Dockerfile → Docker** — Users write standard Dockerfiles. The agent parses them (`agent/src/agent/dockerfile.py`) and generates Docker wrapper scripts that build and run on-worker inside the Slurm job. Prebuilt aliases (`ouro-ubuntu` → `ubuntu:22.04`, `ouro-python` → `python:3.12-slim`, `ouro-nodejs` → `node:20-slim`) map directly to Docker Hub images and are pulled on demand; custom Dockerfiles are built on-worker with `DOCKER_BUILDKIT=0`. Multi-stage builds (multiple FROM) and `RUN --mount`/`# syntax=` directives are rejected. `needs_docker_build` flag distinguishes images needing `docker build` from those needing only `docker pull`.
@@ -150,8 +147,8 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 6. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
 7. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
 8. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
-9. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace → proof)
-10. On completion, job moved to `historical_data`, proof posted on-chain
+9. Background processor picks it up, runs oracle agent (validate → build image if needed → submit to Slurm → poll → cleanup workspace)
+10. On completion, job moved to `historical_data`
 
 ### Job Submission (via MCP — Browser Flow)
 1. AI agent calls `run_compute_job` MCP tool (with `script` or `files` — `files` can include a Dockerfile; `entrypoint`/`image` optional when Dockerfile present)

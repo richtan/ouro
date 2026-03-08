@@ -26,7 +26,7 @@ Restart Cursor. Ask the agent to run a compute job. It returns a one-time paymen
 2. Agent calls `run_compute_job` — gets back a payment link + price. The `files` list can include a Dockerfile that defines the environment (supports FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL).
 3. Agent shows you the link. You open it in your browser.
 4. Payment page: connect MetaMask, approve USDC payment on Base
-5. Job runs on the Slurm cluster. Agent gets stdout, stderr, and an on-chain proof.
+5. Job runs on the Slurm cluster. Agent gets stdout and stderr.
 6. **Your private key never leaves your browser.**
 
 AI agents with their own wallets can skip the browser entirely — see [Autonomous Flow](#autonomous-flow-agent-pays-with-own-wallet) below.
@@ -36,7 +36,7 @@ AI agents with their own wallets can skip the browser entirely — see [Autonomo
 | Tool | Description |
 |---|---|
 | **run_compute_job** | Submit a job with `script` or `files` (include a Dockerfile for custom environments — supports COPY, ADD, ARG, LABEL, SHELL, EXPOSE). Returns payment link + session_id. User pays in browser. |
-| **get_job_status** | Poll a job or session by ID. Returns output + proof when complete. |
+| **get_job_status** | Poll a job or session by ID. Returns output when complete. |
 | **get_price_quote** | Check pricing without paying. |
 | **get_payment_requirements** | Get x402 payment header for autonomous signing (step 1 of agent flow). |
 | **submit_and_pay** | Submit a job with a pre-signed x402 payment (step 2 of agent flow). |

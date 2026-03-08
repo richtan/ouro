@@ -113,7 +113,7 @@ async def test_complete_job_not_found():
     db.get.return_value = None
 
     with pytest.raises(ValueError, match="not found"):
-        await complete_job(db, "nonexistent-id", "0xtx", b"\x00", 0.001, 0.001, 10.0)
+        await complete_job(db, "nonexistent-id", 0.001, 10.0)
 
 
 async def test_complete_job_archives():
@@ -131,34 +131,10 @@ async def test_complete_job_archives():
     job.submitted_at = None
     db.get.return_value = job
 
-    await complete_job(db, str(job.id), "0xproof", b"\x01\x02", 0.001, 0.001, 15.0)
+    await complete_job(db, str(job.id), 0.001, 15.0)
     db.execute.assert_awaited_once()  # INSERT into historical_data
     db.delete.assert_awaited_once_with(job)
 
-
-async def test_complete_job_no_proof():
-    """proof_tx=None → status='completed_no_proof' in historical data."""
-    db = AsyncMock()
-    db.begin = MagicMock(return_value=_FakeBegin())
-
-    job = MagicMock()
-    job.id = uuid.uuid4()
-    job.slurm_job_id = 42
-    job.submitter_address = "0xabc"
-    job.payload = {"script": "echo hi"}
-    job.x402_tx_hash = "0xtx"
-    job.price_usdc = Decimal("0.05")
-    job.submitted_at = None
-    db.get.return_value = job
-
-    await complete_job(db, str(job.id), None, b"\x01\x02", 0.0, 0.001, 15.0)
-    db.execute.assert_awaited_once()
-    # Extract the status from the INSERT clause parameters
-    insert_stmt = db.execute.call_args[0][0]
-    params = insert_stmt.compile().params
-    assert params["status"] == "completed_no_proof"
-    assert params["proof_tx_hash"] is None
-    db.delete.assert_awaited_once_with(job)
 
 
 # --- fail_job ---

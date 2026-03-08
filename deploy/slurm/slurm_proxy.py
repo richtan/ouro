@@ -5,7 +5,6 @@ so the agent's SlurmClient needs zero changes.
 """
 
 import asyncio
-import hashlib
 import hmac
 import json
 import logging
@@ -429,8 +428,7 @@ async def get_job_output(
     except FileNotFoundError:
         pass
 
-    output_hash = hashlib.sha256((stdout + stderr).encode()).hexdigest()
-    return {"output": stdout, "error_output": stderr, "output_hash": output_hash}
+    return {"output": stdout, "error_output": stderr}
 
 
 @app.get("/slurm/v0.0.37/nodes")

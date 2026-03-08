@@ -157,13 +157,12 @@ async def calculate_price(
 def verify_job_profit(
     job_id: str,
     price_charged_usd: float,
-    gas_cost_usd: float,
     llm_cost_usd: float,
     compute_duration_s: float = 0.0,
     cpus: int = 1,
 ) -> ProfitVerification:
     infra_cost = cpus * (compute_duration_s / 60) * settings.INFRA_COST_PER_CPU_MINUTE
-    actual_cost = gas_cost_usd + llm_cost_usd + infra_cost
+    actual_cost = llm_cost_usd + infra_cost
     profit = price_charged_usd - actual_cost
     profit_pct = (profit / actual_cost * 100) if actual_cost > 0 else float("inf")
 

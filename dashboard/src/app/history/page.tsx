@@ -33,8 +33,6 @@ interface HistoricalJob {
   slurm_job_id: number | null;
   status: string;
   price_usdc: number;
-  gas_paid_usd: number | null;
-  proof_tx_hash: string | null;
   compute_duration_s: number | null;
   completed_at: string;
   script: string | null;
@@ -57,7 +55,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   processing: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   running: { bg: "bg-o-blue/10", text: "text-o-blueText", dot: "bg-o-blue" },
   completed: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
-  completed_no_proof: { bg: "bg-o-green/10", text: "text-o-green", dot: "bg-o-green" },
   failed: { bg: "bg-o-red/10", text: "text-o-red", dot: "bg-o-red" },
 };
 
@@ -105,7 +102,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
     open ? job.id : null,
     job.status,
   );
-  const isTerminal = ["completed", "completed_no_proof", "failed"].includes(job.status) || currentStage >= 5;
+  const isTerminal = ["completed", "failed"].includes(job.status) || currentStage >= 5;
 
   const prevStageRef = useRef(currentStage);
   useEffect(() => {
@@ -166,7 +163,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
           ) : (
             <JobTimeline stage={currentStage} failed={job.status === "failed"} failedStage={job.status === "failed" ? currentStage : undefined} />
           )}
-          <div className={`grid grid-cols-2 gap-3 ${hist?.gas_paid_usd != null ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="col-span-2 bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Job ID</div>
               <div className="font-mono text-xs text-o-text break-all">{job.id}</div>
@@ -181,14 +178,6 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
                 ${(job.price_usdc ?? 0).toFixed(4)}
               </div>
             </div>
-            {hist?.gas_paid_usd != null && (
-              <div className="bg-o-bg rounded-lg p-3 border border-o-border">
-                <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Proof Gas</div>
-                <div className="font-mono text-xs text-o-textSecondary">
-                  ${hist.gas_paid_usd.toFixed(4)}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Mode-specific details */}
@@ -212,26 +201,6 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
                   <div className="font-mono text-xs text-o-text">{IMAGE_LABELS[job.image] ?? job.image}</div>
                 </div>
               )}
-            </div>
-          )}
-
-          {hist?.proof_tx_hash && (
-            <div>
-              <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">On-Chain Proof</div>
-              <a
-                href={`https://basescan.org/tx/${hist.proof_tx_hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono text-xs text-o-blueText hover:underline"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-                <span className="sm:hidden">{hist.proof_tx_hash.slice(0, 14)}...{hist.proof_tx_hash.slice(-8)}</span>
-                <span className="hidden sm:inline break-all">{hist.proof_tx_hash}</span>
-              </a>
             </div>
           )}
 
@@ -394,7 +363,7 @@ export default function HistoryPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-green/10 text-o-green">
                     <span className="w-1.5 h-1.5 rounded-full bg-o-green" />
-                    {jobs.filter(j => ["completed", "completed_no_proof"].includes(j.status)).length} completed
+                    {jobs.filter(j => j.status === "completed").length} completed
                   </span>
                   {jobs.some(j => j.status === "failed") && (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-o-red/10 text-o-red">

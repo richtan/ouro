@@ -96,13 +96,13 @@ def test_update_demand_high():
 
 
 def test_verify_profit_profitable():
-    pv = verify_job_profit("job1", price_charged_usd=0.10, gas_cost_usd=0.01, llm_cost_usd=0.01)
+    pv = verify_job_profit("job1", price_charged_usd=0.10, llm_cost_usd=0.01)
     assert pv.profitable is True
     assert pv.actual_profit_usd > 0
 
 
 def test_verify_profit_loss():
-    pv = verify_job_profit("job1", price_charged_usd=0.001, gas_cost_usd=0.05, llm_cost_usd=0.05)
+    pv = verify_job_profit("job1", price_charged_usd=0.001, llm_cost_usd=0.05)
     assert pv.profitable is False
     assert pv.actual_profit_usd < 0
 

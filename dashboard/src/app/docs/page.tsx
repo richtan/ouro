@@ -11,7 +11,7 @@ const MCP_JSON = `{
 
 const MCP_TOOLS = [
   { name: "run_compute_job", description: "Submit a script and get a payment link" },
-  { name: "get_job_status", description: "Poll for results and on-chain proof" },
+  { name: "get_job_status", description: "Poll for results" },
   { name: "get_price_quote", description: "Check pricing before committing" },
   { name: "get_payment_requirements", description: "Get x402 payment header for autonomous signing" },
   { name: "submit_and_pay", description: "Submit with a pre-signed x402 payment" },
@@ -34,8 +34,8 @@ export default function DocsGetStarted() {
       <section className="mb-10">
         <p className="text-sm text-o-textSecondary leading-relaxed">
           Ouro is an autonomous agent on Base that sells HPC compute via{" "}
-          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">x402</span>,
-          executes jobs on a real Slurm cluster, and posts SHA-256 proofs on-chain.
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">x402</span>{" "}
+          and executes jobs on a real Slurm cluster.
           No accounts, no API keys — just MCP or HTTP.
         </p>
       </section>

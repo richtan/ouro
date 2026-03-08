@@ -9,7 +9,6 @@ interface OutputDisplayProps {
 function parseOutput(raw: string): {
   stdout: string;
   stderr: string;
-  hash: string | null;
 } {
   try {
     const obj = JSON.parse(raw);
@@ -17,7 +16,6 @@ function parseOutput(raw: string): {
       return {
         stdout: obj.output || "",
         stderr: obj.error_output || "",
-        hash: obj.output_hash || null,
       };
     }
   } catch {
@@ -32,14 +30,13 @@ function parseOutput(raw: string): {
     stderrStart >= 0 ? lines.slice(0, stderrStart).join("\n") : raw;
   const stderr =
     stderrStart >= 0 ? lines.slice(stderrStart + 1).join("\n") : "";
-  const hashMatch = raw.match(/sha256[:\s]+([a-f0-9]{64})/i);
-  return { stdout, stderr, hash: hashMatch?.[1] ?? null };
+  return { stdout, stderr };
 }
 
 export default function OutputDisplay({ raw }: OutputDisplayProps) {
   const [copied, setCopied] = useState(false);
   const [copiedErr, setCopiedErr] = useState(false);
-  const { stdout, stderr, hash } = useMemo(() => parseOutput(raw), [raw]);
+  const { stdout, stderr } = useMemo(() => parseOutput(raw), [raw]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(stdout);
@@ -89,12 +86,6 @@ export default function OutputDisplay({ raw }: OutputDisplayProps) {
         </div>
       )}
 
-      {hash && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-o-textSecondary">SHA-256:</span>
-          <span className="font-mono text-o-blueText break-all">{hash}</span>
-        </div>
-      )}
     </div>
   );
 }

@@ -29,7 +29,6 @@
 2. `build_image_if_needed` — Parses Dockerfile (if present in `deps.dockerfile_content`), resolves image via three paths: (a) prebuilt alias → maps to Docker Hub image (e.g. `ouro-ubuntu` → `ubuntu:22.04`), sets `needs_docker_build=False` (just `docker pull`), (b) Dockerfile with RUN/ENV/COPY/ADD → generates Docker wrapper script, sets `needs_docker_build=True` (on-worker `docker build`), (c) Docker Hub image without customization → `docker pull` only. Docker builds happen on the worker inside the Slurm job script — the proxy no longer has image build endpoints. `DOCKER_BUILDKIT=0` is enforced; multi-stage builds (multiple FROM) and `RUN --mount`/`# syntax=` directives are rejected at parse time. Supported instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with error: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. Mutates `deps.docker_image`, `deps.needs_docker_build`, and `deps.entrypoint_cmd`. Skips if no Dockerfile (legacy path).
 3. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint (and optional `docker_image` + `needs_docker_build` + `entrypoint_cmd` from Dockerfile), updates DB status to `running`
 4. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
-5. `submit_onchain_proof` — Hashes output, calls ProofOfCompute.submitProof(), logs gas cost + attribution
 
 ## OracleDeps
 
@@ -102,7 +101,6 @@ Ouro is discoverable by autonomous agents through multiple channels:
 | **MCP Registry** | `.mcp/server.json` (publish via `mcp-publisher`) | Official MCP server registry at registry.modelcontextprotocol.io |
 | **x402 Bazaar** | Automatic via CDP facilitator | Discovery via Bazaar extension in 402 response (input schema, output example) |
 | **ERC-8004 Identity** | On-chain at `0x8004...9432` | Agent identity NFT with service endpoints |
-| **Reputation API** | `GET /api/reputation` | Aggregated trust signals: proofs, success rate, on-chain feedback |
 | **Capabilities** | `GET /api/capabilities` | Machine-readable service description with trust section |
 
 ## MCP Integration
@@ -120,7 +118,7 @@ Add to `.cursor/mcp.json` or Claude Desktop config:
 
 MCP tools:
 - `run_compute_job(script?, files?, entrypoint?, image?, nodes, time_limit_min)` → Returns payment URL + session_id (browser flow). Provide `script` OR `files`. Include a `Dockerfile` in `files` for custom environments (supports FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL; rejects USER/VOLUME/HEALTHCHECK/STOPSIGNAL/ONBUILD); `entrypoint`/`image` optional when Dockerfile present.
-- `get_job_status(job_id_or_session_id)` → Returns job details, output, proof hash
+- `get_job_status(job_id_or_session_id)` → Returns job details and output
 - `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
 - `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for autonomous signing. `files` can include a Dockerfile.
 - `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment (autonomous flow)

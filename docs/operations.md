@@ -23,11 +23,9 @@ BASE_RPC_URL=https://mainnet.base.org
 CHAIN_ID=8453
 CHAIN_CAIP2=eip155:8453
 WALLET_PRIVATE_KEY, WALLET_ADDRESS
-PROOF_CONTRACT_ADDRESS
 USDC_CONTRACT_ADDRESS=0x...
 BUILDER_CODE=ouro
 ALLOWED_IMAGES=ouro-ubuntu,ouro-python,ouro-nodejs  # Prebuilt Docker image aliases mapped to Docker Hub (e.g. ouro-ubuntu → ubuntu:22.04). Custom Dockerfiles built on-worker
-ERC8004_REPUTATION_REGISTRY  # ERC-8004 Reputation Registry address (optional)
 SLURMREST_URL        # Set automatically by deploy/deploy.sh
 SLURMREST_JWT
 LLM_MODEL=openai:gpt-4o-mini
@@ -95,18 +93,6 @@ GCP instances: `ouro-slurm` (e2-small controller), `ouro-worker-1`, `ouro-worker
 
 The Slurm proxy (`slurm_proxy.py`) runs on the controller at port 6820 as a systemd service (`slurm-proxy`). It wraps sbatch calls with Docker container isolation (generates wrapper scripts with hardened `docker run` flags).
 
-### Smart Contracts
-
-```bash
-cd contracts
-forge build
-forge create src/ProofOfCompute.sol:ProofOfCompute \
-  --rpc-url https://mainnet.base.org \
-  --private-key $WALLET_PRIVATE_KEY
-```
-
-Set the resulting address as `PROOF_CONTRACT_ADDRESS`.
-
 ## Common Operations
 
 ### Redeploying after code changes
@@ -133,15 +119,6 @@ If adding a new table to `db/01-init.sql`, run the CREATE TABLE manually on the 
 
 ## Testing
 
-### Smart Contracts
-```bash
-cd contracts
-forge test          # Runs all tests in test/ProofOfCompute.t.sol
-forge test -vvv     # Verbose output with traces
-```
-
-Tests cover: proof submission, duplicate prevention, nonexistent proof lookup, multiple proofs, reputation tracking, and per-submitter isolation.
-
 ### Agent
 ```bash
 cd agent
@@ -149,7 +126,7 @@ python -m pytest tests/ -v --tb=short          # Run all tests
 python -m pytest tests/ --cov=src --cov-report=term-missing  # With coverage
 ```
 
-Tests cover 5 core modules: erc8021 (encoding/decoding), pricing (phases, demand, calculate_price), processor (retry logic, recovery, failure handling), operations (DB ops, credits, job archival), oracle (validation, Slurm submission, polling, proof posting).
+Tests cover core modules: erc8021 (encoding/decoding), pricing (phases, demand, calculate_price), processor (retry logic, recovery, failure handling), operations (DB ops, credits, job archival), oracle (validation, Slurm submission, polling).
 
 ### Dashboard
 No automated test suite. Manual verification:

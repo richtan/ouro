@@ -15,7 +15,6 @@ const EVENT_STYLES: Record<string, string> = {
   job_completed: "text-o-green",
   job_failed: "text-o-red",
   payment_received: "text-o-green",
-  proof_submitted: "text-o-blueText",
   gas_spent: "text-o-red",
   credit_issued: "text-o-amber",
   phase_change: "text-o-amber",

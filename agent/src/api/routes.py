@@ -590,7 +590,6 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         id=job_id,
         payload=job_payload,
         price_usdc=quote.price_usd,
-        client_builder_code=client_code,
         submitter_address=submitter_address,
         status="pending",
     )
@@ -724,14 +723,6 @@ async def get_stats():
             )
             return int(q.scalar_one())
 
-    async def _query_proof_count():
-        if not _chain_client:
-            return 0
-        try:
-            return await _chain_client.get_on_chain_proof_count()
-        except Exception:
-            return 0
-
     async def _query_recent_jobs():
         async with async_session_maker() as db:
             historical = await db.execute(
@@ -740,7 +731,6 @@ async def get_stats():
                     HistoricalData.price_usdc,
                     HistoricalData.compute_duration_s,
                     HistoricalData.completed_at,
-                    HistoricalData.proof_tx_hash,
                 )
                 .order_by(HistoricalData.completed_at.desc())
                 .limit(8)
@@ -756,14 +746,13 @@ async def get_stats():
             )
             return historical.all(), active.all()
 
-    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, proof_count, recent = (
+    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, recent = (
         await asyncio.gather(
             _query_revenue(),
             _query_gas_costs(),
             _query_llm_costs(),
             _query_active_count(),
             _query_jobs_last_hour(),
-            _query_proof_count(),
             _query_recent_jobs(),
         )
     )
@@ -793,7 +782,6 @@ async def get_stats():
         "heartbeat_interval_min": pricing_state.heartbeat_interval_min,
         "margin_multiplier": pricing_state.current_margin,
         "jobs_last_hour": jobs_last_hour,
-        "on_chain_proof_count": proof_count,
         "revenue_model": "guaranteed_margin_compute",
         "avg_cost_per_job": avg_cost_per_job,
         "avg_price_per_job": avg_price_per_job,
@@ -805,7 +793,6 @@ async def get_stats():
                     "price_usdc": float(r.price_usdc or 0),
                     "duration_s": float(r.compute_duration_s or 0) if hasattr(r, "compute_duration_s") else None,
                     "timestamp": (r.completed_at if hasattr(r, "completed_at") else r.submitted_at).isoformat(),
-                    "has_proof": bool(r.proof_tx_hash) if hasattr(r, "proof_tx_hash") else False,
                 }
                 for r in list(active_rows) + list(historical_rows)
             ],
@@ -882,8 +869,6 @@ async def get_jobs(db: AsyncSession = Depends(get_db), _=Depends(require_admin_k
                 "slurm_job_id": h.slurm_job_id,
                 "status": h.status,
                 "price_usdc": float(h.price_usdc),
-                "gas_paid_usd": float(h.gas_paid_usd) if h.gas_paid_usd else None,
-                "proof_tx_hash": h.proof_tx_hash,
                 "compute_duration_s": h.compute_duration_s,
                 "completed_at": h.completed_at.isoformat(),
                 "output_text": h.payload.get("output_text") if h.payload else None,
@@ -998,8 +983,6 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
                 "slurm_job_id": h.slurm_job_id,
                 "status": h.status,
                 "price_usdc": float(h.price_usdc),
-                "gas_paid_usd": float(h.gas_paid_usd) if h.gas_paid_usd else None,
-                "proof_tx_hash": h.proof_tx_hash,
                 "compute_duration_s": h.compute_duration_s,
                 "completed_at": h.completed_at.isoformat(),
                 "output_text": h.payload.get("output_text") if h.payload else None,
@@ -1016,18 +999,17 @@ async def get_user_jobs(address: str, db: AsyncSession = Depends(get_db), _=Depe
 
 def _parse_output_text(raw: str | None) -> dict:
     if not raw:
-        return {"output": "", "error_output": "", "output_hash": ""}
+        return {"output": "", "error_output": ""}
     try:
         obj = json.loads(raw)
         if isinstance(obj, dict) and "output" in obj:
             return {
                 "output": obj.get("output", ""),
                 "error_output": obj.get("error_output", ""),
-                "output_hash": obj.get("output_hash", ""),
             }
     except (ValueError, TypeError):
         pass
-    return {"output": raw, "error_output": "", "output_hash": ""}
+    return {"output": raw, "error_output": ""}
 
 
 @router.get("/api/jobs/{job_id}")
@@ -1047,11 +1029,7 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
             **_job_summary(active.payload),
             "output": parsed["output"],
             "error_output": parsed["error_output"],
-            "output_hash": parsed["output_hash"],
-            "proof_hash": None,
-            "proof_tx_hash": None,
             "compute_duration_s": None,
-            "gas_paid_usd": None,
         }
 
     hist_q = await db.execute(
@@ -1072,11 +1050,7 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
             **_job_summary(hist.payload),
             "output": parsed["output"],
             "error_output": parsed["error_output"],
-            "output_hash": parsed["output_hash"],
-            "proof_hash": hist.output_hash.hex() if hist.output_hash else None,
-            "proof_tx_hash": hist.proof_tx_hash,
             "compute_duration_s": hist.compute_duration_s,
-            "gas_paid_usd": float(hist.gas_paid_usd) if hist.gas_paid_usd else None,
             "failure_reason": hist.payload.get("failure_reason") if hist.payload else None,
         }
 
@@ -1421,13 +1395,6 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
 
 @router.get("/api/capabilities")
 async def get_capabilities():
-    proof_count = 0
-    if _chain_client:
-        try:
-            proof_count = await _chain_client.get_on_chain_proof_count()
-        except Exception:
-            pass
-
     return {
         "name": "Ouro",
         "description": "Autonomous HPC compute oracle on Base",
@@ -1449,12 +1416,9 @@ async def get_capabilities():
             "allowed_images": sorted(settings.allowed_images_set),
         },
         "trust": {
-            "proof_contract": settings.PROOF_CONTRACT_ADDRESS,
-            "on_chain_proofs": proof_count,
             "agent_address": settings.WALLET_ADDRESS,
             "erc8004_agent_id": settings.ERC8004_AGENT_ID or None,
             "identity_registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-            "reputation_endpoint": "/api/reputation",
         },
         "limits": {
             "max_active_jobs_per_wallet": MAX_ACTIVE_JOBS_PER_WALLET,
@@ -1508,7 +1472,7 @@ async def agent_card():
         "name": "Ouro Compute",
         "description": (
             "Autonomous HPC compute agent on Base. Submit scripts, "
-            "pay with USDC via x402, get on-chain proofs of execution."
+            "pay with USDC via x402."
         ),
         "url": base_url,
         "version": "1.0.0",
@@ -1540,8 +1504,8 @@ async def agent_card():
             {
                 "id": "get_job_status",
                 "name": "Check Job Status",
-                "description": "Get status, output, and proof hash of a submitted compute job.",
-                "tags": ["status", "results", "proof"],
+                "description": "Get status and output of a submitted compute job.",
+                "tags": ["status", "results"],
                 "inputModes": ["application/json"],
                 "outputModes": ["application/json"],
             },
@@ -1549,86 +1513,3 @@ async def agent_card():
     }
 
 
-# ---------------------------------------------------------------------------
-# GET /api/reputation — aggregated trust signals
-# ---------------------------------------------------------------------------
-
-@router.get("/api/reputation")
-async def get_reputation(db: AsyncSession = Depends(get_db)):
-    proof_count = 0
-    if _chain_client:
-        try:
-            proof_count = await _chain_client.get_on_chain_proof_count()
-        except Exception:
-            pass
-
-    completed_q = await db.execute(
-        select(func.count(HistoricalData.id)).where(HistoricalData.status == "completed")
-    )
-    failed_q = await db.execute(
-        select(func.count(HistoricalData.id)).where(HistoricalData.status == "failed")
-    )
-    total_completed = completed_q.scalar_one()
-    total_failed = failed_q.scalar_one()
-
-    # On-chain reputation from ERC-8004 Reputation Registry
-    on_chain_feedback = None
-    if _chain_client and settings.ERC8004_AGENT_ID:
-        try:
-            on_chain_feedback = await _chain_client.get_reputation_feedback(
-                int(settings.ERC8004_AGENT_ID)
-            )
-        except Exception:
-            pass
-
-    result = {
-        "agent_address": settings.WALLET_ADDRESS,
-        "erc8004_agent_id": settings.ERC8004_AGENT_ID or None,
-        "identity_registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-        "proof_contract": settings.PROOF_CONTRACT_ADDRESS,
-        "on_chain_proofs": proof_count,
-        "success_rate": round(total_completed / max(total_completed + total_failed, 1), 4),
-        "total_jobs_completed": total_completed,
-        "total_jobs_failed": total_failed,
-        "verify": {
-            "proof_contract": f"https://basescan.org/address/{settings.PROOF_CONTRACT_ADDRESS}#events",
-            "identity_nft": "https://basescan.org/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-        },
-    }
-
-    if on_chain_feedback:
-        result["on_chain_feedback"] = on_chain_feedback
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# GET /api/reputation/feedback-calldata — encoded calldata for giveFeedback
-# ---------------------------------------------------------------------------
-
-@router.get("/api/reputation/feedback-calldata")
-async def get_feedback_calldata(job_id: str, score: int):
-    """Returns encoded calldata for giveFeedback() so client agents
-    can submit on-chain feedback about Ouro without building the tx themselves."""
-    if not settings.ERC8004_AGENT_ID:
-        raise HTTPException(503, "Agent ID not yet registered on ERC-8004")
-    if not (1 <= score <= 5):
-        raise HTTPException(422, "Score must be between 1 and 5")
-    if not settings.ERC8004_REPUTATION_REGISTRY:
-        raise HTTPException(503, "Reputation Registry not configured")
-
-    if not _chain_client:
-        raise HTTPException(503, "Chain client not available")
-
-    calldata = _chain_client.encode_feedback_calldata(
-        agent_id=int(settings.ERC8004_AGENT_ID),
-        score=score,
-        job_id=job_id,
-    )
-
-    return {
-        "to": settings.ERC8004_REPUTATION_REGISTRY,
-        "data": f"0x{calldata.hex()}",
-        "chain_id": settings.CHAIN_ID,
-        "description": f"Submit feedback (score={score}) for Ouro agent (agentId={settings.ERC8004_AGENT_ID})",
-    }

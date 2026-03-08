@@ -111,7 +111,7 @@ class SlurmClient:
         return resp.json().get("cancelled", False)
 
     async def get_job_output(self, job_id: int) -> dict:
-        """Return {"output": str, "error_output": str, "output_hash": str}."""
+        """Return {"output": str, "error_output": str}."""
         try:
             resp = await self.client.get(f"/slurm/v0.0.38/job/{job_id}/output")
             resp.raise_for_status()
@@ -119,10 +119,9 @@ class SlurmClient:
             return {
                 "output": data.get("output", ""),
                 "error_output": data.get("error_output", ""),
-                "output_hash": data.get("output_hash", ""),
             }
         except Exception:
-            return {"output": "", "error_output": "", "output_hash": ""}
+            return {"output": "", "error_output": ""}
 
     async def get_cluster_info(self) -> dict:
         try:

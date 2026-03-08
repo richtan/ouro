@@ -28,7 +28,7 @@ const TOOLS = [
   {
     name: "get_job_status",
     description:
-      "Check the status of a job or payment session. Accepts either a job_id or session_id. Returns full details including output and proof hash when completed.",
+      "Check the status of a job or payment session. Accepts either a job_id or session_id. Returns full details including output when completed.",
     params: [
       {
         name: "job_id",
@@ -41,8 +41,6 @@ const TOOLS = [
   "id": "a1b2c3d4-...",
   "status": "completed",
   "output": "Hello world\\n",
-  "output_hash": "0x4f2a...c981",
-  "proof_tx_hash": "0x9e3f...1234",
   "compute_duration_s": 2.4,
   "price_usdc": 0.0841
 }`,
@@ -231,7 +229,7 @@ export default function McpToolsPage() {
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
                 session_id
               </span>
-              . Returns output and on-chain proof hash when complete.
+              . Returns output when complete.
             </p>
           </StepCard>
         </div>
@@ -283,7 +281,7 @@ export default function McpToolsPage() {
               <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
                 job_id
               </span>
-              . Returns output and on-chain proof hash when complete.
+              . Returns output when complete.
             </p>
           </StepCard>
         </div>

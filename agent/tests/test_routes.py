@@ -58,9 +58,9 @@ def test_job_summary_empty():
 
 
 def test_job_summary_includes_failure_reason():
-    payload = {"entrypoint": "main.py", "failure_reason": "proof submission failed"}
+    payload = {"entrypoint": "main.py", "failure_reason": "compute failed"}
     result = _job_summary(payload)
-    assert result["failure_reason"] == "proof submission failed"
+    assert result["failure_reason"] == "compute failed"
     assert result["entrypoint"] == "main.py"
 
 

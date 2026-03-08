@@ -11,7 +11,7 @@
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
 | `GET` | `/api/jobs` | Admin key | Recent active (20) + historical (50) jobs. |
-| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output, proof hash. UUID serves as capability token. |
+| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output. UUID serves as capability token. |
 | `GET` | `/api/jobs/user?address=0x...` | Admin key | Jobs for a specific submitter wallet (50 active, 100 historical). |
 | `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
 | `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
@@ -23,9 +23,6 @@
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
 | `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
-| `GET` | `/api/reputation` | None | Aggregated trust signals: on-chain proofs, success rate, job counts, ERC-8004 agentId, on-chain feedback summary. |
-| `GET` | `/api/reputation/feedback-calldata` | None | Returns encoded calldata for `giveFeedback()` on the ERC-8004 Reputation Registry. Query params: `job_id`, `score` (1-5). |
-
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
 
 ## Slurm proxy endpoints (defined in `deploy/slurm/slurm_proxy.py`, runs on controller:6820)

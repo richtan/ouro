@@ -17,7 +17,6 @@ function statusToStage(status: string): number {
     case "running":
       return 3;
     case "completed":
-    case "completed_no_proof":
     case "failed":
       return 5;
     default:
@@ -47,9 +46,7 @@ export function useJobEvents(jobId: string | null, jobStatus: string) {
   const [sseStage, setSseStage] = useState<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const isTerminal = ["completed", "completed_no_proof", "failed"].includes(
-    jobStatus,
-  );
+  const isTerminal = ["completed", "failed"].includes(jobStatus);
   const currentStage = sseStage ?? statusToStage(jobStatus);
 
   useEffect(() => {
