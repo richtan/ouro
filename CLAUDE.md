@@ -67,7 +67,7 @@ Full annotated tree: `docs/architecture.md`
 - **ERC-8021** — Builder Code attribution in transaction calldata (`agent/src/chain/erc8021.py`)
 - **ERC-8004** — On-chain agent identity registry at `0x8004...9432`
 - **PydanticAI** — Typed LLM agent; deterministic fast path in production, LLM fallback for error recovery
-- **Slurm** — HPC workload manager via custom REST proxy (`deploy/slurm/slurm_proxy.py`)
+- **Slurm** — HPC workload manager via custom REST proxy (`deploy/slurm/slurm_proxy.py`). Deployed on `ouro-slurm` at `/opt/slurmrest/slurm_proxy.py`, runs via systemd `slurm-proxy` service using venv at `/opt/slurmrest/bin/python3`. See `docs/operations.md` § GCP Slurm Cluster for redeploy steps
 - **Docker** — Container isolation on Slurm workers; hardened `docker run` with `--read-only`, `--network none`, `--cap-drop ALL`, `--user 65534:65534`, etc. Workers use `userns-remap: "default"` and iptables blocking the metadata server
 - **Prebuilt images** — `ouro-ubuntu` (ubuntu:22.04), `ouro-python` (python:3.12-slim), `ouro-nodejs` (node:20-slim) mapped to Docker Hub images; custom images built on-worker inside the Slurm job script. `needs_docker_build` distinguishes images needing `docker build` from those needing only `docker pull`
 
@@ -95,6 +95,8 @@ Retry: transient failures with retry_count < 2 reset to `pending`. After max ret
 Recovery on startup: `recover_stuck_jobs()` resets `processing` → `pending`, archives `running` → `failed` via `fail_job()`.
 
 Both `complete_job()` and `fail_job()` in `db/operations.py` archive to `historical_data` and delete from `active_jobs`.
+
+Auto-migration: `agent/src/db/migrate.py` runs on every agent startup — handles `ADD/DROP COLUMN IF [NOT] EXISTS` and idempotent data migrations. No manual SQL needed for schema changes. See `docs/operations.md` § Database migrations.
 
 Full details: `docs/architecture.md` § Database Schema, `db/01-init.sql`
 

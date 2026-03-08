@@ -93,6 +93,23 @@ GCP instances: `ouro-slurm` (e2-small controller), `ouro-worker-1`, `ouro-worker
 
 The Slurm proxy (`slurm_proxy.py`) runs on the controller at port 6820 as a systemd service (`slurm-proxy`). It wraps sbatch calls with Docker container isolation (generates wrapper scripts with hardened `docker run` flags).
 
+**Redeploying the Slurm proxy** after code changes to `deploy/slurm/slurm_proxy.py`:
+```bash
+# Copy to controller (scp can't write to /opt directly, use home dir)
+gcloud compute scp deploy/slurm/slurm_proxy.py ouro-slurm:~/slurm_proxy.py \
+  --project=ouro-hpc-2026 --zone=us-central1-a
+
+# Move into place and restart (needs sudo)
+gcloud compute ssh ouro-slurm --project=ouro-hpc-2026 --zone=us-central1-a \
+  --command="sudo cp ~/slurm_proxy.py /opt/slurmrest/slurm_proxy.py && sudo systemctl restart slurm-proxy"
+
+# Verify
+gcloud compute ssh ouro-slurm --project=ouro-hpc-2026 --zone=us-central1-a \
+  --command="sudo systemctl status slurm-proxy --no-pager"
+```
+
+The proxy is stateless — restarts are instant with no job interruption. The systemd unit is at `/etc/systemd/system/slurm-proxy.service`, runs as root, uses the venv at `/opt/slurmrest/bin/python3`, and the proxy script at `/opt/slurmrest/slurm_proxy.py`.
+
 ## Common Operations
 
 ### Redeploying after code changes
@@ -114,8 +131,17 @@ gcloud compute ssh ouro-slurm --project=ouro-hpc-2026 --zone=us-central1-a \
   --command="sinfo && scontrol show nodes"
 ```
 
-### Database migration (new table)
-If adding a new table to `db/01-init.sql`, run the CREATE TABLE manually on the Railway Postgres instance, or recreate the database.
+### Database migrations
+
+The agent runs `agent/src/db/migrate.py` automatically on every startup. This handles:
+- **New tables**: `Base.metadata.create_all(checkfirst=True)` — add the model to `db/models.py` and it auto-creates
+- **New columns**: `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — add to `migrate.py`
+- **Dropped columns**: `ALTER TABLE ... DROP COLUMN IF EXISTS` — add to `migrate.py`
+- **Data migrations**: Idempotent `UPDATE ... WHERE` statements in `migrate.py`
+
+All statements must be idempotent (safe to run repeatedly). No manual SQL needed against Railway Postgres — just deploy the agent and the migration runs on startup.
+
+For standalone SQL migrations (reference/documentation), place files in `db/migrations/`.
 
 ## Testing
 
