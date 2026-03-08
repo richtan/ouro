@@ -69,6 +69,12 @@ const IMAGE_LABELS: Record<string, string> = {
   "r-base": "R 4.4",
 };
 
+function getJobTimestamp(job: AnyJob): Date {
+  return job._type === "historical"
+    ? new Date((job as HistoricalJob & { _type: "historical" }).completed_at)
+    : new Date((job as ActiveJob & { _type: "active" }).submitted_at);
+}
+
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
@@ -272,6 +278,9 @@ export default function HistoryPage() {
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
   const loadRef = useRef<(() => void) | undefined>(undefined);
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     if (!address) return;
@@ -301,6 +310,33 @@ export default function HistoryPage() {
     const id = setInterval(load, 10_000);
     return () => clearInterval(id);
   }, [address]);
+
+  const isFiltering = search !== "" || dateFrom !== "" || dateTo !== "";
+
+  const filtered = isFiltering
+    ? jobs.filter((job) => {
+        if (search) {
+          const q = search.toLowerCase();
+          const id = job.id.toLowerCase();
+          const status = job.status.toLowerCase();
+          const image = (IMAGE_LABELS[job.image ?? ""] ?? job.image ?? "").toLowerCase();
+          const slurmId = job.slurm_job_id != null ? String(job.slurm_job_id) : "";
+          if (!id.includes(q) && !status.includes(q) && !image.includes(q) && !slurmId.includes(q)) {
+            return false;
+          }
+        }
+        if (dateFrom || dateTo) {
+          const ts = getJobTimestamp(job);
+          if (dateFrom && ts < new Date(dateFrom + "T00:00:00")) return false;
+          if (dateTo) {
+            const end = new Date(dateTo + "T00:00:00");
+            end.setDate(end.getDate() + 1);
+            if (ts >= end) return false;
+          }
+        }
+        return true;
+      })
+    : jobs;
 
   return (
     <main className="min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-4xl mx-auto">
@@ -341,7 +377,7 @@ export default function HistoryPage() {
               <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-baseline gap-2 min-w-0">
                   <span className="font-display text-base font-semibold text-o-text">
-                    {jobs.length} <span className="text-sm font-normal text-o-textSecondary">job{jobs.length !== 1 ? "s" : ""}</span>
+                    {isFiltering ? `${filtered.length} of ${jobs.length}` : jobs.length} <span className="text-sm font-normal text-o-textSecondary">job{jobs.length !== 1 ? "s" : ""}</span>
                   </span>
                   <span className="text-o-textSecondary">·</span>
                   <span className="font-mono text-sm text-o-blueText truncate">
@@ -374,9 +410,60 @@ export default function HistoryPage() {
               </div>
             </div>
           </div>
-          {jobs.map((job) => (
+          {/* Filter bar */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <div className="relative flex-1">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-o-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by ID, status, image..."
+                className="w-full bg-o-bg border border-o-border rounded-lg pl-9 pr-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
+              />
+            </div>
+            <div className="flex gap-2 mt-1 sm:mt-0">
+              <div className="relative">
+                <span className="absolute -top-[5px] left-2 px-1 text-[10px] leading-none text-o-muted uppercase tracking-wider bg-o-bg">From</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-[140px] bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text focus:outline-none focus:border-o-blueText"
+                  style={{ colorScheme: "dark" }}
+                />
+              </div>
+              <div className="relative">
+                <span className="absolute -top-[5px] left-2 px-1 text-[10px] leading-none text-o-muted uppercase tracking-wider bg-o-bg">To</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-[140px] bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text focus:outline-none focus:border-o-blueText"
+                  style={{ colorScheme: "dark" }}
+                />
+              </div>
+            </div>
+          </div>
+          {filtered.map((job) => (
             <JobCard key={job.id} job={job} expandId={expandId} onComplete={() => loadRef.current?.()} />
           ))}
+          {filtered.length === 0 && isFiltering && (
+            <div className="text-center py-8">
+              <p className="text-o-textSecondary text-sm">No jobs match your filters</p>
+              <button
+                onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }}
+                className="mt-2 text-xs text-o-blueText hover:underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
       )}
     </main>
