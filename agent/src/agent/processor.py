@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src.agent.classifier import classify_failure
 from src.agent.event_bus import EventBus
 from src.agent.oracle import JobResult, OracleDeps, oracle_agent, process_job_fast
-from src.api.pricing import estimate_llm_cost, verify_job_profit
+from src.api.pricing import calculate_unused_compute_credit, estimate_llm_cost, verify_job_profit
 from src.chain.client import BaseChainClient
 from src.config import settings
 from src.db.models import ActiveJob
@@ -127,6 +127,21 @@ async def _mark_failed(
                 compute_duration_s=compute_duration_s,
                 fault=fault,
             )
+
+        # Log compute infrastructure cost for failed jobs
+        if compute_duration_s > 0:
+            try:
+                cpus = (job.payload or {}).get("cpus", 1)
+                compute_infra_cost = cpus * (compute_duration_s / 60) * settings.INFRA_COST_PER_CPU_MINUTE
+                async with session_maker() as db:
+                    await log_cost(
+                        db,
+                        cost_type="compute",
+                        amount_usd=compute_infra_cost,
+                        detail={"job_id": str(job.id), "cpus": cpus, "duration_s": compute_duration_s, "fault": fault},
+                    )
+            except Exception:
+                logger.exception("Failed to log compute cost for failed job %s", job.id)
 
         if fault == "platform_error" and job.submitter_address and float(job.price_usdc) > 0:
             async with session_maker() as db:
@@ -246,6 +261,54 @@ async def _finalize_success(
     )
     if not pv.profitable:
         logger.warning("Job %s completed at a LOSS: %s", job.id, pv)
+
+    # Log compute infrastructure cost
+    try:
+        compute_infra_cost = deps.cpus * (compute_duration_s / 60) * settings.INFRA_COST_PER_CPU_MINUTE
+        async with session_maker() as db:
+            await log_cost(
+                db,
+                cost_type="compute",
+                amount_usd=compute_infra_cost,
+                detail={"job_id": str(job.id), "cpus": deps.cpus, "duration_s": compute_duration_s},
+            )
+    except Exception:
+        logger.exception("Failed to log compute cost for job %s", job.id)
+
+    # Issue credit for unused compute time (proportional to marked-up price)
+    try:
+        cost_floor = (job.payload or {}).get("cost_floor", 0)
+        compute_cost = (job.payload or {}).get("compute_cost", 0)
+        if cost_floor > 0 and compute_cost > 0:
+            price_usdc = float(job.price_usdc)
+            time_limit_min = (job.payload or {}).get("time_limit_min", 0)
+            credit = calculate_unused_compute_credit(
+                price_usdc, cost_floor, compute_cost, time_limit_min, compute_duration_s,
+            )
+            if credit > 0 and job.submitter_address:
+                async with session_maker() as db:
+                    await issue_credit(
+                        db,
+                        wallet_address=job.submitter_address,
+                        amount_usdc=credit,
+                        reason=f"unused_compute:{job.id}",
+                    )
+                    await log_audit(
+                        db,
+                        event_type="credit_issued",
+                        job_id=job.id,
+                        wallet_address=job.submitter_address,
+                        amount_usdc=credit,
+                        detail={"reason": "unused_compute", "time_limit_min": time_limit_min, "duration_s": compute_duration_s},
+                    )
+                event_bus.emit(
+                    "credit",
+                    f"Unused compute credit: ${credit:.4f} to {job.submitter_address[:10]}... "
+                    f"(used {compute_duration_s:.0f}s of {time_limit_min * 60}s)",
+                    job_id=str(job.id),
+                )
+    except Exception:
+        logger.exception("Failed to issue unused compute credit for job %s", job.id)
 
     event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived", job_id=str(job.id))
 

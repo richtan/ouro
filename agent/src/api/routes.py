@@ -647,6 +647,8 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         "workspace_path": workspace_path,
         "files": files_data,
     }
+    job_payload["cost_floor"] = quote.cost_floor_usd
+    job_payload["compute_cost"] = quote.breakdown["compute_cost"]
     if dockerfile_content:
         job_payload["dockerfile_content"] = dockerfile_content
     if credit_applied > 0:
@@ -776,6 +778,15 @@ async def get_stats():
             )
             return float(q.scalar_one())
 
+    async def _query_compute_costs():
+        async with async_session_maker() as db:
+            q = await db.execute(
+                select(func.coalesce(func.sum(AgentCost.amount_usd), 0)).where(
+                    AgentCost.cost_type == "compute"
+                )
+            )
+            return float(q.scalar_one())
+
     async def _query_active_count():
         async with async_session_maker() as db:
             q = await db.execute(select(func.count(ActiveJob.id)))
@@ -814,11 +825,12 @@ async def get_stats():
             )
             return historical.all(), active.all()
 
-    rev_row, gas_costs, llm_costs, active_jobs, jobs_last_hour, recent = (
+    rev_row, gas_costs, llm_costs, compute_costs, active_jobs, jobs_last_hour, recent = (
         await asyncio.gather(
             _query_revenue(),
             _query_gas_costs(),
             _query_llm_costs(),
+            _query_compute_costs(),
             _query_active_count(),
             _query_jobs_last_hour(),
             _query_recent_jobs(),
@@ -827,7 +839,7 @@ async def get_stats():
     historical_rows, active_rows = recent
 
     total_revenue = float(rev_row.total_revenue)
-    total_costs = gas_costs + llm_costs
+    total_costs = gas_costs + llm_costs + compute_costs
     net_pnl = total_revenue - total_costs
     completed = rev_row.completed_jobs
 
@@ -839,6 +851,7 @@ async def get_stats():
         "total_revenue_usdc": total_revenue,
         "gas_costs_usd": gas_costs,
         "llm_costs_usd": llm_costs,
+        "compute_costs_usd": compute_costs,
         "total_costs_usd": total_costs,
         "net_pnl_usd": net_pnl,
         "completed_jobs": completed,
@@ -1535,6 +1548,8 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
     # 6. Create job
     job_params["cpus"] = cpus
     job_params["time_limit_min"] = time_limit_min
+    job_params["cost_floor"] = quote.cost_floor_usd
+    job_params["compute_cost"] = quote.breakdown["compute_cost"]
     job = ActiveJob(
         id=job_id,
         payload=job_params,

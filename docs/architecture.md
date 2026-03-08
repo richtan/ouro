@@ -205,4 +205,4 @@ Dynamic pricing with 4 survival phases based on sustainability ratio (revenue/co
 
 Price formula: `max(cost_floor × margin × demand_multiplier, cost_floor × 1.2, $0.01)`
 
-Cost floor = `max_gas × 1.25 + max_llm × 1.25 + nodes × minutes × $0.0006/node-min`
+Cost floor = `max_gas × 1.25 + max_llm × 1.25 + cpus × minutes × $0.0002/cpu-min + setup_cost`

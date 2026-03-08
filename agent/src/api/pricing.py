@@ -12,6 +12,7 @@ from src.db.models import AgentCost
 logger = logging.getLogger(__name__)
 
 MIN_PRICE_USD = 0.01
+UNUSED_COMPUTE_CREDIT_THRESHOLD = 0.001
 DEFAULT_GAS_COST_USD = 0.002
 DEFAULT_LLM_COST_USD = 0.008
 COST_SAFETY_FACTOR = 1.25
@@ -174,6 +175,23 @@ def verify_job_profit(
         actual_profit_pct=profit_pct,
         profitable=profit > 0,
     )
+
+
+def calculate_unused_compute_credit(
+    price_usdc: float,
+    cost_floor: float,
+    compute_cost: float,
+    time_limit_min: int,
+    compute_duration_s: float,
+) -> float:
+    """Credit for unused compute time, proportional to the marked-up price paid."""
+    if cost_floor <= 0 or time_limit_min <= 0 or compute_cost <= 0:
+        return 0.0
+    compute_fraction = min(compute_cost / cost_floor, 1.0)
+    compute_price_portion = price_usdc * compute_fraction
+    unused_fraction = max(0.0, (time_limit_min * 60 - compute_duration_s)) / (time_limit_min * 60)
+    credit = compute_price_portion * unused_fraction
+    return round(credit, 6) if credit >= UNUSED_COMPUTE_CREDIT_THRESHOLD else 0.0
 
 
 def estimate_llm_cost(model: str, input_tokens: int, output_tokens: int) -> float:

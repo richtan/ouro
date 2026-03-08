@@ -263,6 +263,134 @@ async def test_recover_stuck_nothing(event_bus):
 # --- EventBus logging ---
 
 
+# --- _finalize_success compute cost + unused credit ---
+
+
+async def test_finalize_success_logs_compute_cost(make_active_job, mock_session_maker, event_bus):
+    """_finalize_success logs compute cost via log_cost."""
+    from src.agent.processor import _finalize_success
+
+    job = make_active_job(
+        submitter_address="0xuser",
+        price_usdc=Decimal("0.05"),
+        payload={"cpus": 2, "time_limit_min": 10, "cost_floor": 0.03, "compute_cost": 0.004},
+    )
+    job_result = MagicMock()
+    job_result.status = "completed"
+    deps = MagicMock()
+    deps.cpus = 2
+    deps.captured_output = ""
+    deps.captured_error = ""
+
+    with (
+        patch("src.agent.processor.complete_job", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock) as mock_log_cost,
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+    ):
+        await _finalize_success(mock_session_maker, event_bus, job, job_result, deps, 0.01, 120.0)
+        # Should log compute cost
+        mock_log_cost.assert_awaited_once()
+        call_kwargs = mock_log_cost.call_args
+        assert call_kwargs[1]["cost_type"] == "compute"
+        assert call_kwargs[1]["amount_usd"] > 0
+
+
+async def test_finalize_success_issues_unused_compute_credit(make_active_job, mock_session_maker, event_bus):
+    """_finalize_success issues proportional credit for unused compute."""
+    from src.agent.processor import _finalize_success
+
+    job = make_active_job(
+        submitter_address="0xuser",
+        price_usdc=Decimal("0.05"),
+        payload={"cpus": 1, "time_limit_min": 10, "cost_floor": 0.03, "compute_cost": 0.004},
+    )
+    job_result = MagicMock()
+    job_result.status = "completed"
+    deps = MagicMock()
+    deps.cpus = 1
+    deps.captured_output = ""
+    deps.captured_error = ""
+
+    with (
+        patch("src.agent.processor.complete_job", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock),
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock) as mock_credit,
+    ):
+        # 120s of 600s used → 80% unused
+        await _finalize_success(mock_session_maker, event_bus, job, job_result, deps, 0.01, 120.0)
+        mock_credit.assert_awaited_once()
+        credit_amount = mock_credit.call_args[1]["amount_usdc"]
+        assert credit_amount > 0
+        assert mock_credit.call_args[1]["reason"].startswith("unused_compute:")
+
+
+async def test_finalize_success_no_credit_without_cost_floor(make_active_job, mock_session_maker, event_bus):
+    """Legacy jobs without cost_floor → no unused compute credit."""
+    from src.agent.processor import _finalize_success
+
+    job = make_active_job(
+        submitter_address="0xuser",
+        price_usdc=Decimal("0.05"),
+        payload={"cpus": 1, "time_limit_min": 10},  # no cost_floor
+    )
+    job_result = MagicMock()
+    job_result.status = "completed"
+    deps = MagicMock()
+    deps.cpus = 1
+    deps.captured_output = ""
+    deps.captured_error = ""
+
+    with (
+        patch("src.agent.processor.complete_job", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock),
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock) as mock_credit,
+    ):
+        await _finalize_success(mock_session_maker, event_bus, job, job_result, deps, 0.01, 120.0)
+        mock_credit.assert_not_awaited()
+
+
+async def test_mark_failed_logs_compute_cost(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed logs compute cost for failed jobs with nonzero duration."""
+    job = make_active_job(
+        submitter_address="0xuser",
+        price_usdc=Decimal("0.05"),
+        payload={"cpus": 2, "time_limit_min": 5},
+    )
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock),
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock) as mock_log_cost,
+    ):
+        await _mark_failed(mock_session_maker, event_bus, job, "slurm error", failure_stage=2, compute_duration_s=45.0)
+        mock_log_cost.assert_awaited_once()
+        assert mock_log_cost.call_args[1]["cost_type"] == "compute"
+        assert mock_log_cost.call_args[1]["amount_usd"] > 0
+
+
+async def test_mark_failed_no_compute_cost_at_zero_duration(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed does not log compute cost when duration is 0."""
+    job = make_active_job(
+        submitter_address="0xuser",
+        price_usdc=Decimal("0.05"),
+        payload={"cpus": 1, "time_limit_min": 5},
+    )
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock),
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock) as mock_log_cost,
+    ):
+        await _mark_failed(mock_session_maker, event_bus, job, "validation error", failure_stage=1, compute_duration_s=0)
+        mock_log_cost.assert_not_awaited()
+
+
+# --- EventBus logging ---
+
+
 def test_event_bus_emit_logs(event_bus, caplog):
     """EventBus.emit() should also log via Python logger."""
     import logging

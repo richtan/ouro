@@ -6,7 +6,9 @@ import pytest
 
 from src.api import pricing
 from src.api.pricing import (
+    UNUSED_COMPUTE_CREDIT_THRESHOLD,
     apply_phase,
+    calculate_unused_compute_credit,
     compute_phase,
     estimate_llm_cost,
     update_demand,
@@ -202,6 +204,97 @@ async def test_calculate_price_multi_file_setup_cost():
     assert quote_multi.breakdown["setup_cost"] == pytest.approx(SETUP_COST_BY_MODE["multi_file"])
     assert quote_multi.breakdown["submission_mode"] == "multi_file"
     assert quote_multi.cost_floor_usd > quote_script.cost_floor_usd
+
+
+# --- calculate_unused_compute_credit ---
+
+
+def test_unused_compute_credit_proportional():
+    """Credit includes markup, not just raw compute cost."""
+    # 1 CPU, 10 min requested, job completes in 2 min (120s)
+    # cost_floor=$0.0145, compute_cost=$0.002, price=$0.022
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.022,
+        cost_floor=0.0145,
+        compute_cost=0.002,
+        time_limit_min=10,
+        compute_duration_s=120,
+    )
+    # compute_fraction = 0.002 / 0.0145 ≈ 0.1379
+    # compute_price_portion = 0.022 * 0.1379 ≈ 0.003034
+    # unused_fraction = (600 - 120) / 600 = 0.8
+    # credit = 0.003034 * 0.8 ≈ 0.002427
+    assert credit > 0
+    assert credit > 0.002  # more than raw compute savings ($0.0016)
+    assert credit < 0.01   # but not unreasonably large
+
+
+def test_unused_compute_credit_below_threshold():
+    """Tiny savings below threshold returns 0."""
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.01,
+        cost_floor=0.008,
+        compute_cost=0.0001,
+        time_limit_min=1,
+        compute_duration_s=50,  # only 10s unused out of 60
+    )
+    assert credit == 0.0
+
+
+def test_unused_compute_credit_full_usage():
+    """No unused time → no credit."""
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.022,
+        cost_floor=0.0145,
+        compute_cost=0.002,
+        time_limit_min=10,
+        compute_duration_s=600,  # full 10 min
+    )
+    assert credit == 0.0
+
+
+def test_unused_compute_credit_over_time():
+    """Duration exceeding time_limit → no credit (max(0, ...) clamps)."""
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.022,
+        cost_floor=0.0145,
+        compute_cost=0.002,
+        time_limit_min=10,
+        compute_duration_s=700,  # over 10 min
+    )
+    assert credit == 0.0
+
+
+def test_unused_compute_credit_multi_cpu():
+    """Multi-CPU jobs: compute_cost scales with CPUs, so credit scales too."""
+    # 4 CPUs → compute_cost is 4× higher
+    credit_1cpu = calculate_unused_compute_credit(
+        price_usdc=0.022, cost_floor=0.0145, compute_cost=0.002,
+        time_limit_min=10, compute_duration_s=120,
+    )
+    credit_4cpu = calculate_unused_compute_credit(
+        price_usdc=0.060, cost_floor=0.0205, compute_cost=0.008,
+        time_limit_min=10, compute_duration_s=120,
+    )
+    assert credit_4cpu > credit_1cpu
+
+
+def test_unused_compute_credit_no_cost_floor():
+    """Legacy jobs without cost_floor → returns 0."""
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.022, cost_floor=0, compute_cost=0.002,
+        time_limit_min=10, compute_duration_s=120,
+    )
+    assert credit == 0.0
+
+
+def test_unused_compute_credit_no_compute_cost():
+    """Missing compute_cost → returns 0."""
+    credit = calculate_unused_compute_credit(
+        price_usdc=0.022, cost_floor=0.0145, compute_cost=0,
+        time_limit_min=10, compute_duration_s=120,
+    )
+    assert credit == 0.0
 
 
 async def test_calculate_price_git_setup_cost():
