@@ -36,3 +36,5 @@ jobs:
 
       - run: npm publish --provenance --access public
         working-directory: mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
