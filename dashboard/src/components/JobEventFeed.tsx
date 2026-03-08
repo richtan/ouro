@@ -12,10 +12,8 @@ const TYPE_COLORS: Record<string, string> = {
   system: "text-o-blueText",
   agent: "text-o-blueText",
   slurm: "text-o-amber",
-  chain: "text-o-green",
   cost: "text-o-text",
   slurm_error: "text-o-red",
-  chain_error: "text-o-red",
   error: "text-o-red",
   heartbeat: "text-o-muted",
   scaler: "text-o-amber",
@@ -48,7 +46,6 @@ export default function JobEventFeed({ events }: { events: JobEvent[] }) {
             const isError =
               event.type === "error" ||
               event.type === "slurm_error" ||
-              event.type === "chain_error" ||
               event.type === "agent_error";
             return (
               <div key={i} className="py-0.5">

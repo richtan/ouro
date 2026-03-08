@@ -299,7 +299,7 @@ async def _ensure_capacity(deps: OracleDeps) -> None:
 
 
 async def process_job_fast(deps: OracleDeps) -> JobResult:
-    """Execute the standard validate -> submit -> poll -> prove pipeline without an LLM."""
+    """Execute the standard validate -> submit -> poll pipeline without an LLM."""
     validation = await validate_request_impl(deps)
     if validation.startswith("INVALID"):
         await _cleanup_workspace(deps)

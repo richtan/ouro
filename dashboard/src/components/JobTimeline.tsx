@@ -2,7 +2,7 @@
 
 import { Fragment } from "react";
 
-const STEPS = ["Validating", "Submitting", "Running", "Proving", "Done"];
+const STEPS = ["Validating", "Submitting", "Running", "Done"];
 
 interface JobTimelineProps {
   stage: number;
@@ -17,7 +17,7 @@ export default function JobTimeline({ stage, failed, failedStage }: JobTimelineP
     const stepStage = i + 1;
     const isCompleted = effectiveFailStage
       ? stepStage < effectiveFailStage
-      : (stage > stepStage || (stage === 5 && stepStage === 5));
+      : (stage > stepStage || (stage === 4 && stepStage === 4));
     const isFailed = effectiveFailStage === stepStage;
     const isCurrent = !failed && stage === stepStage;
     return { label, stepStage, isCompleted, isFailed, isCurrent };
@@ -36,7 +36,7 @@ export default function JobTimeline({ stage, failed, failedStage }: JobTimelineP
   return (
     <div
       className="w-full grid items-center"
-      style={{ gridTemplateColumns: "auto 1fr auto 1fr auto 1fr auto 1fr auto" }}
+      style={{ gridTemplateColumns: "auto 1fr auto 1fr auto 1fr auto" }}
     >
       {/* Row 1: nodes + lines */}
       {nodeState.map((n, i) => (

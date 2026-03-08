@@ -12,10 +12,8 @@ const TYPE_COLORS: Record<string, string> = {
   system: "text-o-blueText",
   agent: "text-o-blueText",
   slurm: "text-o-amber",
-  chain: "text-o-green",
   cost: "text-o-text",
   slurm_error: "text-o-red",
-  chain_error: "text-o-red",
   error: "text-o-red",
   heartbeat: "text-o-muted",
 };
@@ -81,7 +79,6 @@ export default function TerminalFeed() {
             const isError =
               log.type === "error" ||
               log.type === "slurm_error" ||
-              log.type === "chain_error" ||
               log.message.toLowerCase().includes("error");
             return (
               <div key={i} className={`py-0.5 ${isError ? "text-o-red" : ""}`}>

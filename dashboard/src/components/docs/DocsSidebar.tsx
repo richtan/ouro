@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { href: "/docs/api", label: "REST API" },
   { href: "/docs/sdk", label: "Python SDK" },
   { href: "/docs/pricing", label: "Pricing" },
-  { href: "/docs/verification", label: "Verification" },
 ];
 
 export default function DocsSidebar() {

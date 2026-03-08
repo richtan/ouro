@@ -18,7 +18,7 @@ function statusToStage(status: string): number {
       return 3;
     case "completed":
     case "failed":
-      return 5;
+      return 4;
     default:
       return 0;
   }
@@ -32,8 +32,7 @@ function eventsToStage(events: JobEvent[]): number {
     if (e.type === "slurm" && stage < 2) stage = 2;
     if (e.type === "slurm" && e.message.includes("state=RUNNING")) stage = 3;
     if (e.type === "slurm" && e.message.includes("completed")) stage = 3;
-    if (e.type === "chain") stage = 4;
-    if (e.type === "profit" || e.type === "job") stage = 5;
+    if (e.type === "profit" || e.type === "job") stage = 4;
   }
   return stage;
 }

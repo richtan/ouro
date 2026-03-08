@@ -102,11 +102,11 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
     open ? job.id : null,
     job.status,
   );
-  const isTerminal = ["completed", "failed"].includes(job.status) || currentStage >= 5;
+  const isTerminal = ["completed", "failed"].includes(job.status) || currentStage >= 4;
 
   const prevStageRef = useRef(currentStage);
   useEffect(() => {
-    if (prevStageRef.current < 5 && currentStage >= 5) {
+    if (prevStageRef.current < 4 && currentStage >= 4) {
       onComplete?.();
     }
     prevStageRef.current = currentStage;
@@ -159,7 +159,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
       {open && (
         <div className="mt-4 pt-4 border-t border-o-border space-y-4">
           {isHist ? (
-            <JobTimeline stage={5} failed={job.status === "failed"} failedStage={(job as HistoricalJob).failure_stage} />
+            <JobTimeline stage={4} failed={job.status === "failed"} failedStage={(job as HistoricalJob).failure_stage} />
           ) : (
             <JobTimeline stage={currentStage} failed={job.status === "failed"} failedStage={job.status === "failed" ? currentStage : undefined} />
           )}
