@@ -12,7 +12,7 @@ import {
 import "@rainbow-me/rainbowkit/styles.css";
 
 export const config = getDefaultConfig({
-  appName: "Ouro Compute",
+  appName: "Ouro",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "NO_WALLETCONNECT",
   chains: [base],
   transports: {

@@ -104,21 +104,25 @@ Ouro is discoverable by autonomous agents through multiple channels:
 
 ## MCP Integration
 
-Add to `.cursor/mcp.json` or Claude Desktop config:
+The MCP server runs locally via `npx ouro-mcp` (Node.js, stdio transport). It signs x402 USDC payments from the user's wallet automatically.
+
+Add to `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "ouro-compute": {
-      "url": "https://mcp.ourocompute.com/mcp"
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
     }
   }
 }
 ```
 
+See `mcp/README.md` for setup instructions (works with any MCP-compatible client).
+
 MCP tools:
+- `run_job(script?, files?, image?, cpus?, time_limit_min?, builder_code?)` → Submit + auto-pay in one step. Returns job_id.
 - `get_job_status(job_id)` → Returns job details and output
-- `get_price_quote(nodes, time_limit_min, submission_mode?)` → Returns price without submitting (uses `GET /api/price`)
-- `get_payment_requirements(script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Returns price + x402 payment header for signing. `files` can include a Dockerfile.
-- `submit_and_pay(payment_signature, script?, files?, entrypoint?, image?, nodes, time_limit_min, submitter_address?, builder_code?)` → Submits job with pre-signed x402 payment
+- `get_price_quote(cpus?, time_limit_min?, submission_mode?)` → Returns price without submitting
 - `get_allowed_images()` → Returns available container images (ouro-ubuntu, ouro-python, ouro-nodejs)
-- `get_api_endpoint()` → Returns direct API URL + body schema for programmatic access

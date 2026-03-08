@@ -1237,7 +1237,7 @@ async def agent_card():
     base_url = settings.PUBLIC_API_URL or "https://api.ourocompute.com"
     dashboard_url = settings.PUBLIC_DASHBOARD_URL or "https://ourocompute.com"
     return {
-        "name": "Ouro Compute",
+        "name": "Ouro",
         "description": (
             "Autonomous HPC compute agent on Base. Submit scripts, "
             "pay with USDC via x402."

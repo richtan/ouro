@@ -1,4 +1,4 @@
-# Ouro Compute
+# Ouro
 
 A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses ERC-8021 Builder Codes for attribution, registers its identity via ERC-8004, and exposes a public dashboard with real-time P&L.
 
@@ -8,11 +8,11 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Railway (PaaS)                             │
 │                                                                     │
-│  ┌──────────────┐   ┌──────────────────┐   ┌────────────────────┐  │
-│  │  Dashboard    │   │  Agent (FastAPI)  │   │  MCP Server        │  │
-│  │  Next.js 15   │──▶│  Python 3.12     │◀──│  FastMCP           │  │
-│  │  :3000        │   │  :8000           │   │  :8080             │  │
-│  └──────────────┘   └────────┬─────────┘   └────────────────────┘  │
+│  ┌──────────────┐   ┌──────────────────┐                            │
+│  │  Dashboard    │   │  Agent (FastAPI)  │                            │
+│  │  Next.js 15   │──▶│  Python 3.12     │                            │
+│  │  :3000        │   │  :8000           │                            │
+│  └──────────────┘   └────────┬─────────┘                            │
 │                              │                                      │
 │                    ┌─────────▼──────────┐                          │
 │                    │  PostgreSQL 16      │                          │
@@ -34,7 +34,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 |---------|------|------|----------|---------|
 | **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop |
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
-| **MCP Server** | Python/FastMCP | 8080 | Railway | Standalone MCP server for AI agents (Cursor, Claude Desktop) to submit compute jobs |
+| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, payment sessions |
 | **Slurm Cluster** | Slurm + Docker + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
 
@@ -42,7 +42,6 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 
 - Dashboard: `https://ourocompute.com`
 - Agent API: `https://api.ourocompute.com`
-- MCP Server: `https://mcp.ourocompute.com/mcp`
 
 ## Project Structure
 
@@ -53,7 +52,7 @@ ouro/
 ├── contracts/      # Foundry Solidity (reserved for future contracts)
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm/ (proxy, configs)
-├── mcp-server/     # FastMCP server (submit_and_pay, get_job_status, etc.)
+├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job, get_job_status, etc.
 ├── docs/           # Detailed reference docs (see table below)
 └── .mcp/           # MCP Registry manifest
 ```
@@ -79,7 +78,7 @@ Full annotated tree: `docs/architecture.md`
 | Agent internals, oracle tools, auth, dashboard, MCP, discoverability | `docs/agent-internals.md` |
 | Deployment, secrets (Doppler), env vars, testing, common ops | `docs/operations.md` |
 | Dashboard UI design, tokens, components | `dashboard/DESIGN.md` |
-| MCP tools and payment flows | `mcp-server/README.md` |
+| MCP tools and payment flows | `mcp/README.md` |
 | Environment variables (full list with comments) | `.env.example` |
 | Full DB schema SQL | `db/01-init.sql` |
 

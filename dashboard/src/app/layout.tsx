@@ -9,7 +9,7 @@ import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "Ouro Compute",
+  title: "Ouro",
   description:
     "Autonomous HPC compute on Base. Submit jobs, pay with USDC via x402.",
 };

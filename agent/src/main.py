@@ -187,7 +187,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Ouro Compute",
+    title="Ouro",
     description="Autonomous HPC compute oracle on Base",
     lifespan=lifespan,
 )

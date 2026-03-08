@@ -46,14 +46,3 @@ jobs:
       - uses: actions/checkout@v4
       - run: railway up dashboard --path-as-root --detach --service dashboard
 
-  deploy-mcp:
-    name: Deploy mcp-server
-    needs: [test-agent]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    container: ghcr.io/railwayapp/cli:latest
-    env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - run: railway up mcp-server --path-as-root --detach --service mcp-server

@@ -378,7 +378,7 @@ oracle_agent = Agent(
     deps_type=OracleDeps,
     output_type=JobResult,
     system_prompt=(
-        "You are Ouro Compute. You receive compute requests, "
+        "You are Ouro. You receive compute requests, "
         "submit them to the HPC cluster, and monitor execution. "
         "You MUST use the tools in order: validate -> submit_to_slurm "
         "-> poll_status. Report results precisely."

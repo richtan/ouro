@@ -1,0 +1,272 @@
+#!/usr/bin/env node
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http } from "viem";
+import { base } from "viem/chains";
+import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+
+// ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+
+const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY;
+if (!WALLET_PRIVATE_KEY) {
+  console.error(
+    "Error: WALLET_PRIVATE_KEY environment variable is required.\n" +
+      'Set it in your MCP config\'s env section (hex string starting with "0x").',
+  );
+  process.exit(1);
+}
+if (!WALLET_PRIVATE_KEY.startsWith("0x")) {
+  console.error("Error: WALLET_PRIVATE_KEY must be a hex string starting with 0x");
+  process.exit(1);
+}
+
+const API_URL = (process.env.OURO_API_URL || "https://api.ourocompute.com").replace(
+  /\/$/,
+  "",
+);
+
+// ---------------------------------------------------------------------------
+// Wallet & x402
+// ---------------------------------------------------------------------------
+
+const account = privateKeyToAccount(WALLET_PRIVATE_KEY as `0x${string}`);
+const walletAddress = account.address;
+
+const publicClient = createPublicClient({ chain: base, transport: http() });
+const signer = toClientEvmSigner(account, publicClient);
+
+const payFetch = wrapFetchWithPaymentFromConfig(fetch, {
+  schemes: [{ network: "eip155:8453", client: new ExactEvmScheme(signer) }],
+});
+
+const truncAddr = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+console.error(`Ouro MCP server running · wallet: ${truncAddr}`);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function apiFetch(
+  path: string,
+  opts: RequestInit & { paid?: boolean; timeout?: number } = {},
+): Promise<Response> {
+  const { paid = false, timeout = 30_000, ...init } = opts;
+  const fetchFn = paid ? payFetch : fetch;
+  const url = `${API_URL}${path}`;
+
+  try {
+    return await fetchFn(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(`Request to ${path} timed out after ${timeout}ms`);
+    }
+    throw new Error(
+      `Cannot reach ${API_URL}. Check internet connection. (${err instanceof Error ? err.message : err})`,
+    );
+  }
+}
+
+function errorText(status: number, body: string): string {
+  switch (status) {
+    case 403:
+      return "Payment verification failed. Check USDC balance on Base.";
+    case 422:
+      try {
+        const parsed = JSON.parse(body);
+        return parsed.detail || parsed.message || body;
+      } catch {
+        return body;
+      }
+    case 429:
+      return "Rate limited or max active jobs reached. Wait and retry.";
+    case 503:
+      return "Payment facilitator temporarily unavailable. Retry shortly.";
+    default:
+      return `API returned ${status}: ${body}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MCP Server
+// ---------------------------------------------------------------------------
+
+const server = new McpServer(
+  { name: "ouro", version: "1.0.0" },
+  {
+    instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
+Payment is automatic — your wallet signs USDC payments locally.
+
+Typical flow:
+  1. run_job(script="echo hello") → { job_id, price }
+  2. get_job_status(job_id) → poll until status is "completed"
+
+Submission modes:
+  - script: single shell script (simplest)
+  - files: list of {path, content} objects (multi-file workspace, can include a Dockerfile)
+
+Use get_price_quote to check pricing before committing.
+Use get_allowed_images to see available container images.
+
+Prebuilt images (instant): ouro-ubuntu, ouro-python, ouro-nodejs.
+Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).`,
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: run_job
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "run_job",
+  "Submit a compute job and pay automatically. Returns job_id when accepted.",
+  {
+    script: z.string().optional().describe("Shell script to execute (use this OR files)"),
+    files: z
+      .array(z.object({ path: z.string(), content: z.string() }))
+      .optional()
+      .describe("Array of {path, content} file objects (can include a Dockerfile)"),
+    image: z.string().default("ouro-ubuntu").describe("Container image (default: ouro-ubuntu)"),
+    cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
+    time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
+    builder_code: z.string().optional().describe("Builder code for ERC-8021 attribution"),
+  },
+  async (params) => {
+    // Validate: exactly one of script or files
+    if (params.script && params.files) {
+      return { content: [{ type: "text", text: "Provide either script or files, not both." }] };
+    }
+    if (!params.script && !params.files) {
+      return { content: [{ type: "text", text: "Provide either script or files." }] };
+    }
+
+    const body: Record<string, unknown> = {
+      cpus: params.cpus,
+      time_limit_min: params.time_limit_min,
+      image: params.image,
+      submitter_address: walletAddress,
+    };
+    if (params.script) body.script = params.script;
+    if (params.files) body.files = params.files;
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (params.builder_code) headers["X-BUILDER-CODE"] = params.builder_code;
+
+    try {
+      const res = await apiFetch("/api/compute/submit", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        paid: true,
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_job_status
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "get_job_status",
+  "Check the status of a job. Returns output when completed.",
+  {
+    job_id: z.string().describe("Job ID to check"),
+  },
+  async (params) => {
+    try {
+      const res = await apiFetch(`/api/jobs/${params.job_id}`);
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_price_quote
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "get_price_quote",
+  "Get a price quote without paying. Check pricing before committing.",
+  {
+    cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores"),
+    time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
+    submission_mode: z
+      .string()
+      .default("script")
+      .describe("Submission mode: script, multi_file"),
+  },
+  async (params) => {
+    try {
+      const qs = new URLSearchParams({
+        cpus: String(params.cpus),
+        time_limit_min: String(params.time_limit_min),
+        submission_mode: params.submission_mode,
+      });
+      const res = await apiFetch(`/api/price?${qs}`);
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_allowed_images
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "get_allowed_images",
+  "List available container images for compute jobs.",
+  {},
+  async () => {
+    try {
+      const res = await apiFetch("/api/capabilities");
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+const transport = new StdioServerTransport();
+await server.connect(transport);

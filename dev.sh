@@ -148,7 +148,12 @@ if [ "$FRESH" = true ]; then
   docker compose down -v
 fi
 
-# ── 5. Launch ─────────────────────────────────────────────────────────
+# ── 5. Build MCP server ────────────────────────────────────────────
+bold "Building MCP server..."
+(cd mcp && npm install --silent && npm run build --silent)
+green "MCP server ready → mcp/dist/index.js"
+
+# ── 6. Launch ─────────────────────────────────────────────────────────
 echo ""
 bold "Starting Ouro..."
 echo "  Dashboard:  http://localhost:${DASHBOARD_PORT:-3000}"

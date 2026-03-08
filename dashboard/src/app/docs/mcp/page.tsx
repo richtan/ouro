@@ -4,14 +4,34 @@ import ParamTable from "@/components/docs/ParamTable";
 
 const TOOLS = [
   {
+    name: "run_job",
+    description:
+      "Submit a compute job and pay automatically. Signs USDC payment via x402 from your wallet. Returns job_id when accepted.",
+    params: [
+      { name: "script", type: "string", description: "Shell script to execute (use this OR files)" },
+      { name: "files", type: "array", description: "Array of {path, content} file objects (can include a Dockerfile)" },
+      { name: "image", type: "string", description: "Container image (default: ouro-ubuntu)" },
+      { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
+      { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
+      { name: "builder_code", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
+    ],
+    response: `{
+  "job_id": "a1b2c3d4-...",
+  "status": "pending",
+  "submission_mode": "script",
+  "price": "$0.0841",
+  "message": "Job a1b2c3d4-... submitted successfully."
+}`,
+  },
+  {
     name: "get_job_status",
     description:
-      "Check the status of a job or payment session. Accepts either a job_id or session_id. Returns full details including output when completed.",
+      "Check the status of a job. Returns full details including output when completed.",
     params: [
       {
         name: "job_id",
         type: "string",
-        description: "Job ID or session ID to check",
+        description: "Job ID to check",
         required: true,
       },
     ],
@@ -29,7 +49,7 @@ const TOOLS = [
     params: [
       { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-      { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, git (default: script)" },
+      { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file (default: script)" },
     ],
     response: `{
   "price": "$0.0841",
@@ -48,52 +68,6 @@ const TOOLS = [
 }`,
   },
   {
-    name: "get_payment_requirements",
-    description:
-      "Get x402 payment requirements for a job. Returns the raw PAYMENT-REQUIRED header that your x402 library needs to construct and sign a USDC payment. Step 1 of the autonomous flow.",
-    params: [
-      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint)" },
-      { name: "files", type: "array", description: "Array of {path, content} file objects for multi-file jobs" },
-      { name: "entrypoint", type: "string", description: "Entry script path relative to workspace (required with files)" },
-      { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
-      { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
-      { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-      { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
-      { name: "builder_code", type: "string", description: "Builder code for attribution (optional)" },
-    ],
-    response: `{
-  "price": "$0.0841",
-  "breakdown": { ... },
-  "submission_mode": "script",
-  "setup_cost": 0.0,
-  "payment_required_header": "eyJ0eXAiOiJ4NDAyL...",
-  "message": "Payment of $0.0841 USDC required on Base..."
-}`,
-  },
-  {
-    name: "submit_and_pay",
-    description:
-      "Submit a job with a pre-signed x402 payment. Step 2 of the autonomous flow — call after signing the payment header from get_payment_requirements.",
-    params: [
-      { name: "script", type: "string", description: "Shell script to execute (use this OR files+entrypoint, must match step 1)" },
-      { name: "files", type: "array", description: "Array of {path, content} file objects (must match step 1)" },
-      { name: "entrypoint", type: "string", description: "Entry script path (must match step 1)" },
-      { name: "image", type: "string", description: "Container image (must match step 1)" },
-      { name: "payment_signature", type: "string", description: "Signed x402 payment string", required: true },
-      { name: "cpus", type: "int", description: "Number of CPU cores (must match step 1)" },
-      { name: "time_limit_min", type: "int", description: "Max runtime in minutes (must match)" },
-      { name: "submitter_address", type: "string", description: "Your wallet address (optional)" },
-      { name: "builder_code", type: "string", description: "Builder code (must match if used in step 1)" },
-    ],
-    response: `{
-  "job_id": "a1b2c3d4-...",
-  "status": "pending",
-  "submission_mode": "script",
-  "price": "$0.0841",
-  "message": "Job a1b2c3d4-... submitted successfully."
-}`,
-  },
-  {
     name: "get_allowed_images",
     description:
       "Returns the list of available container images for compute jobs. Each image is pre-built with common tools for its ecosystem.",
@@ -107,24 +81,6 @@ const TOOLS = [
   "default": "ouro-ubuntu"
 }`,
   },
-  {
-    name: "get_api_endpoint",
-    description: "Get the direct API endpoint URL, method, and body schema for programmatic access without MCP.",
-    params: [],
-    response: `{
-  "url": "https://api.ourocompute.com/api/compute/submit",
-  "method": "POST",
-  "payment_protocol": "x402",
-  "network": "eip155:8453",
-  "currency": "USDC",
-  "body_schema": {
-    "script": "string (required)",
-    "cpus": "int (default 1, max 8)",
-    "time_limit_min": "int (default 1)",
-    "submitter_address": "string (optional)"
-  }
-}`,
-  },
 ];
 
 export default function McpToolsPage() {
@@ -135,7 +91,18 @@ export default function McpToolsPage() {
           MCP Tools Reference
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Reference for all MCP tools available to Cursor, Claude Desktop, and custom agents.
+          Reference for all MCP tools — works with any MCP-compatible client.
+        </p>
+      </div>
+
+      {/* Setup callout */}
+      <div className="bg-o-surface border border-o-border rounded-lg px-4 py-3 mb-8">
+        <p className="text-sm text-o-textSecondary">
+          Need to set up MCP?{" "}
+          <Link href="/docs" className="text-o-blueText hover:underline">
+            See the Get Started page
+          </Link>{" "}
+          for setup instructions.
         </p>
       </div>
 
@@ -176,17 +143,17 @@ export default function McpToolsPage() {
           Payment Flow
         </h2>
         <p className="text-sm text-o-textSecondary leading-relaxed">
-          For agents with their own wallet: call{" "}
+          Payment is fully automatic. When you call{" "}
           <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-            get_payment_requirements
+            run_job
           </span>
-          , sign the USDC payment locally, then call{" "}
-          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
-            submit_and_pay
-          </span>{" "}
-          with the signature. See the{" "}
+          , the MCP server signs a USDC payment from your wallet via x402 and submits the job in one step. Your private key never leaves your machine.
+        </p>
+        <p className="text-sm text-o-textSecondary leading-relaxed mt-3">
+          If your wallet has credits from a previous failed job, they&apos;re applied automatically — reducing or eliminating the payment.
+          See the{" "}
           <Link href="/docs/api#payment-flow" className="text-o-blueText hover:underline">
-            full payment flow with examples
+            full payment flow with curl examples
           </Link>{" "}
           on the API page.
         </p>

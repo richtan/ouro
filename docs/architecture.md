@@ -83,10 +83,10 @@ ouro/
 │       ├── slurm.conf      # Slurm config (e2-small controller, e2-medium workers)
 │       ├── cgroup.conf
 │       └── slurm_proxy.py  # FastAPI proxy wrapping sbatch with Docker container isolation
-├── mcp-server/
-│   ├── Dockerfile
-│   ├── pyproject.toml
-│   └── src/ouro_mcp/server.py  # MCP tools: get_job_status, get_price_quote, get_payment_requirements, submit_and_pay, get_api_endpoint
+├── mcp/
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/index.ts            # Local MCP server (npx ouro-mcp): run_job, get_job_status, get_price_quote, get_allowed_images
 ├── .mcp/
 │   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
@@ -145,14 +145,12 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 11. On completion, job moved to `historical_data`
 
 ### Job Submission (via MCP)
-1. AI agent calls `get_payment_requirements` MCP tool with job details (script or files — `files` can include a Dockerfile)
-2. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` without payment → receives 402 + `PAYMENT-REQUIRED` header
-3. Returns price + raw payment header to calling agent
-4. Calling agent decodes header with its x402 library, signs USDC payment locally
-5. Agent calls `submit_and_pay` with the signed `payment-signature`
-6. MCP server forwards to `POST {AGENT_URL}/api/compute/submit` with payment header → job created
-7. Agent polls with `get_job_status(job_id)` to get results
-8. No private keys leave the calling agent — only the opaque payment signature is transmitted
+1. AI agent calls `run_job` MCP tool with job details (script or files — `files` can include a Dockerfile)
+2. Local MCP server (`npx ouro-mcp`) POSTs to `{API_URL}/api/compute/submit` → receives 402
+3. `@x402/fetch` automatically signs the USDC payment using the local `WALLET_PRIVATE_KEY` and retries
+4. Job created, `job_id` returned to the calling agent
+5. Agent polls with `get_job_status(job_id)` to get results
+6. Private key never leaves the user's machine — the MCP server runs locally via stdio transport
 
 ## Database Schema
 

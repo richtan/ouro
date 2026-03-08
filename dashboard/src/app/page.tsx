@@ -19,8 +19,10 @@ function GithubIcon() {
 
 const MCP_JSON = `{
   "mcpServers": {
-    "ouro-compute": {
-      "url": "https://mcp.ourocompute.com/mcp"
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
     }
   }
 }`;
@@ -213,8 +215,8 @@ export default function LandingPage() {
               Built for agents.
             </h2>
             <p className="mt-3 text-sm sm:text-base text-o-textSecondary leading-relaxed max-w-lg">
-              Add one URL to your MCP config. Any AI agent&mdash;Cursor, Claude
-              Desktop, your own&mdash;can price, submit, and verify compute jobs.
+              One command to set up. Any AI agent&mdash;Cursor, Claude Code, Claude
+              Desktop, VS Code&mdash;can submit and pay for compute jobs automatically.
             </p>
             <Link
               href="/docs/mcp"
@@ -277,13 +279,20 @@ function McpCodeCard() {
         <span className="text-o-muted">{"{"}</span>{"\n"}
         <span className="text-o-muted">{"  "}&quot;mcpServers&quot;: {"{"}</span>{"\n"}
         <span className="text-o-muted">{"    "}&quot;</span>
-        <span className="text-o-textSecondary">ouro-compute</span>
+        <span className="text-o-textSecondary">ouro</span>
         <span className="text-o-muted">&quot;: {"{"}</span>{"\n"}
         <span className="text-o-muted">{"      "}&quot;</span>
-        <span className="text-o-textSecondary">url</span>
+        <span className="text-o-textSecondary">command</span>
         <span className="text-o-muted">&quot;: &quot;</span>
-        <span className="text-o-blueText">https://mcp.ourocompute.com/mcp</span>
-        <span className="text-o-muted">&quot;</span>{"\n"}
+        <span className="text-o-blueText">npx</span>
+        <span className="text-o-muted">&quot;,</span>{"\n"}
+        <span className="text-o-muted">{"      "}&quot;</span>
+        <span className="text-o-textSecondary">args</span>
+        <span className="text-o-muted">&quot;: [&quot;</span>
+        <span className="text-o-blueText">-y</span>
+        <span className="text-o-muted">&quot;, &quot;</span>
+        <span className="text-o-blueText">ouro-mcp</span>
+        <span className="text-o-muted">&quot;]</span>{"\n"}
         <span className="text-o-muted">{"    }"}</span>{"\n"}
         <span className="text-o-muted">{"  }"}</span>{"\n"}
         <span className="text-o-muted">{"}"}</span>

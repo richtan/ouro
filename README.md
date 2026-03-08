@@ -4,25 +4,29 @@ Pay for compute over HTTP. No accounts. No API keys. Just USDC and a POST reques
 
 Submit a script via HTTP, get an x402 price quote, sign a USDC payment on Base, and your job runs on an HPC cluster. Integrate via MCP (AI agents), REST API (any HTTP client), or the Python SDK.
 
-**[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)** · **[MCP](https://mcp.ourocompute.com/mcp)**
+**[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)**
 
 ## Quick Start
 
 ### MCP (AI Agents)
 
-Add to your `.cursor/mcp.json` or Claude Desktop config:
+Add to your `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "ouro-compute": {
-      "url": "https://mcp.ourocompute.com/mcp"
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
     }
   }
 }
 ```
 
-Then ask your agent: *"Run `echo hello world` on the Ouro cluster."* It returns a payment link — open it, connect your wallet, pay USDC, and the job runs.
+Works with Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, OpenClaw, and OpenAI Agents SDK. See [`mcp/README.md`](mcp/README.md) for all client configs.
+
+Then ask your agent: *"Run `echo hello world` on the Ouro cluster."* Payment is automatic — your wallet signs USDC via x402.
 
 ### REST API
 
@@ -91,10 +95,11 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results
 │                          Railway (PaaS)                             │
 │                                                                     │
 │  ┌───────────────┐   ┌──────────────────┐   ┌────────────────────┐  │
-│  │  Dashboard    │   │  Agent (FastAPI) │   │  MCP Server        │  │
-│  │  Next.js 15   │──▶│  Python 3.12     │◀──│  FastMCP           │  │
-│  │  :3000        │   │  :8000           │   │  :8080             │  │
-│  └───────────────┘   └────────┬─────────┘   └────────────────────┘  │
+│  ┌───────────────┐   ┌──────────────────┐                           │
+│  │  Dashboard    │   │  Agent (FastAPI) │                           │
+│  │  Next.js 15   │──▶│  Python 3.12     │                           │
+│  │  :3000        │   │  :8000           │                           │
+│  └───────────────┘   └────────┬─────────┘                           │
 │                               │                                     │
 │                     ┌─────────▼───────────┐                         │
 │                     │  PostgreSQL 16      │                         │
@@ -109,8 +114,8 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results
 ```
 
 - **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, runs autonomous pricing loop
-- **Dashboard** (Next.js 15) — Public stats, wallet-gated admin, job submission UI, payment page for MCP flow
-- **MCP Server** (FastMCP) — MCP tools for AI agents to submit compute jobs
+- **Dashboard** (Next.js 15) — Public stats, wallet-gated admin, job submission UI
+- **MCP Server** (Node.js, `npx ouro-mcp`) — Local MCP server for AI agents, signs x402 payments from your wallet
 - **Database** (PostgreSQL 16) — Jobs, cost ledger, wallet snapshots, attribution log, audit trail
 
 Key protocols: [x402](https://www.x402.org/) (HTTP payments), [ERC-8021](https://eip.tools/eip/8021) (builder attribution), [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) (agent identity)
@@ -123,7 +128,7 @@ ouro/
 ├── dashboard/      # Next.js App Router frontend
 ├── contracts/      # Foundry Solidity project
 ├── db/             # SQL schema + seed data
-├── mcp-server/     # Standalone MCP server for AI agents
+├── mcp/            # Local MCP server for AI agents (npx ouro-mcp)
 └── deploy/         # Railway deploy scripts + Slurm cluster setup
 ```
 

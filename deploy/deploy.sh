@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy all Ouro services to Railway.
 # Fetches Slurm controller IP from GCP, sets SLURMREST_URL, then deploys
-# agent, mcp-server, and dashboard in parallel.
+# agent and dashboard in parallel.
 #
 # NOTE: Pushes to main auto-deploy via GitHub Actions (.github/workflows/deploy.yml).
 # Use this script for manual deploys or when SLURMREST_URL needs updating
@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ./deploy/deploy.sh              # Deploy all services
-#   ./deploy/deploy.sh agent mcp    # Deploy only agent and mcp-server
+#   ./deploy/deploy.sh agent        # Deploy only agent
 #
 # Prerequisites: gcloud configured, railway CLI logged in and linked.
 set -euo pipefail
@@ -25,16 +25,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-ALL_SERVICES=(agent mcp-server dashboard)
+ALL_SERVICES=(agent dashboard)
 
 if [ $# -gt 0 ]; then
   SERVICES=()
   for arg in "$@"; do
     case "$arg" in
       agent)      SERVICES+=(agent) ;;
-      mcp|mcp-server) SERVICES+=(mcp-server) ;;
       dash|dashboard) SERVICES+=(dashboard) ;;
-      *) echo "Unknown service: $arg (valid: agent, mcp-server, dashboard)"; exit 1 ;;
+      *) echo "Unknown service: $arg (valid: agent, dashboard)"; exit 1 ;;
     esac
   done
 else

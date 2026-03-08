@@ -1,19 +1,112 @@
 import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
 
-const MCP_JSON = `{
+const CLIENT_CONFIGS = [
+  {
+    name: "Cursor",
+    file: ".cursor/mcp.json",
+    language: "json" as const,
+    code: `{
   "mcpServers": {
-    "ouro-compute": {
-      "url": "https://mcp.ourocompute.com/mcp"
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
     }
   }
-}`;
+}`,
+  },
+  {
+    name: "Claude Code",
+    file: "~/.claude/mcp.json",
+    language: "json" as const,
+    code: `{
+  "mcpServers": {
+    "ouro": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`,
+  },
+  {
+    name: "Claude Desktop",
+    file: "claude_desktop_config.json",
+    language: "json" as const,
+    code: `{
+  "mcpServers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`,
+  },
+  {
+    name: "VS Code",
+    file: ".vscode/mcp.json",
+    language: "json" as const,
+    code: `{
+  "servers": {
+    "ouro": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`,
+  },
+  {
+    name: "Windsurf",
+    file: "~/.codeium/windsurf/mcp_config.json",
+    language: "json" as const,
+    code: `{
+  "mcpServers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`,
+  },
+  {
+    name: "OpenClaw",
+    file: "~/.openclaw/openclaw.json",
+    language: "json" as const,
+    code: `{
+  "mcpServers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`,
+  },
+  {
+    name: "OpenAI Agents SDK",
+    file: "agent.py",
+    language: "python" as const,
+    code: `from agents.mcp import MCPServerStdio
+
+server = MCPServerStdio(
+    command="npx",
+    args=["-y", "ouro-mcp"],
+    env={"WALLET_PRIVATE_KEY": "0x..."},
+)`,
+  },
+];
 
 const PATH_CARDS = [
   {
     href: "/docs/mcp",
-    title: "Cursor / Claude Desktop",
-    desc: "Add one MCP config line and start running jobs from your AI tool",
+    title: "MCP Setup",
+    desc: "Set up MCP for Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, and more",
   },
   {
     href: "/docs/agent",
@@ -47,7 +140,7 @@ export default function DocsGetStarted() {
       {/* What is Ouro */}
       <section className="mb-10">
         <p className="text-sm text-o-textSecondary leading-relaxed">
-          Ouro Compute is a pay-per-use compute service on Base. Send code, pay in USDC,
+          Ouro is a pay-per-use compute service on Base. Send code, pay in USDC,
           get results. No accounts, no API keys — your wallet is your identity.
         </p>
       </section>
@@ -69,11 +162,9 @@ export default function DocsGetStarted() {
           <li>You re-send the request with the signed payment attached — done.</li>
         </ol>
         <p className="text-sm text-o-textSecondary leading-relaxed">
-          If you&apos;re building an agent, the{" "}
-          <Link href="/docs/agent" className="text-o-blueText hover:underline">
-            <span className="font-mono text-xs">@x402/fetch</span>
-          </Link>{" "}
-          package handles this entire flow automatically.
+          With the MCP server, this is fully automatic — just call{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">run_job</span>
+          {" "}and payment is handled for you.
           See the full flow with curl examples on the{" "}
           <Link href="/docs/api#payment-flow" className="text-o-blueText hover:underline">
             API page
@@ -108,25 +199,22 @@ export default function DocsGetStarted() {
           Quick Start: MCP
         </h2>
         <p className="text-sm text-o-textSecondary mb-4">
-          The fastest path — paste this into your Cursor, Claude Desktop, or custom agent MCP config:
+          Set <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">WALLET_PRIVATE_KEY</span> to your wallet&apos;s hex private key (starts with <span className="font-mono text-xs text-o-text">0x</span>). Paste the config for your client:
         </p>
-        <CodeBlock filename="mcp.json" copyText={MCP_JSON}>
-          <span className="text-o-muted">{"{"}</span>{"\n"}
-          <span className="text-o-muted">{"  "}&quot;mcpServers&quot;: {"{"}</span>{"\n"}
-          <span className="text-o-muted">{"    "}&quot;</span>
-          <span className="text-o-textSecondary">ouro-compute</span>
-          <span className="text-o-muted">&quot;: {"{"}</span>{"\n"}
-          <span className="text-o-muted">{"      "}&quot;</span>
-          <span className="text-o-textSecondary">url</span>
-          <span className="text-o-muted">&quot;: &quot;</span>
-          <span className="text-o-blueText">https://mcp.ourocompute.com/mcp</span>
-          <span className="text-o-muted">&quot;</span>{"\n"}
-          <span className="text-o-muted">{"    }"}</span>{"\n"}
-          <span className="text-o-muted">{"  }"}</span>{"\n"}
-          <span className="text-o-muted">{"}"}</span>
-        </CodeBlock>
-        <p className="text-sm text-o-textSecondary mt-4">
-          Then just say: &quot;Run <span className="text-o-blueText">echo hello world</span> on Ouro Compute&quot;
+        <div className="space-y-6">
+          {CLIENT_CONFIGS.map((cfg) => (
+            <div key={cfg.name}>
+              <h3 className="font-display text-sm font-semibold text-o-text mb-2">
+                {cfg.name}
+              </h3>
+              <CodeBlock filename={cfg.file} language={cfg.language} copyText={cfg.code}>
+                {cfg.code}
+              </CodeBlock>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-o-textSecondary mt-6">
+          Then just say: &quot;Run <span className="text-o-blueText">echo hello world</span> on Ouro&quot;
         </p>
       </section>
     </>

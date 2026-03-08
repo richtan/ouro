@@ -47,25 +47,18 @@ NEXT_PUBLIC_ADMIN_ADDRESS        # Operator wallet address for admin UI gating
 PORT=3000                        # Per-service in Railway, not in Doppler
 ```
 
-### MCP Server (Railway service: `mcp-server`)
-```
-OURO_API_URL=https://api.ourocompute.com  # Public agent URL
-DASHBOARD_URL=https://ourocompute.com
-PORT=8080                        # Per-service in Railway, not in Doppler
-```
-
 ## Deployment
 
-### Railway (Agent, Dashboard, MCP Server)
+### Railway (Agent, Dashboard)
 
-All three services deploy to Railway as separate services in a single project. Each has its own Dockerfile.
+Both services deploy to Railway as separate services in a single project. Each has its own Dockerfile.
 
 ```bash
 # Deploy all services (fetches Slurm IP from GCP, deploys in parallel)
 ./deploy/deploy.sh
 
-# Deploy specific services only
-./deploy/deploy.sh agent mcp
+# Deploy specific service only
+./deploy/deploy.sh agent
 ```
 
 Check logs:
@@ -115,7 +108,7 @@ The proxy is stateless — restarts are instant with no job interruption. The sy
 ### Redeploying after code changes
 ```bash
 ./deploy/deploy.sh                      # All services (fetches Slurm IP, deploys in parallel)
-./deploy/deploy.sh agent mcp            # Specific services only
+./deploy/deploy.sh agent                # Specific service only
 ```
 
 ### Running the Slurm setup script after VM resize
@@ -162,7 +155,7 @@ No automated test suite. Manual verification:
 ## Companion Documentation
 
 - **`README.md`** — Project overview: live URLs, architecture summary, environment variable tables for all services, deployment instructions, MCP config snippet, Slurm cluster overview, and smart contract deployment.
-- **`mcp-server/README.md`** — MCP-specific quick start for Cursor/Claude Desktop, tool reference (get_payment_requirements, submit_and_pay, get_job_status, get_price_quote), self-hosting instructions, and the x402 payment flow.
+- **`mcp/README.md`** — MCP setup for all 7 clients (Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, OpenClaw, OpenAI Agents SDK), tool reference (run_job, get_job_status, get_price_quote, get_allowed_images).
 - **`.env.example`** — All environment variables with comments explaining each group. Copy to `.env` for local dev.
 - **`db/01-init.sql`** — Full PostgreSQL schema: all CREATE TABLE statements, indexes, and the monthly partition generator for historical_data.
 - **`db/02-seed.sql`** — Sample seed data: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.
