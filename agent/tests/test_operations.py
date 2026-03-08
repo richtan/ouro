@@ -186,6 +186,49 @@ async def test_fail_job_with_failure_stage():
     assert params["payload"]["failure_reason"] == "submit failed"
 
 
+async def test_fail_job_with_fault():
+    """fault classification is stored in the payload."""
+    db = AsyncMock()
+    db.begin = MagicMock(return_value=_FakeBegin())
+
+    job = MagicMock()
+    job.id = uuid.uuid4()
+    job.slurm_job_id = 99
+    job.submitter_address = "0xuser"
+    job.payload = {"script": "exit 1"}
+    job.x402_tx_hash = "0xtx"
+    job.price_usdc = Decimal("0.05")
+    job.submitted_at = None
+    db.get.return_value = job
+
+    await fail_job(db, str(job.id), "user code crashed", failure_stage=3, fault="user_error")
+    insert_stmt = db.execute.call_args[0][0]
+    params = insert_stmt.compile().params
+    assert params["payload"]["fault"] == "user_error"
+    assert params["payload"]["failure_reason"] == "user code crashed"
+
+
+async def test_fail_job_platform_error_fault():
+    """platform_error fault is stored in the payload."""
+    db = AsyncMock()
+    db.begin = MagicMock(return_value=_FakeBegin())
+
+    job = MagicMock()
+    job.id = uuid.uuid4()
+    job.slurm_job_id = 99
+    job.submitter_address = "0xuser"
+    job.payload = {}
+    job.x402_tx_hash = "0xtx"
+    job.price_usdc = Decimal("0.05")
+    job.submitted_at = None
+    db.get.return_value = job
+
+    await fail_job(db, str(job.id), "slurm down", failure_stage=2, fault="platform_error")
+    insert_stmt = db.execute.call_args[0][0]
+    params = insert_stmt.compile().params
+    assert params["payload"]["fault"] == "platform_error"
+
+
 async def test_fail_job_already_cleaned_up():
     """Job not found → no-op (already cleaned up)."""
     db = AsyncMock()

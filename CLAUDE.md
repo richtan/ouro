@@ -90,9 +90,13 @@ Tables: `active_jobs`, `historical_data`, `agent_costs`, `wallet_snapshots`, `pa
 
 Job lifecycle: `pending` → `processing` → `running` → `completed` (archived) or `failed` (archived).
 
-Retry: transient failures with retry_count < 2 reset to `pending`. After max retries, job fails and credit issued.
+Retry: transient failures with retry_count < 2 reset to `pending`. After max retries, job fails and credit issued only for `platform_error` faults.
 
-Recovery on startup: `recover_stuck_jobs()` resets `processing` → `pending`, archives `running` → `failed` via `fail_job()`.
+Recovery on startup: `recover_stuck_jobs()` resets `processing` → `pending`, archives `running` → `failed` via `fail_job()` with `fault="platform_error"` and issues credits.
+
+Fault classification: `agent/src/agent/classifier.py` classifies failures as `platform_error` (credit issued) or `user_error` (no credit). Classification is by Slurm state (unforgeable from inside Docker), not exit codes. Stage 1 validation errors = `user_error`, stage 1 capacity failures = `platform_error`, stage 2 = `platform_error`, stage 3 FAILED/TIMEOUT = `user_error`, CANCELLED/NODE_FAIL = `platform_error`.
+
+Credit redemption: If a wallet has credits >= job price, x402 payment is skipped entirely and credits are redeemed. Implemented in both `submit_compute` and `submit_from_session` routes. `redeem_credits()` uses `SELECT ... FOR UPDATE` to prevent double-spend race conditions.
 
 Both `complete_job()` and `fail_job()` in `db/operations.py` archive to `historical_data` and delete from `active_jobs`.
 
@@ -144,6 +148,9 @@ docker compose up --build
 - **Autoscaler 409 "already exists" race** — Two independent `AutoScaler` instances (in `oracle.py` and `loop.py`) have separate `_booting` dicts. If both try to boot the same node, GCP returns 409. `_boot_spot_instance()` in `scaler.py` treats "already exists" errors as successful `scale_out` events so the caller proceeds to poll for the node becoming IDLE.
 - **NFS exports block spot instances** — `/etc/exports` on `ouro-slurm` originally listed only the two permanent worker IPs. Spot instances get dynamic IPs not in the allow list, so `mount` fails, `set -euo pipefail` kills `node-startup.sh`, and the node never registers IDLE. Fix: use subnet-based export `/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)` covering the full GCP us-central1 VPC subnet. `deploy/setup-elastic-infra.sh:92-94` has this fix; ensure `setup-slurm-cluster.sh` doesn't overwrite it.
 - **Docker Hub image pre-validation** — External (non-prebuilt) images are validated against Docker Hub's tag API at submission time (`validate_docker_image()` in `dockerfile.py`). Returns 422 if image/tag not found. Fails open on timeout/5xx/429 to avoid blocking submissions during Docker Hub outages. Digest references (`@sha256:...`) and non-Docker-Hub registries (`ghcr.io/...`) skip validation. Prebuilt aliases skip validation. Validation runs before payment in both `/api/compute/submit` and `/api/compute/submit/from-session`.
+- **Fault-based credit system** — Credits only issued for `platform_error` faults, not `user_error`. Classification in `agent/src/agent/classifier.py` uses Slurm state (unforgeable from Docker with `--network none --cap-drop ALL`), not exit codes. Prevents free compute via intentional `exit 1`. Credit redemption integrated in both submit endpoints — wallets with credits >= job price skip x402 entirely. `redeem_credits()` uses `FOR UPDATE` to prevent double-spend races.
+- **Poll timeout scaled to time_limit** — `poll_slurm_status_impl` now scales poll count to `max(60, time_limit_min * 60 / 5 + 12)` instead of fixed 60 polls. Jobs longer than 5 min no longer hit false poll timeouts. On poll timeout, the Slurm job is cancelled to prevent free compute.
+- **Concurrent submission race** — `MAX_ACTIVE_JOBS_PER_WALLET` check uses `pg_advisory_xact_lock` (per-wallet advisory lock) to serialize count-check + insert. `FOR UPDATE` cannot be used with aggregate functions like `count()`.
 
 ## Workflow Preferences
 

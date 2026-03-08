@@ -453,6 +453,10 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         )
 
     if submitter_address:
+        # Advisory lock per wallet to serialize count-check + insert
+        lock_key = int.from_bytes(submitter_address.lower().encode()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
         active_count_q = await db.execute(
             select(func.count(ActiveJob.id))
             .where(func.lower(ActiveJob.submitter_address) == submitter_address.lower())
@@ -466,105 +470,120 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
-    config = ResourceConfig(
-        scheme="exact",
-        network=settings.CHAIN_CAIP2,
-        pay_to=settings.WALLET_ADDRESS,
-        price=quote.price_str,
-    )
-    try:
-        requirements = _resource_server.build_payment_requirements(config)
-    except SchemeNotFoundError:
-        logger.error(
-            "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
-            settings.CHAIN_CAIP2,
-        )
-        raise HTTPException(
-            503,
-            f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
-            "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
-        )
+    # Check if wallet has enough credits to skip x402 payment
+    paid_with_credit = False
+    if submitter_address:
+        credit_balance = await get_available_credit(db, submitter_address)
+        if credit_balance >= quote.price_usd:
+            # Redeem credits — skip x402 entirely
+            await redeem_credits(db, submitter_address, quote.price_usd)
+            paid_with_credit = True
+            _event_bus.emit(
+                "credit",
+                f"Credits redeemed: ${quote.price_usd:.4f} from {submitter_address[:10]}... "
+                f"(remaining: ${credit_balance - quote.price_usd:.4f})",
+            )
 
-    # Pre-flight: ensure Slurm is reachable before settling payment
-    if _slurm_client:
-        cluster = await _slurm_client.get_cluster_info()
-        if cluster["status"] == "unreachable":
+    if not paid_with_credit:
+        config = ResourceConfig(
+            scheme="exact",
+            network=settings.CHAIN_CAIP2,
+            pay_to=settings.WALLET_ADDRESS,
+            price=quote.price_str,
+        )
+        try:
+            requirements = _resource_server.build_payment_requirements(config)
+        except SchemeNotFoundError:
+            logger.error(
+                "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
+                settings.CHAIN_CAIP2,
+            )
             raise HTTPException(
                 503,
-                "Compute cluster is temporarily unreachable. Please retry shortly.",
+                f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
+                "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
             )
 
-    if not payment_header:
-        resource_info = ResourceInfo(
-            url="/api/compute/submit",
-            description="Submit an HPC compute job to a Slurm cluster with Docker container isolation",
-            mimeType="application/json",
-        )
-        bazaar_ext = declare_discovery_extension(
-            input={"script": "echo hello", "cpus": 1, "time_limit_min": 1},
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "script": {"type": "string", "description": "Script to execute"},
-                    "cpus": {"type": "integer", "minimum": 1, "maximum": 8, "description": "CPU cores"},
-                    "time_limit_min": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Max runtime (min)"},
-                    "submitter_address": {"type": "string", "description": "0x wallet address"},
-                },
-                "required": ["script"],
-            },
-            body_type="json",
-            output=OutputConfig(example={"job_id": "uuid", "status": "pending", "price": "$0.01"}),
-        )
-        bazaar_ext = _resource_server.enrich_extensions(bazaar_ext, request)
-        payment_required = _resource_server.create_payment_required_response(
-            requirements, resource_info, "Payment required", bazaar_ext,
-        )
-        encoded_header = encode_payment_required_header(payment_required)
-        return JSONResponse(
-            status_code=402,
-            content={
-                "error": "Payment required",
-                "price": quote.price_str,
-                "breakdown": quote.breakdown,
-            },
-            headers={"PAYMENT-REQUIRED": encoded_header},
-        )
+        # Pre-flight: ensure Slurm is reachable before settling payment
+        if _slurm_client:
+            cluster = await _slurm_client.get_cluster_info()
+            if cluster["status"] == "unreachable":
+                raise HTTPException(
+                    503,
+                    "Compute cluster is temporarily unreachable. Please retry shortly.",
+                )
 
-    try:
-        payload = decode_payment_signature_header(payment_header)
-        result = await _resource_server.verify_payment(payload, requirements[0])
-    except Exception as e:
-        error_str = str(e)
-        # The facilitator client raises ValueError with the raw response for
-        # non-200 statuses.  Parse it to distinguish client errors (403) from
-        # genuine availability problems (503).
-        facilitator_reason = _parse_facilitator_error(error_str)
-        if facilitator_reason:
-            logger.warning("x402 verification rejected: %s", facilitator_reason)
-            reason = facilitator_reason.get("invalidReason", "verification_failed")
+        if not payment_header:
+            resource_info = ResourceInfo(
+                url="/api/compute/submit",
+                description="Submit an HPC compute job to a Slurm cluster with Docker container isolation",
+                mimeType="application/json",
+            )
+            bazaar_ext = declare_discovery_extension(
+                input={"script": "echo hello", "cpus": 1, "time_limit_min": 1},
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "script": {"type": "string", "description": "Script to execute"},
+                        "cpus": {"type": "integer", "minimum": 1, "maximum": 8, "description": "CPU cores"},
+                        "time_limit_min": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Max runtime (min)"},
+                        "submitter_address": {"type": "string", "description": "0x wallet address"},
+                    },
+                    "required": ["script"],
+                },
+                body_type="json",
+                output=OutputConfig(example={"job_id": "uuid", "status": "pending", "price": "$0.01"}),
+            )
+            bazaar_ext = _resource_server.enrich_extensions(bazaar_ext, request)
+            payment_required = _resource_server.create_payment_required_response(
+                requirements, resource_info, "Payment required", bazaar_ext,
+            )
+            encoded_header = encode_payment_required_header(payment_required)
             return JSONResponse(
-                status_code=403,
+                status_code=402,
                 content={
-                    "error": reason,
-                    "detail": "Payment verification failed",
+                    "error": "Payment required",
+                    "price": quote.price_str,
+                    "breakdown": quote.breakdown,
                 },
+                headers={"PAYMENT-REQUIRED": encoded_header},
             )
-        logger.error("x402 facilitator error: %s", e)
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Payment verification temporarily unavailable"},
-            headers={"Retry-After": "30"},
+
+        try:
+            payload = decode_payment_signature_header(payment_header)
+            result = await _resource_server.verify_payment(payload, requirements[0])
+        except Exception as e:
+            error_str = str(e)
+            # The facilitator client raises ValueError with the raw response for
+            # non-200 statuses.  Parse it to distinguish client errors (403) from
+            # genuine availability problems (503).
+            facilitator_reason = _parse_facilitator_error(error_str)
+            if facilitator_reason:
+                logger.warning("x402 verification rejected: %s", facilitator_reason)
+                reason = facilitator_reason.get("invalidReason", "verification_failed")
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": reason,
+                        "detail": "Payment verification failed",
+                    },
+                )
+            logger.error("x402 facilitator error: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Payment verification temporarily unavailable"},
+                headers={"Retry-After": "30"},
+            )
+
+        if not result.is_valid:
+            logger.warning("x402 payment verification failed: %s", getattr(result, "error", "unknown"))
+            raise HTTPException(403, "Payment verification failed")
+
+        _event_bus.emit(
+            "x402",
+            f"Payment verified: {quote.price_str} from client "
+            f"(cost floor: ${quote.cost_floor_usd:.4f}, guaranteed profit: {quote.profit_pct:.1f}%)",
         )
-
-    if not result.is_valid:
-        logger.warning("x402 payment verification failed: %s", getattr(result, "error", "unknown"))
-        raise HTTPException(403, "Payment verification failed")
-
-    _event_bus.emit(
-        "x402",
-        f"Payment verified: {quote.price_str} from client "
-        f"(cost floor: ${quote.cost_floor_usd:.4f}, guaranteed profit: {quote.profit_pct:.1f}%)",
-    )
 
     job_id = str(uuid.uuid4())
 
@@ -611,7 +630,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         job_id=uuid.UUID(job_id),
         wallet_address=submitter_address,
         amount_usdc=quote.price_usd,
-        detail={"price_str": quote.price_str},
+        detail={"price_str": quote.price_str, "paid_with_credit": paid_with_credit},
     )
 
     _event_bus.emit("job", f"Job {job_id[:8]} created, queued for processing")
@@ -1287,64 +1306,78 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         quote = await calculate_price(db, cpus, time_limit_min, mode)
         _price_cache.set(cache_key, quote)
 
-    config = ResourceConfig(
-        scheme="exact",
-        network=settings.CHAIN_CAIP2,
-        pay_to=settings.WALLET_ADDRESS,
-        price=quote.price_str,
-    )
-    try:
-        requirements = _resource_server.build_payment_requirements(config)
-    except SchemeNotFoundError:
-        logger.error(
-            "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
-            settings.CHAIN_CAIP2,
-        )
-        raise HTTPException(
-            503,
-            f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
-            "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
-        )
+    # Check if wallet has enough credits to skip x402 payment
+    paid_with_credit = False
+    if submitter_address:
+        credit_balance = await get_available_credit(db, submitter_address)
+        if credit_balance >= quote.price_usd:
+            await redeem_credits(db, submitter_address, quote.price_usd)
+            paid_with_credit = True
+            _event_bus.emit(
+                "credit",
+                f"Credits redeemed: ${quote.price_usd:.4f} from {submitter_address[:10]}... "
+                f"(remaining: ${credit_balance - quote.price_usd:.4f})",
+            )
 
-    # Pre-flight: ensure Slurm is reachable before settling payment
-    if _slurm_client:
-        cluster = await _slurm_client.get_cluster_info()
-        if cluster["status"] == "unreachable":
+    if not paid_with_credit:
+        config = ResourceConfig(
+            scheme="exact",
+            network=settings.CHAIN_CAIP2,
+            pay_to=settings.WALLET_ADDRESS,
+            price=quote.price_str,
+        )
+        try:
+            requirements = _resource_server.build_payment_requirements(config)
+        except SchemeNotFoundError:
+            logger.error(
+                "x402 scheme 'exact' not available for %s — are CDP API keys configured?",
+                settings.CHAIN_CAIP2,
+            )
             raise HTTPException(
                 503,
-                "Compute cluster is temporarily unreachable. Please retry shortly.",
+                f"Payment scheme not available for network {settings.CHAIN_CAIP2}. "
+                "Ensure CDP_API_KEY_ID and CDP_API_KEY_SECRET are set.",
             )
 
-    if not payment_header:
-        from x402.schemas import ResourceInfo
-        resource_info = ResourceInfo(
-            url="/api/compute/submit/from-session",
-            description="Submit compute job via payment session",
-            mimeType="application/json",
-        )
-        encoded_header = encode_payment_required_header(
-            _resource_server.create_payment_required_response(
-                requirements, resource_info, "Payment required",
+        # Pre-flight: ensure Slurm is reachable before settling payment
+        if _slurm_client:
+            cluster = await _slurm_client.get_cluster_info()
+            if cluster["status"] == "unreachable":
+                raise HTTPException(
+                    503,
+                    "Compute cluster is temporarily unreachable. Please retry shortly.",
+                )
+
+        if not payment_header:
+            from x402.schemas import ResourceInfo
+            resource_info = ResourceInfo(
+                url="/api/compute/submit/from-session",
+                description="Submit compute job via payment session",
+                mimeType="application/json",
             )
-        )
-        return JSONResponse(
-            status_code=402,
-            content={"error": "Payment required", "price": quote.price_str},
-            headers={"PAYMENT-REQUIRED": encoded_header},
-        )
+            encoded_header = encode_payment_required_header(
+                _resource_server.create_payment_required_response(
+                    requirements, resource_info, "Payment required",
+                )
+            )
+            return JSONResponse(
+                status_code=402,
+                content={"error": "Payment required", "price": quote.price_str},
+                headers={"PAYMENT-REQUIRED": encoded_header},
+            )
 
-    try:
-        payload = decode_payment_signature_header(payment_header)
-        result = await _resource_server.verify_payment(payload, requirements[0])
-    except Exception as e:
-        error_str = str(e)
-        facilitator_reason = _parse_facilitator_error(error_str)
-        if facilitator_reason:
-            return JSONResponse(status_code=403, content={"error": facilitator_reason.get("invalidReason", "verification_failed")})
-        return JSONResponse(status_code=503, content={"error": "Payment verification temporarily unavailable"}, headers={"Retry-After": "30"})
+        try:
+            payload = decode_payment_signature_header(payment_header)
+            result = await _resource_server.verify_payment(payload, requirements[0])
+        except Exception as e:
+            error_str = str(e)
+            facilitator_reason = _parse_facilitator_error(error_str)
+            if facilitator_reason:
+                return JSONResponse(status_code=403, content={"error": facilitator_reason.get("invalidReason", "verification_failed")})
+            return JSONResponse(status_code=503, content={"error": "Payment verification temporarily unavailable"}, headers={"Retry-After": "30"})
 
-    if not result.is_valid:
-        raise HTTPException(403, "Payment verification failed")
+        if not result.is_valid:
+            raise HTTPException(403, "Payment verification failed")
 
     # 4. Validate entrypoint + image
     session_dockerfile = job_params.get("dockerfile_content")
@@ -1417,7 +1450,7 @@ async def submit_from_session(request: Request, db: AsyncSession = Depends(get_d
         job_id=uuid.UUID(job_id),
         wallet_address=submitter_address,
         amount_usdc=quote.price_usd,
-        detail={"price_str": quote.price_str, "via_session": body.session_id},
+        detail={"price_str": quote.price_str, "via_session": body.session_id, "paid_with_credit": paid_with_credit},
     )
 
     _event_bus.emit("job", f"Job {job_id[:8]} created via session {body.session_id[:8]}")

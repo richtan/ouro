@@ -10,6 +10,7 @@ import time
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from src.agent.classifier import classify_failure
 from src.agent.event_bus import EventBus
 from src.agent.oracle import JobResult, OracleDeps, oracle_agent, process_job_fast
 from src.api.pricing import estimate_llm_cost, verify_job_profit
@@ -57,10 +58,33 @@ async def recover_stuck_jobs(
         )
         running_jobs = run_result.scalars().all()
         for rj in running_jobs:
-            await fail_job(db, str(rj.id), "recovered_on_startup", failure_stage=3)
+            await fail_job(db, str(rj.id), "recovered_on_startup", failure_stage=3, fault="platform_error")
         failed = [rj.id for rj in running_jobs]
 
         await db.commit()
+
+        # Issue credits for orphaned running jobs (platform crashed = platform_error)
+        for rj in running_jobs:
+            if rj.submitter_address and float(rj.price_usdc) > 0:
+                try:
+                    async with session_maker() as credit_db:
+                        await issue_credit(
+                            credit_db,
+                            wallet_address=rj.submitter_address,
+                            amount_usdc=float(rj.price_usdc),
+                            reason=f"job_failed:{rj.id}",
+                        )
+                        await log_audit(
+                            credit_db,
+                            event_type="credit_issued",
+                            job_id=rj.id,
+                            wallet_address=rj.submitter_address,
+                            amount_usdc=float(rj.price_usdc),
+                            detail={"reason": "recovered_on_startup", "fault": "platform_error"},
+                        )
+                except Exception:
+                    logger.exception("Failed to issue credit for recovered job %s", rj.id)
+
         if recovered:
             event_bus.emit("system", f"Recovered {len(recovered)} stuck processing jobs (-> pending)")
             logger.info("Recovered processing -> pending: %s", [str(r)[:8] for r in recovered])
@@ -76,13 +100,22 @@ async def _mark_failed(
     reason: str,
     failure_stage: int | None = None,
     compute_duration_s: float = 0,
+    exit_code: int | None = None,
+    slurm_state: str | None = None,
 ) -> None:
-    """Mark a job as failed and issue a credit to the submitter."""
+    """Mark a job as failed and issue a credit only for platform errors."""
     try:
-        async with session_maker() as db:
-            await fail_job(db, str(job.id), reason, failure_stage=failure_stage, compute_duration_s=compute_duration_s)
+        fault = classify_failure(failure_stage, reason, exit_code=exit_code, slurm_state=slurm_state)
 
-        if job.submitter_address and float(job.price_usdc) > 0:
+        async with session_maker() as db:
+            await fail_job(
+                db, str(job.id), reason,
+                failure_stage=failure_stage,
+                compute_duration_s=compute_duration_s,
+                fault=fault,
+            )
+
+        if fault == "platform_error" and job.submitter_address and float(job.price_usdc) > 0:
             async with session_maker() as db:
                 await issue_credit(
                     db,
@@ -96,10 +129,14 @@ async def _mark_failed(
                     job_id=job.id,
                     wallet_address=job.submitter_address,
                     amount_usdc=float(job.price_usdc),
-                    detail={"reason": reason},
+                    detail={"reason": reason, "fault": fault},
                 )
 
-        event_bus.emit("job", f"Job {str(job.id)[:8]} failed: {reason}", job_id=str(job.id))
+        event_bus.emit(
+            "job",
+            f"Job {str(job.id)[:8]} failed ({fault}): {reason}",
+            job_id=str(job.id),
+        )
     except Exception:
         logger.exception("failed to mark job %s as failed", job.id)
 
@@ -278,7 +315,13 @@ async def _process_one_job(
                     logger.warning("Failed to store error output for job %s", job.id)
             retried = await _maybe_retry(session_maker, event_bus, job, reason)
             if not retried:
-                await _mark_failed(session_maker, event_bus, job, reason, failure_stage=failure_stage, compute_duration_s=time.monotonic() - job_start)
+                await _mark_failed(
+                    session_maker, event_bus, job, reason,
+                    failure_stage=failure_stage,
+                    compute_duration_s=time.monotonic() - job_start,
+                    exit_code=job_result.exit_code if job_result else None,
+                    slurm_state=job_result.slurm_state if job_result else None,
+                )
 
     except asyncio.TimeoutError:
         reason = f"timeout after {FAST_PATH_TIMEOUT_S}s"

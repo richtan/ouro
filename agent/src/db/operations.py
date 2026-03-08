@@ -52,6 +52,7 @@ async def fail_job(
     reason: str,
     failure_stage: int | None = None,
     compute_duration_s: float = 0,
+    fault: str | None = None,
 ) -> None:
     """Move a failed job from active_jobs to historical_data."""
     async with db.begin():
@@ -61,6 +62,8 @@ async def fail_job(
         payload = dict(job.payload or {}, failure_reason=reason)
         if failure_stage is not None:
             payload["failure_stage"] = failure_stage
+        if fault is not None:
+            payload["fault"] = fault
         await db.execute(
             insert(HistoricalData).values(
                 id=job.id,
@@ -139,6 +142,7 @@ async def redeem_credits(
             Credit.redeemed.is_(False),
         )
         .order_by(Credit.created_at)
+        .with_for_update()
     )
     for credit in result.scalars():
         if remaining <= 0:

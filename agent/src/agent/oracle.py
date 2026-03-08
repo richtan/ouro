@@ -45,6 +45,8 @@ class JobResult(BaseModel):
     job_id: str
     status: str
     failure_stage: int | None = None
+    exit_code: int | None = None
+    slurm_state: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +116,10 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
     marked_running = False
     pending_count = 0  # consecutive PENDING polls with resource reason
 
-    for attempt in range(60):
+    # Scale poll count to job's time limit (5s per poll) + 1 min buffer
+    max_polls = max(60, deps.time_limit_min * 60 // 5 + 12)
+
+    for attempt in range(max_polls):
         try:
             status = await deps.slurm_client.get_job_status(slurm_job_id)
         except Exception as e:
@@ -127,13 +132,18 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
         reason = status.get("reason", "")
 
         if state == "COMPLETED":
-            result = await deps.slurm_client.get_job_output(slurm_job_id)
-            deps.captured_output = result["output"]
-            deps.captured_error = result["error_output"]
+            try:
+                result = await deps.slurm_client.get_job_output(slurm_job_id)
+                deps.captured_output = result["output"]
+                deps.captured_error = result["error_output"]
+            except Exception as e:
+                logger.warning("Output retrieval failed for completed job %s: %s", slurm_job_id, e)
+                deps.captured_output = "(output retrieval failed)"
+                deps.captured_error = str(e)
             deps.event_bus.emit("slurm", f"Job {slurm_job_id} completed", job_id=deps.job_id)
             return f"COMPLETED: output_length={len(deps.captured_output)}, output_preview={deps.captured_output[:200]}"
 
-        if state in ("FAILED", "CANCELLED", "TIMEOUT"):
+        if state in ("FAILED", "CANCELLED", "TIMEOUT", "NODE_FAIL"):
             try:
                 result = await deps.slurm_client.get_job_output(slurm_job_id)
                 deps.captured_output = result["output"]
@@ -176,7 +186,12 @@ async def poll_slurm_status_impl(deps: OracleDeps, slurm_job_id: int) -> str:
 
         await asyncio.sleep(5)
 
-    return "TIMEOUT: polling exceeded 5 minutes"
+    # Poll timeout — cancel the Slurm job to prevent free compute
+    try:
+        await deps.slurm_client.cancel_job(slurm_job_id)
+    except Exception:
+        pass
+    return f"TIMEOUT: polling exceeded {max_polls * 5 // 60} minutes"
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +351,20 @@ async def process_job_fast(deps: OracleDeps) -> JobResult:
     await _cleanup_workspace(deps)
 
     if not poll_result.startswith("COMPLETED"):
-        return JobResult(job_id=deps.job_id, status="failed", failure_stage=3)
+        # Parse exit_code and slurm_state from poll result string
+        import re
+        exit_code = None
+        slurm_state = None
+        ec_match = re.search(r"exit_code=(\d+)", poll_result)
+        if ec_match:
+            exit_code = int(ec_match.group(1))
+        st_match = re.search(r"state=(\w+)", poll_result)
+        if st_match:
+            slurm_state = st_match.group(1)
+        return JobResult(
+            job_id=deps.job_id, status="failed", failure_stage=3,
+            exit_code=exit_code, slurm_state=slurm_state,
+        )
 
     return JobResult(job_id=deps.job_id, status="completed")
 

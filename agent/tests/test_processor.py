@@ -79,21 +79,40 @@ async def test_maybe_retry_permanent(make_active_job, mock_session_maker, event_
 # --- _mark_failed ---
 
 
-async def test_mark_failed_archives_and_issues_credit(make_active_job, mock_session_maker, event_bus):
-    """_mark_failed calls fail_job to archive, then issues credit."""
+async def test_mark_failed_platform_error_issues_credit(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed issues credit for platform_error (stage 2 = Slurm submission failure)."""
     job = make_active_job(submitter_address="0xuser", price_usdc=Decimal("0.05"))
     with (
         patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail,
         patch("src.agent.processor.issue_credit", new_callable=AsyncMock) as mock_credit,
         patch("src.agent.processor.log_audit", new_callable=AsyncMock),
     ):
-        await _mark_failed(mock_session_maker, event_bus, job, "test failure", compute_duration_s=7.3)
+        await _mark_failed(mock_session_maker, event_bus, job, "slurm submit error", failure_stage=2, compute_duration_s=7.3)
         mock_fail.assert_awaited_once()
-        assert mock_fail.call_args[1].get("reason", mock_fail.call_args[0][-1]) == "test failure"
+        assert mock_fail.call_args.kwargs["fault"] == "platform_error"
         assert mock_fail.call_args.kwargs["compute_duration_s"] == pytest.approx(7.3)
         mock_credit.assert_awaited_once()
         assert mock_credit.call_args.kwargs["wallet_address"] == "0xuser"
         assert mock_credit.call_args.kwargs["amount_usdc"] == pytest.approx(0.05)
+
+
+async def test_mark_failed_user_error_no_credit(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed does NOT issue credit for user_error (stage 3, Slurm FAILED)."""
+    job = make_active_job(submitter_address="0xuser", price_usdc=Decimal("0.05"))
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail,
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock) as mock_credit,
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+    ):
+        await _mark_failed(
+            mock_session_maker, event_bus, job, "exit code 1",
+            failure_stage=3, compute_duration_s=5.0,
+            exit_code=1, slurm_state="FAILED",
+        )
+        mock_fail.assert_awaited_once()
+        assert mock_fail.call_args.kwargs["fault"] == "user_error"
+        assert mock_fail.call_args.kwargs.get("failure_stage") == 3
+        mock_credit.assert_not_awaited()
 
 
 async def test_mark_failed_with_failure_stage(make_active_job, mock_session_maker, event_bus):
@@ -104,9 +123,10 @@ async def test_mark_failed_with_failure_stage(make_active_job, mock_session_make
         patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
         patch("src.agent.processor.log_audit", new_callable=AsyncMock),
     ):
-        await _mark_failed(mock_session_maker, event_bus, job, "slurm error", failure_stage=3, compute_duration_s=5.0)
+        # Stage 2 = platform_error, so credit will be issued
+        await _mark_failed(mock_session_maker, event_bus, job, "slurm error", failure_stage=2, compute_duration_s=5.0)
         mock_fail.assert_awaited_once()
-        assert mock_fail.call_args.kwargs.get("failure_stage") == 3
+        assert mock_fail.call_args.kwargs.get("failure_stage") == 2
         assert mock_fail.call_args.kwargs.get("compute_duration_s") == pytest.approx(5.0)
 
 
@@ -187,6 +207,8 @@ async def test_recover_stuck_running(event_bus):
     # Running jobs: now returns ActiveJob-like objects via select()
     running_job = MagicMock()
     running_job.id = uuid.uuid4()
+    running_job.submitter_address = "0xuser"
+    running_job.price_usdc = Decimal("0.05")
     run_result = MagicMock()
     run_result.scalars.return_value.all.return_value = [running_job]
 
@@ -202,9 +224,13 @@ async def test_recover_stuck_running(event_bus):
     maker = MagicMock()
     maker.return_value = _CtxMgr()
 
-    with patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail:
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock) as mock_fail,
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+    ):
         await recover_stuck_jobs(maker, event_bus)
-        mock_fail.assert_awaited_once_with(session, str(running_job.id), "recovered_on_startup", failure_stage=3)
+        mock_fail.assert_awaited_once_with(session, str(running_job.id), "recovered_on_startup", failure_stage=3, fault="platform_error")
 
     messages = [e.message for e in event_bus._history if e.type == "system"]
     assert any("1" in msg and "failed" in msg for msg in messages)
