@@ -98,7 +98,7 @@ function ModeBadge({ mode }: { mode: string }) {
 function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string | null; onComplete?: () => void }) {
   const [open, setOpen] = useState(job.id === expandId);
   const isHist = job._type === "historical";
-  const { events, currentStage } = useJobEvents(
+  const { events, currentStage, sseFailed, sseFailedStage } = useJobEvents(
     open ? job.id : null,
     job.status,
   );
@@ -160,9 +160,18 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
         <div className="mt-4 pt-4 border-t border-o-border space-y-4">
           {isHist ? (
             <JobTimeline stage={4} failed={job.status === "failed"} failedStage={(job as HistoricalJob).failure_stage} />
-          ) : (
-            <JobTimeline stage={currentStage} failed={job.status === "failed"} failedStage={job.status === "failed" ? currentStage : undefined} />
-          )}
+          ) : (() => {
+            const isFailed = job.status === "failed" || sseFailed;
+            // Cap stage at 3 for success transitions (brief "Running" before poll confirms)
+            // Show stage 4 immediately for SSE-detected failures so timeline renders correctly
+            const displayStage = (currentStage >= 4 && !["completed", "failed"].includes(job.status))
+              ? (sseFailed ? 4 : 3)
+              : currentStage;
+            const failStage = isFailed
+              ? ((job as ActiveJob).failure_stage ?? (sseFailedStage || displayStage))
+              : undefined;
+            return <JobTimeline stage={displayStage} failed={isFailed} failedStage={failStage} />;
+          })()}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="col-span-2 bg-o-bg rounded-lg p-3 border border-o-border">
               <div className="text-xs text-o-textSecondary uppercase tracking-wider mb-1">Job ID</div>

@@ -24,17 +24,33 @@ function statusToStage(status: string): number {
   }
 }
 
-/** Derive stage from the most advanced event type seen */
-function eventsToStage(events: JobEvent[]): number {
+interface StageInfo {
+  stage: number;
+  sseFailed: boolean;
+  sseFailedStage: number;
+}
+
+/** Derive stage from the most advanced event type seen, detecting SSE failures */
+function eventsToStageInfo(events: JobEvent[]): StageInfo {
   let stage = 0;
+  let sseFailed = false;
+  let sseFailedStage = 0;
   for (const e of events) {
     if (e.type === "agent" && stage < 1) stage = 1;
     if (e.type === "slurm" && stage < 2) stage = 2;
     if (e.type === "slurm" && e.message.includes("state=RUNNING")) stage = 3;
     if (e.type === "slurm" && e.message.includes("completed")) stage = 3;
-    if (e.type === "profit" || e.type === "job") stage = 4;
+    if (e.type === "profit" || e.type === "job") {
+      // Detect failure: " failed (" matches "Job x failed (user_error): ..."
+      // but NOT "retrying (1/2): Slurm submit failed: ..." (different position)
+      if (e.type === "job" && e.message.includes(" failed (")) {
+        sseFailed = true;
+        sseFailedStage = stage;
+      }
+      stage = 4;
+    }
   }
-  return stage;
+  return { stage, sseFailed, sseFailedStage };
 }
 
 const MAX_SSE_CONNECTIONS = 3;
@@ -43,6 +59,8 @@ let activeConnections = 0;
 export function useJobEvents(jobId: string | null, jobStatus: string) {
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [sseStage, setSseStage] = useState<number | null>(null);
+  const [sseFailed, setSseFailed] = useState(false);
+  const [sseFailedStage, setSseFailedStage] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const isTerminal = ["completed", "failed"].includes(jobStatus);
@@ -52,6 +70,8 @@ export function useJobEvents(jobId: string | null, jobStatus: string) {
     if (!jobId) {
       setEvents([]);
       setSseStage(null);
+      setSseFailed(false);
+      setSseFailedStage(0);
       return;
     }
     if (isTerminal) {
@@ -74,7 +94,10 @@ export function useJobEvents(jobId: string | null, jobStatus: string) {
         const event: JobEvent = JSON.parse(e.data);
         setEvents((prev) => {
           const next = [...prev, event];
-          setSseStage(eventsToStage(next));
+          const info = eventsToStageInfo(next);
+          setSseStage(info.stage);
+          setSseFailed(info.sseFailed);
+          setSseFailedStage(info.sseFailedStage);
           return next;
         });
       } catch {
@@ -94,5 +117,5 @@ export function useJobEvents(jobId: string | null, jobStatus: string) {
     };
   }, [jobId, isTerminal]);
 
-  return { events, currentStage };
+  return { events, currentStage, sseFailed, sseFailedStage };
 }
