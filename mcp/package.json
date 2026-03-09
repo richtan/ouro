@@ -1,9 +1,9 @@
 {
   "name": "ouro-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Run HPC compute from any AI agent — pay with USDC via x402 on Base",
   "bin": {
-    "ouro-mcp": "./dist/index.js"
+    "ouro-mcp": "dist/index.js"
   },
   "type": "module",
   "scripts": {
