@@ -153,7 +153,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
           {job.credit_applied != null && job.credit_applied > 0 ? (
             <>
               <span className="font-mono text-xs text-o-muted line-through">${(job.price_usdc ?? 0).toFixed(4)}</span>
-              <span className="font-mono text-xs text-o-green">${((job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
+              <span className="font-mono text-xs text-o-green">${Math.max(0, (job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
             </>
           ) : (
             <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
@@ -198,7 +198,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
               {job.credit_applied != null && job.credit_applied > 0 ? (
                 <div className="flex items-center gap-1.5">
                   <span className="font-mono text-xs text-o-muted line-through">${(job.price_usdc ?? 0).toFixed(4)}</span>
-                  <span className="font-mono text-xs text-o-green">${((job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
+                  <span className="font-mono text-xs text-o-green">${Math.max(0, (job.price_usdc ?? 0) - job.credit_applied).toFixed(4)}</span>
                 </div>
               ) : (
                 <div className="font-mono text-xs text-o-green">

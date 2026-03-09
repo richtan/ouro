@@ -98,7 +98,7 @@ export default function StickySubmitBar({
                 ) : hasPartialCredit ? (
                   <>
                     <span className="font-mono text-sm text-o-muted line-through whitespace-nowrap">{priceEstimate}</span>
-                    <span className="font-mono text-sm text-o-green whitespace-nowrap">${(numericPrice! - creditBalance!).toFixed(4)}</span>
+                    <span className="font-mono text-sm text-o-green whitespace-nowrap">${Math.max(0, numericPrice! - creditBalance!).toFixed(4)}</span>
                   </>
                 ) : (
                   <span className="font-mono text-sm text-o-green whitespace-nowrap">{priceEstimate}</span>
