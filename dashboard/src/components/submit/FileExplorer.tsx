@@ -25,7 +25,7 @@ function buildTree(files: WorkspaceFile[]): TreeNode[] {
   const root: TreeNode[] = [];
 
   for (let i = 0; i < files.length; i++) {
-    const parts = files[i].path.split("/").filter(Boolean);
+    const parts = (files[i].path ?? "").split("/").filter(Boolean);
     let current = root;
     let pathSoFar = "";
 
@@ -448,8 +448,10 @@ export default function FileExplorer({
   const updateFileContent = useCallback(
     (value: string) => {
       const updated = [...files];
-      updated[activeIndex] = { ...updated[activeIndex], content: value };
-      onFilesChange(updated);
+      if (activeIndex >= 0 && activeIndex < updated.length) {
+        updated[activeIndex] = { ...updated[activeIndex], content: value };
+        onFilesChange(updated);
+      }
     },
     [files, activeIndex, onFilesChange],
   );
@@ -546,7 +548,7 @@ export default function FileExplorer({
 
   const removeFolder = (folderPath: string) => {
     const prefix = folderPath + "/";
-    const updated = files.filter((f) => !f.path.startsWith(prefix));
+    const updated = files.filter((f) => !(f.path ?? "").startsWith(prefix));
     if (updated.length === files.length) return;
     onFilesChange(updated);
     setActiveIndex(0);

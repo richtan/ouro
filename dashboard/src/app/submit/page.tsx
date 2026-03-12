@@ -116,7 +116,7 @@ export default function SubmitPage() {
 
   // Parse Dockerfile from files
   const dockerfileInfo = useMemo(() => {
-    const df = files.find((f) => f.path.toLowerCase() === "dockerfile");
+    const df = files.find((f) => f.path?.toLowerCase() === "dockerfile");
     return df ? parseDockerfile(df.content) : null;
   }, [files]);
 
@@ -205,7 +205,7 @@ export default function SubmitPage() {
       errors.push("No files");
       return errors;
     }
-    const emptyFiles = files.filter((f) => !f.path.trim() || !f.content.trim());
+    const emptyFiles = files.filter((f) => !(f.path ?? "").trim() || !(f.content ?? "").trim());
     if (emptyFiles.length) {
       errors.push("Some files are empty or unnamed");
     }
@@ -221,7 +221,7 @@ export default function SubmitPage() {
     status !== "submitting" &&
     status !== "paying" &&
     files.length > 0 &&
-    files.every((f) => f.path.trim() && f.content.trim()) &&
+    files.every((f) => (f.path ?? "").trim() && (f.content ?? "").trim()) &&
     dockerfileInfo?.isValid === true;
 
   return (

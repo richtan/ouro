@@ -17,6 +17,8 @@ function GithubIcon() {
 /*  Terminal — x402 HTTP flow                                          */
 /* ------------------------------------------------------------------ */
 
+const CLI_COMMAND = "claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp";
+
 const MCP_JSON = `{
   "mcpServers": {
     "ouro": {
@@ -27,36 +29,52 @@ const MCP_JSON = `{
   }
 }`;
 
-const TERM_LINES: { text: string; color: string; delay: number }[] = [
-  { text: '$ curl -X POST https://api.ourocompute.com/api/compute/submit \\', color: "text-o-text", delay: 0 },
-  { text: '    -d \'{"script": "python3 train.py --epochs 50", "cpus": 2}\'', color: "text-o-text", delay: 80 },
+const TERM_LINES: { text: string; color: string; delay: number; parts?: { text: string; color: string }[] }[] = [
+  { text: "...", color: "text-o-muted", delay: 0 },
+  { text: "", color: "", delay: 0, parts: [
+    { text: "Agent: ", color: "text-o-blueText" },
+    { text: "I need to train the model. Let me run it on Ouro.", color: "text-o-text" },
+  ]},
   { text: "", color: "", delay: 0 },
-  { text: '402 Payment Required \u00b7 $0.0841 USDC', color: "text-o-amber", delay: 500 },
+  { text: "\u26a1 run_job", color: "text-o-blueText", delay: 400 },
+  { text: '  script: "python3 train.py --epochs 50"', color: "text-o-text", delay: 500 },
+  { text: "  cpus: 2", color: "text-o-text", delay: 560 },
   { text: "", color: "", delay: 0 },
-  { text: '# re-send with signed USDC payment', color: "text-o-muted", delay: 900 },
-  { text: '$ curl ... -H "payment-signature: 0x3fa9...b21c"', color: "text-o-text", delay: 1000 },
+  { text: "\u21b3 paid $0.0841 USDC via x402 \u00b7 job f2a9c1e8\u2026", color: "text-o-amber", delay: 900 },
   { text: "", color: "", delay: 0 },
-  { text: '200 OK \u00b7 job_id: f2a9c1e8-...', color: "text-o-green", delay: 1400 },
+  { text: "\u26a1 get_job_status", color: "text-o-blueText", delay: 1300 },
+  { text: '  job_id: "f2a9c1e8\u2026"', color: "text-o-text", delay: 1400 },
   { text: "", color: "", delay: 0 },
-  { text: '\u2713 completed \u00b7 accuracy: 98.7%', color: "text-o-green", delay: 1800 },
+  { text: "\u2713 completed \u00b7 accuracy: 98.7%", color: "text-o-green", delay: 1800 },
+  { text: "...", color: "text-o-muted", delay: 2000 },
 ];
 
 function Terminal() {
   return (
-    <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-o-border">
+    <div className="bg-o-surface border border-o-borderHover rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-o-borderHover">
         <div className="flex gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-red/80" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-amber/80" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-green/80" />
         </div>
-        <span className="text-xs text-o-muted ml-1 select-none">terminal</span>
+        <span className="text-xs text-o-muted ml-1 select-none">agent</span>
       </div>
 
-      <pre className="px-5 py-5 font-mono text-xs leading-[1.7] overflow-x-auto">
+      <pre className="px-5 py-5 font-mono text-sm leading-[1.7] overflow-x-hidden break-words whitespace-pre-wrap">
         {TERM_LINES.map((l, i) =>
-          l.text === "" ? (
+          l.text === "" && !l.parts ? (
             <br key={i} />
+          ) : l.parts ? (
+            <span
+              key={i}
+              className="terminal-line block"
+              style={{ animationDelay: `${l.delay}ms` }}
+            >
+              {l.parts.map((p, j) => (
+                <span key={j} className={p.color}>{p.text}</span>
+              ))}
+            </span>
           ) : (
             <span
               key={i}
@@ -227,7 +245,7 @@ export default function LandingPage() {
           </div>
 
           <div className={`mt-8 lg:mt-0 reveal${mcpVisible ? " visible" : ""} reveal-delay-2`}>
-            <McpCodeCard />
+            <McpInstallCard />
           </div>
         </section>
       </main>
@@ -240,11 +258,12 @@ export default function LandingPage() {
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-function McpCodeCard() {
+function McpInstallCard() {
+  const [tab, setTab] = useState<"cli" | "json">("cli");
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(MCP_JSON);
+    navigator.clipboard.writeText(tab === "cli" ? CLI_COMMAND : MCP_JSON);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -257,7 +276,28 @@ function McpCodeCard() {
           <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
           <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
         </div>
-        <span className="text-xs text-o-muted ml-1 select-none">mcp.json</span>
+        <div className="flex gap-3 ml-2">
+          <button
+            onClick={() => setTab("cli")}
+            className={`text-xs font-medium pb-0.5 transition-colors ${
+              tab === "cli"
+                ? "text-o-text border-b border-o-text"
+                : "text-o-muted hover:text-o-textSecondary"
+            }`}
+          >
+            CLI
+          </button>
+          <button
+            onClick={() => setTab("json")}
+            className={`text-xs font-medium pb-0.5 transition-colors ${
+              tab === "json"
+                ? "text-o-text border-b border-o-text"
+                : "text-o-muted hover:text-o-textSecondary"
+            }`}
+          >
+            mcp.json
+          </button>
+        </div>
         <button
           onClick={handleCopy}
           className="ml-auto text-o-muted hover:text-o-text transition-colors"
@@ -276,26 +316,52 @@ function McpCodeCard() {
         </button>
       </div>
       <pre className="px-5 py-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
-        <span className="text-o-muted">{"{"}</span>{"\n"}
-        <span className="text-o-muted">{"  "}&quot;mcpServers&quot;: {"{"}</span>{"\n"}
-        <span className="text-o-muted">{"    "}&quot;</span>
-        <span className="text-o-textSecondary">ouro</span>
-        <span className="text-o-muted">&quot;: {"{"}</span>{"\n"}
-        <span className="text-o-muted">{"      "}&quot;</span>
-        <span className="text-o-textSecondary">command</span>
-        <span className="text-o-muted">&quot;: &quot;</span>
-        <span className="text-o-blueText">npx</span>
-        <span className="text-o-muted">&quot;,</span>{"\n"}
-        <span className="text-o-muted">{"      "}&quot;</span>
-        <span className="text-o-textSecondary">args</span>
-        <span className="text-o-muted">&quot;: [&quot;</span>
-        <span className="text-o-blueText">-y</span>
-        <span className="text-o-muted">&quot;, &quot;</span>
-        <span className="text-o-blueText">ouro-mcp</span>
-        <span className="text-o-muted">&quot;]</span>{"\n"}
-        <span className="text-o-muted">{"    }"}</span>{"\n"}
-        <span className="text-o-muted">{"  }"}</span>{"\n"}
-        <span className="text-o-muted">{"}"}</span>
+        {tab === "cli" ? (
+          <>
+            <span className="text-o-text">$ claude mcp add ouro</span>
+            <span className="text-o-muted"> \</span>{"\n"}
+            <span className="text-o-textSecondary">    --transport</span>
+            <span className="text-o-text"> stdio</span>
+            <span className="text-o-muted"> \</span>{"\n"}
+            <span className="text-o-textSecondary">    -e</span>
+            <span className="text-o-text"> WALLET_PRIVATE_KEY=</span>
+            <span className="text-o-muted">0x...</span>
+            <span className="text-o-muted"> \</span>{"\n"}
+            <span className="text-o-muted">    --</span>
+            <span className="text-o-text"> npx -y </span>
+            <span className="text-o-blueText">ouro-mcp</span>
+          </>
+        ) : (
+          <>
+            <span className="text-o-muted">{"{"}</span>{"\n"}
+            <span className="text-o-muted">{"  "}&quot;mcpServers&quot;: {"{"}</span>{"\n"}
+            <span className="text-o-muted">{"    "}&quot;</span>
+            <span className="text-o-textSecondary">ouro</span>
+            <span className="text-o-muted">&quot;: {"{"}</span>{"\n"}
+            <span className="text-o-muted">{"      "}&quot;</span>
+            <span className="text-o-textSecondary">command</span>
+            <span className="text-o-muted">&quot;: &quot;</span>
+            <span className="text-o-blueText">npx</span>
+            <span className="text-o-muted">&quot;,</span>{"\n"}
+            <span className="text-o-muted">{"      "}&quot;</span>
+            <span className="text-o-textSecondary">args</span>
+            <span className="text-o-muted">&quot;: [&quot;</span>
+            <span className="text-o-blueText">-y</span>
+            <span className="text-o-muted">&quot;, &quot;</span>
+            <span className="text-o-blueText">ouro-mcp</span>
+            <span className="text-o-muted">&quot;],</span>{"\n"}
+            <span className="text-o-muted">{"      "}&quot;</span>
+            <span className="text-o-textSecondary">env</span>
+            <span className="text-o-muted">&quot;: {"{"} &quot;</span>
+            <span className="text-o-textSecondary">WALLET_PRIVATE_KEY</span>
+            <span className="text-o-muted">&quot;: &quot;</span>
+            <span className="text-o-muted">0x...</span>
+            <span className="text-o-muted">&quot; {"}"}</span>{"\n"}
+            <span className="text-o-muted">{"    }"}</span>{"\n"}
+            <span className="text-o-muted">{"  }"}</span>{"\n"}
+            <span className="text-o-muted">{"}"}</span>
+          </>
+        )}
       </pre>
     </div>
   );
