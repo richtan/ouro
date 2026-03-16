@@ -113,7 +113,7 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.2.0" },
+  { name: "ouro", version: "1.3.0" },
   {
     instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
