@@ -9,23 +9,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useAccount, useSignMessage } from "wagmi";
-
-type AuthState = "idle" | "signing" | "authenticated" | "error";
+import { useAccount } from "wagmi";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   walletAddress: string | null;
-  authState: AuthState;
-  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   isAuthenticated: false,
   walletAddress: null,
-  authState: "idle",
-  signIn: async () => {},
   signOut: async () => {},
 });
 
@@ -35,15 +29,14 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { address, isConnected } = useAccount();
-  const { signMessageAsync } = useSignMessage();
-  const [authState, setAuthState] = useState<AuthState>("idle");
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
   const prevAddressRef = useRef<string | undefined>(undefined);
 
   // Check existing session on mount / address change
   useEffect(() => {
     if (!isConnected || !address) {
-      setAuthState("idle");
+      setAuthenticated(false);
       setWalletAddress(null);
       return;
     }
@@ -53,17 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const res = await fetch("/api/auth/check");
         if (res.ok) {
           const data = await res.json();
-          // Verify the session matches current wallet
           if (data.address?.toLowerCase() === address.toLowerCase()) {
-            setAuthState("authenticated");
+            setAuthenticated(true);
             setWalletAddress(data.address);
             return;
           }
         }
       } catch {
-        // Session check failed — not authenticated
+        // Session check failed
       }
-      setAuthState("idle");
+      setAuthenticated(false);
       setWalletAddress(null);
     };
 
@@ -76,9 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     prevAddressRef.current = address;
 
     if (prev && address && prev.toLowerCase() !== address.toLowerCase()) {
-      // Wallet changed — clear old session
       fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-      setAuthState("idle");
+      setAuthenticated(false);
       setWalletAddress(null);
     }
   }, [address]);
@@ -87,36 +78,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isConnected) {
       fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-      setAuthState("idle");
+      setAuthenticated(false);
       setWalletAddress(null);
     }
   }, [isConnected]);
 
-  const signIn = useCallback(async () => {
-    if (!address) return;
-    setAuthState("signing");
-    try {
-      const timestamp = Math.floor(Date.now() / 1000);
-      const message = `Ouro Session\nWallet: ${address}\nTimestamp: ${timestamp}`;
-      const signature = await signMessageAsync({ message });
-
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, message, signature }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Login failed");
+  // Re-check session when SIWE verify succeeds
+  useEffect(() => {
+    const onAuthChange = () => {
+      if (isConnected && address) {
+        // Session cookie was just set — re-check
+        fetch("/api/auth/check")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data?.address?.toLowerCase() === address.toLowerCase()) {
+              setAuthenticated(true);
+              setWalletAddress(data.address);
+            }
+          })
+          .catch(() => {});
       }
-
-      setAuthState("authenticated");
-      setWalletAddress(address.toLowerCase());
-    } catch {
-      setAuthState("error");
-    }
-  }, [address, signMessageAsync]);
+    };
+    window.addEventListener("ouro-auth-change", onAuthChange);
+    return () => window.removeEventListener("ouro-auth-change", onAuthChange);
+  }, [isConnected, address]);
 
   const signOut = useCallback(async () => {
     try {
@@ -124,17 +109,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Best effort
     }
-    setAuthState("idle");
+    setAuthenticated(false);
     setWalletAddress(null);
   }, []);
 
   return (
     <AuthContext.Provider
       value={{
-        isAuthenticated: authState === "authenticated",
+        isAuthenticated: authenticated,
         walletAddress,
-        authState,
-        signIn,
         signOut,
       }}
     >

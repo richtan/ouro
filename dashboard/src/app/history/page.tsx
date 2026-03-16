@@ -286,7 +286,7 @@ export default function HistoryPage() {
   const searchParams = useSearchParams();
   const expandId = searchParams.get("expand");
   const { address, isConnected, isReady } = useWalletReady();
-  const { isAuthenticated, signIn, authState } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
   const loadRef = useRef<(() => void) | undefined>(undefined);
@@ -373,24 +373,10 @@ export default function HistoryPage() {
 
       {!isReady ? (
         <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
-      ) : !isConnected ? (
+      ) : !isConnected || !isAuthenticated ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to view your job history</p>
           <ConnectButton />
-        </div>
-      ) : !isAuthenticated ? (
-        <div className="card flex flex-col items-center justify-center py-16 gap-4">
-          <p className="text-o-textSecondary text-sm">Sign a message to verify wallet ownership</p>
-          <button
-            onClick={signIn}
-            disabled={authState === "signing"}
-            className="px-6 py-3 bg-o-blue text-white border border-o-blue rounded-lg text-sm font-medium hover:bg-o-blueHover transition-colors disabled:opacity-50"
-          >
-            {authState === "signing" ? "Signing..." : "Sign to verify wallet"}
-          </button>
-          {authState === "error" && (
-            <p className="text-o-red text-xs">Verification failed. Please try again.</p>
-          )}
         </div>
       ) : loading && jobs.length === 0 ? (
         <div className="card animate-pulse">

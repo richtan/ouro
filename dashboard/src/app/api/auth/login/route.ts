@@ -1,55 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyMessage } from "viem";
+import { createPublicClient, http } from "viem";
+import { base } from "viem/chains";
+import { parseSiweMessage } from "viem/siwe";
 import { WALLET_COOKIE_NAME, signWalletJWT } from "@/lib/wallet-auth";
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(),
+});
 
 export const dynamic = "force-dynamic";
 
 const MAX_AGE_S = 86400; // 24 hours
-const TIMESTAMP_WINDOW_S = 300; // 5 minutes
+const NONCE_COOKIE = "ouro-nonce";
 
 export async function POST(request: NextRequest) {
-  let body: { address?: string; message?: string; signature?: string };
+  let body: { message?: string; signature?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { address, message, signature } = body;
-  if (!address || !message || !signature) {
+  const { message, signature } = body;
+  if (!message || !signature) {
     return NextResponse.json(
-      { error: "address, message, and signature required" },
+      { error: "message and signature required" },
       { status: 400 },
     );
   }
 
-  // Verify message format: "Ouro Session\nWallet: {address}\nTimestamp: {timestamp}"
-  const match = message.match(
-    /^Ouro Session\nWallet: (0x[0-9a-fA-F]{40})\nTimestamp: (\d+)$/,
-  );
-  if (!match) {
+  // Parse SIWE message
+  const parsed = parseSiweMessage(message);
+  if (!parsed.address || !parsed.nonce) {
     return NextResponse.json(
-      { error: "Invalid message format" },
+      { error: "Invalid SIWE message" },
       { status: 400 },
     );
   }
 
-  const [, msgAddress, msgTimestamp] = match;
-
-  // Verify address in message matches claimed address
-  if (msgAddress.toLowerCase() !== address.toLowerCase()) {
+  // Verify nonce matches cookie
+  const nonceCookie = request.cookies.get(NONCE_COOKIE)?.value;
+  if (!nonceCookie || nonceCookie !== parsed.nonce) {
     return NextResponse.json(
-      { error: "Address mismatch" },
-      { status: 400 },
-    );
-  }
-
-  // Verify timestamp within window
-  const ts = parseInt(msgTimestamp, 10);
-  const nowTs = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowTs - ts) > TIMESTAMP_WINDOW_S) {
-    return NextResponse.json(
-      { error: "Message timestamp expired" },
+      { error: "Invalid or expired nonce" },
       { status: 400 },
     );
   }
@@ -57,8 +51,8 @@ export async function POST(request: NextRequest) {
   // Verify signature
   let valid: boolean;
   try {
-    valid = await verifyMessage({
-      address: address as `0x${string}`,
+    valid = await publicClient.verifyMessage({
+      address: parsed.address,
       message,
       signature: signature as `0x${string}`,
     });
@@ -76,19 +70,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const jwt = await signWalletJWT(address);
+  const jwt = await signWalletJWT(parsed.address);
 
   const isProduction = process.env.NODE_ENV === "production";
-  const cookieParts = [
+  const sessionParts = [
     `${WALLET_COOKIE_NAME}=${jwt}`,
     "HttpOnly",
     "SameSite=Strict",
     "Path=/",
     `Max-Age=${MAX_AGE_S}`,
   ];
-  if (isProduction) cookieParts.push("Secure");
+  if (isProduction) sessionParts.push("Secure");
+
+  // Clear nonce cookie
+  const clearNonce = [
+    `${NONCE_COOKIE}=`,
+    "HttpOnly",
+    "SameSite=Strict",
+    "Path=/",
+    "Max-Age=0",
+  ];
+  if (isProduction) clearNonce.push("Secure");
 
   const res = NextResponse.json({ ok: true });
-  res.headers.set("Set-Cookie", cookieParts.join("; "));
+  res.headers.append("Set-Cookie", sessionParts.join("; "));
+  res.headers.append("Set-Cookie", clearNonce.join("; "));
   return res;
 }
