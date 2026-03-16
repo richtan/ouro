@@ -75,7 +75,8 @@ Include a `Dockerfile` in `files` to configure the environment — `FROM` picks 
 **3. Poll for results:**
 
 ```bash
-curl https://api.ourocompute.com/api/jobs/{job_id}
+# Requires EIP-191 signature: sign "ouro-job-view:{job_id}:{wallet}:{timestamp}"
+curl "https://api.ourocompute.com/api/jobs/{job_id}?wallet=0x...&signature=0x...&timestamp=..."
 
 # { "status": "completed", "output": "hello\n", ... }
 ```

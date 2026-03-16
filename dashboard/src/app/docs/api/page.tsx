@@ -175,10 +175,12 @@ export default function ApiPage() {
           <EndpointCard
             method="GET"
             path="/api/jobs/{job_id}"
+            auth="EIP-191 / Admin"
             description="Get job details and output"
           >
             <p className="text-xs text-o-textSecondary">
-              The job UUID serves as a capability token — anyone with the ID can view the job.
+              Requires EIP-191 wallet signature (submitter must match) or admin key.
+              Query params: <code className="text-o-blueText">wallet</code>, <code className="text-o-blueText">signature</code>, <code className="text-o-blueText">timestamp</code>.
               Returns status, output, error_output, failure_reason, compute_duration_s, and price_usdc.
             </p>
           </EndpointCard>
@@ -199,11 +201,13 @@ export default function ApiPage() {
           <EndpointCard
             method="GET"
             path="/api/storage?wallet=0x..."
+            auth="EIP-191"
             description="Persistent storage quota usage and file listing"
           >
             <p className="text-xs text-o-textSecondary">
               Returns quota (bytes), usage (bytes), tier, and a list of files with paths, sizes, and modification times.
-              Public endpoint — wallet address is the only required query parameter.
+              Requires EIP-191 signed message: <code className="text-o-blueText">ouro-storage-list:{'{wallet}'}:{'{timestamp}'}</code>.
+              Query params: <code className="text-o-blueText">wallet</code>, <code className="text-o-blueText">signature</code>, <code className="text-o-blueText">timestamp</code>.
             </p>
           </EndpointCard>
 

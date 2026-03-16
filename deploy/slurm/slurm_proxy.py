@@ -47,7 +47,7 @@ def _validate_storage_wallet(wallet: str) -> str:
         raise HTTPException(400, "Invalid wallet address format (expected lowercase 0x + 40 hex)")
     storage_path = os.path.join(STORAGE_BASE_DIR, wallet)
     real = os.path.realpath(storage_path)
-    if not real.startswith(os.path.realpath(STORAGE_BASE_DIR)):
+    if not real.startswith(os.path.realpath(STORAGE_BASE_DIR) + os.sep):
         raise HTTPException(400, "Path traversal detected")
     return real
 

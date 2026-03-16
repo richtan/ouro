@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWithTimeout } from "@/lib/api";
+import { verifyMessage } from "viem";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,33 @@ export async function GET(request: NextRequest) {
     if (!address) {
       return NextResponse.json({ error: "address parameter required" }, { status: 400 });
     }
+
+    const signature = request.nextUrl.searchParams.get("signature");
+    const timestamp = request.nextUrl.searchParams.get("timestamp");
+
+    if (!signature || !timestamp) {
+      return NextResponse.json({ error: "signature and timestamp required" }, { status: 401 });
+    }
+
+    const ts = parseInt(timestamp, 10);
+    if (isNaN(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > 300) {
+      return NextResponse.json({ error: "Signature expired" }, { status: 401 });
+    }
+
+    const message = `ouro-list-my-data:${address.toLowerCase()}:${timestamp}`;
+    try {
+      const valid = await verifyMessage({
+        address: address as `0x${string}`,
+        message,
+        signature: signature as `0x${string}`,
+      });
+      if (!valid) {
+        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
+    }
+
     const headers: Record<string, string> = {};
     if (process.env.ADMIN_API_KEY) {
       headers["x-admin-key"] = process.env.ADMIN_API_KEY;

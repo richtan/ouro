@@ -38,6 +38,18 @@ const API_URL = (process.env.OURO_API_URL || "https://api.ourocompute.com").repl
 const account = privateKeyToAccount(WALLET_PRIVATE_KEY as `0x${string}`);
 const walletAddress = account.address;
 
+/** Sign an EIP-191 message for authenticated API requests. */
+async function signedQuery(
+  action: string,
+  ...parts: string[]
+): Promise<URLSearchParams> {
+  const ts = String(Math.floor(Date.now() / 1000));
+  const allParts = [...parts, walletAddress.toLowerCase(), ts];
+  const message = `ouro-${action}:${allParts.join(":")}`;
+  const signature = await account.signMessage({ message });
+  return new URLSearchParams({ wallet: walletAddress, signature, timestamp: ts });
+}
+
 const publicClient = createPublicClient({ chain: base, transport: http() });
 const signer = toClientEvmSigner(account, publicClient);
 
@@ -63,6 +75,7 @@ async function apiFetch(
   try {
     return await fetchFn(url, {
       ...init,
+      redirect: "error",
       signal: AbortSignal.timeout(timeout),
     });
   } catch (err: unknown) {
@@ -196,7 +209,8 @@ async function pollUntilDone(jobId: string): Promise<{ content: { type: "text"; 
   const maxPolls = 780; // 65 min at 5s intervals (matches SSE timeout)
   for (let i = 0; i < maxPolls; i++) {
     try {
-      const res = await apiFetch(`/api/jobs/${jobId}`);
+      const authParams = await signedQuery("job-view", jobId);
+      const res = await apiFetch(`/api/jobs/${jobId}?${authParams}`);
       if (!res.ok) {
         if (res.status === 404) {
           const text = await res.text();
@@ -227,10 +241,11 @@ server.tool(
   {
     job_id: z.string().describe("Job ID to check"),
   },
-  async (params) => {
+  async (toolParams) => {
     // Step 1: Check current status — job may already be done
     try {
-      const statusRes = await apiFetch(`/api/jobs/${params.job_id}`);
+      const authParams = await signedQuery("job-view", toolParams.job_id);
+      const statusRes = await apiFetch(`/api/jobs/${toolParams.job_id}?${authParams}`);
       if (!statusRes.ok) {
         const text = await statusRes.text();
         return { content: [{ type: "text", text: errorText(statusRes.status, text) }] };
@@ -239,7 +254,7 @@ server.tool(
       if (job.status === "completed" || job.status === "failed") {
         return { content: [{ type: "text", text: JSON.stringify(job, null, 2) }] };
       }
-      console.error(`Job ${params.job_id.slice(0, 8)} is ${job.status}, streaming events...`);
+      console.error(`Job ${toolParams.job_id.slice(0, 8)} is ${job.status}, streaming events...`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: [{ type: "text", text: `Status check failed: ${msg}` }] };
@@ -247,19 +262,20 @@ server.tool(
 
     // Step 2: Connect to SSE for live events
     try {
-      const sseRes = await apiFetch(`/api/jobs/${params.job_id}/events`, {
+      const sseAuth = await signedQuery("job-events", toolParams.job_id);
+      const sseRes = await apiFetch(`/api/jobs/${toolParams.job_id}/events?${sseAuth}`, {
         timeout: 3_900_000, // 65 minutes
       });
 
       if (!sseRes.ok) {
         console.error(`SSE unavailable (${sseRes.status}), falling back to polling`);
-        return await pollUntilDone(params.job_id);
+        return await pollUntilDone(toolParams.job_id);
       }
 
       const reader = sseRes.body?.getReader();
       if (!reader) {
         console.error("SSE stream body unavailable, falling back to polling");
-        return await pollUntilDone(params.job_id);
+        return await pollUntilDone(toolParams.job_id);
       }
 
       const decoder = new TextDecoder();
@@ -292,9 +308,10 @@ server.tool(
         }
 
         if (terminalMessage) {
-          console.error(`Job ${params.job_id.slice(0, 8)}: ${terminalMessage}`);
+          console.error(`Job ${toolParams.job_id.slice(0, 8)}: ${terminalMessage}`);
           try { reader.cancel(); } catch { /* best effort stream cleanup */ }
-          const finalRes = await apiFetch(`/api/jobs/${params.job_id}`);
+          const finalAuth = await signedQuery("job-view", toolParams.job_id);
+          const finalRes = await apiFetch(`/api/jobs/${toolParams.job_id}?${finalAuth}`);
           const finalText = await finalRes.text();
           return { content: [{ type: "text", text: finalText }] };
         }
@@ -302,14 +319,16 @@ server.tool(
 
       // Stream ended without terminal event — fetch current status
       console.error("SSE stream ended, fetching final status");
-      const fallbackRes = await apiFetch(`/api/jobs/${params.job_id}`);
+      const fbAuth = await signedQuery("job-view", toolParams.job_id);
+      const fallbackRes = await apiFetch(`/api/jobs/${toolParams.job_id}?${fbAuth}`);
       const fallbackText = await fallbackRes.text();
       return { content: [{ type: "text", text: fallbackText }] };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`SSE error: ${msg}, fetching current status`);
       try {
-        const fallbackRes = await apiFetch(`/api/jobs/${params.job_id}`);
+        const errAuth = await signedQuery("job-view", toolParams.job_id);
+        const fallbackRes = await apiFetch(`/api/jobs/${toolParams.job_id}?${errAuth}`);
         const fallbackText = await fallbackRes.text();
         return { content: [{ type: "text", text: fallbackText }] };
       } catch {
@@ -387,9 +406,8 @@ server.tool(
   {},
   async () => {
     try {
-      const res = await apiFetch(
-        `/api/storage?wallet=${walletAddress}`,
-      );
+      const params = await signedQuery("storage-list");
+      const res = await apiFetch(`/api/storage?${params}`);
       const text = await res.text();
       if (!res.ok) {
         return { content: [{ type: "text", text: errorText(res.status, text) }] };

@@ -202,7 +202,7 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 
 ### `get_job_status`
 
-Check the status of a submitted job. Uses SSE streaming to wait for the job to finish — call it once and it returns when the job reaches a terminal state (`completed` or `failed`). No manual polling needed.
+Check the status of a submitted job. Uses SSE streaming to wait for the job to finish — call it once and it returns when the job reaches a terminal state (`completed` or `failed`). No manual polling needed. Authentication is handled automatically by the MCP server.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -224,7 +224,7 @@ List available container images. No parameters.
 
 ### `list_storage`
 
-List files in your persistent storage. Shows quota usage and file listing. No parameters.
+List files in your persistent storage. Shows quota usage and file listing. No parameters. Authentication is handled automatically by the MCP server.
 
 ### `delete_storage_file`
 

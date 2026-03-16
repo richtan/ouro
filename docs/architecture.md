@@ -242,7 +242,7 @@ Per-wallet persistent storage mounted at `/storage` inside containers. NFS-backe
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/storage?wallet=0x...` | Quota usage + file listing |
+| `GET /api/storage?wallet=0x...&signature=...&timestamp=...` | Quota usage + file listing (EIP-191 signed) |
 | `DELETE /api/storage/files?wallet=...&path=...&signature=...&timestamp=...` | EIP-191 signed delete |
 | `POST /api/compute/submit` with `mount_storage: true` | Creates quota on first use, validates quota, mounts `/storage` |
 
@@ -316,7 +316,7 @@ Prebuilt images (`ubuntu:22.04`, `python:3.12-slim`, `node:20-slim`) are re-pull
 
 - **Public dashboard** (`/`) — Aggregate stats only (WalletBalance, RevenueModel, FinancialPnL, SustainabilityGauge, PublicJobStats, AttributionPanel). No individual job scripts, outputs, or internal logs.
 - **Admin page** (`/admin`) — Full JobsPanel, TerminalFeed, AuditPanel. Requires operator wallet + signature auth + JWT cookie.
-- **My Jobs** (`/history`) — Wallet-scoped. Proxy forwards `X-Admin-Key` since data is inherently filtered by address.
+- **My Jobs** (`/history`) — Wallet-scoped. Requires EIP-191 wallet signature; proxy verifies signature then forwards `X-Admin-Key`.
 
 ### Auth Flow
 

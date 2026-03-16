@@ -352,7 +352,7 @@ async def health_ready(db: AsyncSession = Depends(get_db)):
         try:
             eth_bal, usdc_bal = await _chain_client.get_balances()
             checks["wallet_eth"] = "ok" if eth_bal > 0 else "low"
-            checks["wallet_usdc"] = f"{usdc_bal:.2f}"
+            checks["wallet_usdc"] = "ok" if usdc_bal > 0 else "low"
         except Exception as e:
             checks["wallet"] = f"error: {e}"
 
@@ -396,6 +396,8 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 
     if submitter_address and not _ETH_ADDRESS_RE.match(submitter_address):
         raise HTTPException(422, "Invalid submitter_address format (expected 0x + 40 hex chars)")
+    if payment_header and not submitter_address:
+        raise HTTPException(422, "submitter_address is required for job submission")
     if client_code and not _BUILDER_CODE_RE.match(client_code):
         raise HTTPException(422, "Invalid builder code format (alphanumeric, 1-32 chars)")
 
@@ -567,7 +569,6 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
                     "error": "Payment required",
                     "price": remaining_price_str,
                     "breakdown": quote.breakdown,
-                    "credit_applied": credit_applied,
                 },
                 headers={"PAYMENT-REQUIRED": encoded_header},
             )
@@ -757,11 +758,19 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/storage")
-async def get_storage(wallet: str, db: AsyncSession = Depends(get_db)):
+async def get_storage(
+    wallet: str,
+    signature: str,
+    timestamp: str,
+    db: AsyncSession = Depends(get_db),
+):
     """Get storage quota, usage, and file listing for a wallet."""
     if not _ETH_ADDRESS_RE.match(wallet):
         raise HTTPException(422, "Invalid wallet address format")
     wallet_lower = wallet.lower()
+
+    message = f"ouro-storage-list:{wallet_lower}:{timestamp}"
+    _verify_wallet_signature(wallet_lower, message, signature, timestamp)
 
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
@@ -809,21 +818,16 @@ async def get_storage(wallet: str, db: AsyncSession = Depends(get_db)):
     }
 
 
-# ---------------------------------------------------------------------------
-# DELETE /api/storage/files — delete a file from persistent storage
-# ---------------------------------------------------------------------------
-
-def _verify_storage_signature(wallet: str, path: str, signature: str, timestamp: str) -> None:
-    """Verify EIP-191 signature proving wallet ownership for storage operations.
-
-    Message format: "ouro-storage-delete:{wallet}:{path}:{timestamp}"
-    Timestamp must be within 5 minutes of current time to prevent replay attacks.
-    """
+def _verify_wallet_signature(
+    wallet: str, message: str, signature: str, timestamp: str
+) -> None:
+    """Verify EIP-191 signature with 5-minute timestamp window.
+    Callers construct the action-specific message.
+    Raises HTTPException(401) on failure."""
     from eth_account.messages import encode_defunct
     from eth_account import Account
     from datetime import datetime, timezone
 
-    # Validate timestamp freshness (5 min window)
     try:
         ts = int(timestamp)
     except ValueError:
@@ -832,8 +836,6 @@ def _verify_storage_signature(wallet: str, path: str, signature: str, timestamp:
     if abs(now - ts) > 300:
         raise HTTPException(401, "Signature expired (must be within 5 minutes)")
 
-    # Verify signature
-    message = f"ouro-storage-delete:{wallet.lower()}:{path}:{timestamp}"
     try:
         msg = encode_defunct(text=message)
         recovered = Account.recover_message(msg, signature=signature)
@@ -843,6 +845,35 @@ def _verify_storage_signature(wallet: str, path: str, signature: str, timestamp:
     if recovered.lower() != wallet.lower():
         raise HTTPException(401, "Signature does not match wallet address")
 
+
+def _check_admin_or_wallet_sig(
+    request: Request,
+    wallet: str | None,
+    signature: str | None,
+    timestamp: str | None,
+    message_fn,
+) -> str | None:
+    """Check admin key or wallet signature. Returns verified wallet (lowercase) or None if admin.
+    Raises HTTPException if neither auth method succeeds."""
+    admin_key = request.headers.get("x-admin-key", "")
+    if settings.ADMIN_API_KEY and hmac.compare_digest(admin_key, settings.ADMIN_API_KEY):
+        return None
+    if not settings.ADMIN_API_KEY:
+        return None
+
+    if not wallet or not signature or not timestamp:
+        raise HTTPException(401, "Authentication required (wallet signature or admin key)")
+    if not _ETH_ADDRESS_RE.match(wallet):
+        raise HTTPException(422, "Invalid wallet address format")
+    wallet_lower = wallet.lower()
+    message = message_fn(wallet_lower)
+    _verify_wallet_signature(wallet_lower, message, signature, timestamp)
+    return wallet_lower
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/storage/files — delete a file from persistent storage
+# ---------------------------------------------------------------------------
 
 @router.delete("/api/storage/files")
 async def delete_storage_file_route(
@@ -858,7 +889,8 @@ async def delete_storage_file_route(
     wallet_lower = wallet.lower()
 
     # Verify wallet ownership via EIP-191 signature
-    _verify_storage_signature(wallet_lower, path, signature, timestamp)
+    message = f"ouro-storage-delete:{wallet_lower}:{path}:{timestamp}"
+    _verify_wallet_signature(wallet_lower, message, signature, timestamp)
 
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
@@ -907,23 +939,41 @@ async def event_stream(request: Request, _=Depends(require_admin_key)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/jobs/{job_id}/events")
-async def job_event_stream(job_id: str, request: Request):
-    # Validate UUID format
+async def job_event_stream(
+    job_id: str,
+    request: Request,
+    wallet: str | None = None,
+    signature: str | None = None,
+    timestamp: str | None = None,
+):
     try:
         uuid.UUID(job_id)
     except ValueError:
         raise HTTPException(400, "Invalid job ID format")
 
-    # Verify job exists in active_jobs or historical_data
+    verified_wallet = _check_admin_or_wallet_sig(
+        request, wallet, signature, timestamp,
+        lambda w: f"ouro-job-events:{job_id}:{w}:{timestamp}",
+    )
+
     async with async_session_maker() as db:
         active = await db.get(ActiveJob, job_id)
-        if not active:
+        if active:
+            if verified_wallet is not None:
+                submitter = (active.submitter_address or "").lower()
+                if submitter != verified_wallet:
+                    raise HTTPException(403, "Access denied — wallet does not match job submitter")
+        else:
             hist_q = await db.execute(
                 select(HistoricalData).where(HistoricalData.id == job_id).limit(1)
             )
             hist = hist_q.scalar_one_or_none()
             if not hist:
                 raise HTTPException(404, f"Job {job_id} not found")
+            if verified_wallet is not None:
+                submitter = (hist.submitter_address or "").lower()
+                if submitter != verified_wallet:
+                    raise HTTPException(403, "Access denied — wallet does not match job submitter")
 
     try:
         _event_bus.check_job_connection_limit()
@@ -1314,9 +1364,25 @@ def _parse_output_text(raw: str | None) -> dict:
 
 
 @router.get("/api/jobs/{job_id}")
-async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
+async def get_job_by_id(
+    job_id: str,
+    request: Request,
+    wallet: str | None = None,
+    signature: str | None = None,
+    timestamp: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    verified_wallet = _check_admin_or_wallet_sig(
+        request, wallet, signature, timestamp,
+        lambda w: f"ouro-job-view:{job_id}:{w}:{timestamp}",
+    )
+
     active = await db.get(ActiveJob, job_id)
     if active:
+        if verified_wallet is not None:
+            submitter = (active.submitter_address or "").lower()
+            if submitter != verified_wallet:
+                raise HTTPException(403, "Access denied — wallet does not match job submitter")
         parsed = _parse_output_text(
             active.payload.get("output_text") if active.payload else None
         )
@@ -1338,6 +1404,10 @@ async def get_job_by_id(job_id: str, db: AsyncSession = Depends(get_db)):
     )
     hist = hist_q.scalar_one_or_none()
     if hist:
+        if verified_wallet is not None:
+            submitter = (hist.submitter_address or "").lower()
+            if submitter != verified_wallet:
+                raise HTTPException(403, "Access denied — wallet does not match job submitter")
         parsed = _parse_output_text(
             hist.payload.get("output_text") if hist.payload else None
         )

@@ -5,13 +5,13 @@
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, cpus, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], cpus, time_limit_min}` (multi-file mode). Optional body params: `webhook_url` (see Webhooks section), `mount_storage` (boolean, mounts persistent `/storage` volume). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. |
-| `GET` | `/api/jobs/{job_id}/events` | None | SSE stream of job status events. Emits events until the job reaches a terminal state (`completed` or `failed`). UUID serves as capability token. |
+| `GET` | `/api/jobs/{job_id}/events` | EIP-191 sig or admin key | SSE stream of job status events. Emits events until the job reaches a terminal state (`completed` or `failed`). Requires wallet signature (submitter match) or admin key. |
 | `GET` | `/api/price` | None | Price quote without submitting. Query params: `cpus`, `time_limit_min`, `submission_mode` (script/multi_file). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
 | `GET` | `/api/jobs` | Admin key | Recent active (20) + historical (50) jobs. |
-| `GET` | `/api/jobs/{job_id}` | None | Single job detail with output. UUID serves as capability token. |
+| `GET` | `/api/jobs/{job_id}` | EIP-191 sig or admin key | Single job detail with output. Requires wallet signature (submitter match) or admin key. Query params: `wallet`, `signature`, `timestamp`. |
 | `GET` | `/api/jobs/user?address=0x...` | Admin key | Jobs for a specific submitter wallet (50 active, 100 historical). |
 | `GET` | `/api/credits/user?address=0x...` | Admin key | Credit balance + history for a wallet. Returns `{available: number, history: [{amount_usdc, reason, redeemed, created_at}]}`. |
 | `GET` | `/api/attribution` | None | Builder code analytics: total attributed txs, multi-code txs, recent 20 entries. |
@@ -20,7 +20,7 @@
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
-| `GET` | `/api/storage` | None | Persistent storage quota usage and file listing. Query param: `wallet=0x...`. |
+| `GET` | `/api/storage` | EIP-191 sig | Persistent storage quota usage and file listing. Query params: `wallet`, `signature`, `timestamp`. Signature message: `ouro-storage-list:{wallet}:{timestamp}`. |
 | `DELETE` | `/api/storage/files` | EIP-191 sig | Delete file from persistent storage. Query params: `wallet`, `path`, `signature`, `timestamp`. Signature message: `ouro-storage-delete:{wallet}:{path}:{timestamp}` with 5-min window. |
 | `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
@@ -130,9 +130,9 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
 | `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
-| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
-| `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | None | Forwards `X-Admin-Key` (credit balance is wallet-scoped) |
-| `GET /api/storage` | `AGENT_URL/api/storage` | None | Forwards `wallet` query param (public, wallet-scoped) |
+| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | EIP-191 sig | Verifies wallet signature, forwards `X-Admin-Key` |
+| `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | EIP-191 sig | Verifies wallet signature, forwards `X-Admin-Key` |
+| `GET /api/storage` | `AGENT_URL/api/storage` | EIP-191 sig | Forwards wallet, signature, timestamp to agent |
 | `DELETE /api/storage/files` | `AGENT_URL/api/storage/files` | None | Forwards `wallet`, `path`, `signature`, `timestamp` query params |
 | `GET /api/proxy/price` | `AGENT_URL/api/price` | None | Forwards query params |
 | `GET /api/proxy/jobs/{jobId}/events` | `AGENT_URL/api/jobs/{jobId}/events` | None | SSE stream proxy |

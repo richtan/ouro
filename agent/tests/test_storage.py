@@ -182,15 +182,14 @@ def test_mount_storage_requires_submitter_address():
     # not in the Pydantic model, so this parses fine
 
 
-# --- Signature verification ---
+# --- Signature verification (uses shared _verify_wallet_signature) ---
 
-def test_verify_storage_signature_valid():
+def test_verify_wallet_signature_valid_for_storage_delete():
     """Valid EIP-191 signature should pass verification."""
     from eth_account import Account
     from eth_account.messages import encode_defunct
     import time
 
-    # Generate a test keypair
     acct = Account.create()
     wallet = acct.address.lower()
     path = "model.pt"
@@ -199,12 +198,12 @@ def test_verify_storage_signature_valid():
 
     sig = acct.sign_message(encode_defunct(text=message))
 
-    from src.api.routes import _verify_storage_signature
+    from src.api.routes import _verify_wallet_signature
     # Should not raise
-    _verify_storage_signature(wallet, path, "0x" + sig.signature.hex(), timestamp)
+    _verify_wallet_signature(wallet, message, "0x" + sig.signature.hex(), timestamp)
 
 
-def test_verify_storage_signature_wrong_wallet():
+def test_verify_wallet_signature_wrong_wallet():
     """Signature from wrong wallet should fail."""
     from eth_account import Account
     from eth_account.messages import encode_defunct
@@ -213,21 +212,20 @@ def test_verify_storage_signature_wrong_wallet():
 
     acct1 = Account.create()
     acct2 = Account.create()
-    wallet = acct2.address.lower()  # claim to be acct2
+    wallet = acct2.address.lower()
     path = "model.pt"
     timestamp = str(int(time.time()))
     message = f"ouro-storage-delete:{wallet}:{path}:{timestamp}"
 
-    # Sign with acct1's key (not acct2)
     sig = acct1.sign_message(encode_defunct(text=message))
 
-    from src.api.routes import _verify_storage_signature
+    from src.api.routes import _verify_wallet_signature
     with pytest.raises(HTTPException) as exc_info:
-        _verify_storage_signature(wallet, path, "0x" + sig.signature.hex(), timestamp)
+        _verify_wallet_signature(wallet, message, "0x" + sig.signature.hex(), timestamp)
     assert exc_info.value.status_code == 401
 
 
-def test_verify_storage_signature_expired():
+def test_verify_wallet_signature_expired():
     """Expired timestamp should fail."""
     from eth_account import Account
     from eth_account.messages import encode_defunct
@@ -237,12 +235,12 @@ def test_verify_storage_signature_expired():
     acct = Account.create()
     wallet = acct.address.lower()
     path = "model.pt"
-    timestamp = str(int(time.time()) - 600)  # 10 min ago (expired)
+    timestamp = str(int(time.time()) - 600)
     message = f"ouro-storage-delete:{wallet}:{path}:{timestamp}"
 
     sig = acct.sign_message(encode_defunct(text=message))
 
-    from src.api.routes import _verify_storage_signature
+    from src.api.routes import _verify_wallet_signature
     with pytest.raises(HTTPException) as exc_info:
-        _verify_storage_signature(wallet, path, "0x" + sig.signature.hex(), timestamp)
+        _verify_wallet_signature(wallet, message, "0x" + sig.signature.hex(), timestamp)
     assert exc_info.value.status_code == 401

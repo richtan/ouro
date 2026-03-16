@@ -34,9 +34,18 @@ async function runJob(script: string, cpus = 1, timeMin = 1) {
   console.log(\`Job submitted: \${job_id}\`);
 
   // 3. Poll for results
+  // GET /api/jobs/{job_id} requires EIP-191 wallet signature.
+  // Sign message "ouro-job-view:{job_id}:{wallet}:{timestamp}" and pass
+  // wallet, signature, timestamp as query params. See API docs for details.
   let result;
   while (true) {
-    const res = await fetch(\`\${OURO_API}/api/jobs/\${job_id}\`);
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const message = \`ouro-job-view:\${job_id}:\${account.address.toLowerCase()}:\${timestamp}\`;
+    const signature = await account.signMessage({ message });
+    const params = new URLSearchParams({
+      wallet: account.address, signature, timestamp,
+    });
+    const res = await fetch(\`\${OURO_API}/api/jobs/\${job_id}?\${params}\`);
     result = await res.json();
     if (["completed", "failed"].includes(result.status)) break;
     await new Promise((r) => setTimeout(r, 3000));

@@ -50,8 +50,19 @@ export default function StoragePage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/storage?wallet=${address}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const message = `ouro-storage-list:${address.toLowerCase()}:${timestamp}`;
+      const signature = await signMessageAsync({ message });
+      const params = new URLSearchParams({
+        wallet: address,
+        signature,
+        timestamp,
+      });
+      const res = await fetch(`/api/storage?${params}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+      }
       setInfo(await res.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
