@@ -35,6 +35,9 @@ X402_FACILITATOR_URL=https://x402.org/facilitator
 PRICE_MARGIN_MULTIPLIER=1.5
 PUBLIC_API_URL, PUBLIC_DASHBOARD_URL
 ADMIN_API_KEY                    # Shared secret for admin endpoint access (empty = skip in dev)
+WEBHOOK_SECRET                   # HMAC-SHA256 key for webhook signature verification (optional)
+STORAGE_FREE_TIER_BYTES=1073741824   # Per-wallet storage quota in bytes (default: 1GB)
+STORAGE_TTL_DAYS=90              # Days of inactivity before storage cleanup (warning at 60 days)
 PORT=8000                        # Per-service in Railway, not in Doppler
 ```
 
@@ -159,3 +162,28 @@ No automated test suite. Manual verification:
 - **`.env.example`** — All environment variables with comments explaining each group. Copy to `.env` for local dev.
 - **`db/01-init.sql`** — Full PostgreSQL schema: all CREATE TABLE statements, indexes, and the monthly partition generator for historical_data.
 - **`db/02-seed.sql`** — Sample seed data: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.
+
+## Operational Gotchas
+
+### Slurm Cluster
+
+- **Nodes drain on config mismatch** — If `slurm.conf` specifies more CPUs/memory than actual hardware, nodes enter `drain` state. The setup script's Phase 12 handles undraining, but `slurm.conf` must match the instance specs (e2-medium = 2 CPUs, ~4GB RAM).
+- **NFS exports block spot instances** — `/etc/exports` on `ouro-slurm` must use subnet-based export `/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)` covering the full GCP us-central1 VPC subnet. IP-based lists block spot instances with dynamic IPs. `deploy/setup-elastic-infra.sh:92-94` has the fix; ensure `setup-slurm-cluster.sh` doesn't overwrite it.
+
+### Spot Instances
+
+- **Boot too slow** — `node-startup.sh` previously blocked on `docker pull` (3 images) before registering IDLE with Slurm, causing multi-CPU jobs to timeout. Fix: (1) bake base images into the golden image (`build-golden-image.sh`), (2) reorder `node-startup.sh` to register IDLE first and run iptables/pulls in background, (3) oracle polling timeout set to 120s (`oracle.py:_ensure_capacity`, `range(12)`), (4) `ResumeTimeout=180` in `slurm.conf`.
+- **Autoscaler 409 "already exists" race** — Two independent `AutoScaler` instances (in `oracle.py` and `loop.py`) have separate `_booting` dicts. If both try to boot the same node, GCP returns 409. `_boot_spot_instance()` in `scaler.py` treats "already exists" errors as successful `scale_out` events so the caller proceeds to poll for the node becoming IDLE.
+
+### Docker
+
+- **BuildKit disabled** — Workers enforce `DOCKER_BUILDKIT=0` for security. `RUN --mount=...` and `# syntax=` directives are rejected at Dockerfile parse time in `dockerfile.py`.
+- **Custom image cache** — Two-layer cleanup: (1) per-job `docker rmi` in `slurm_proxy.py` removes non-prebuilt images after each job, (2) `deploy/slurm/docker-cleanup.sh` runs every 6h via cron to prune missed images, with aggressive cleanup at >85% disk usage. Prebuilt images (`ubuntu:22.04`, `python:3.12-slim`, `node:20-slim`) are re-pulled after aggressive prunes.
+
+### Dashboard Build
+
+- **Native toolchain required** — `dashboard/Dockerfile` installs `python3 make g++` via `apk add` in the deps stage to compile native npm dependencies (bufferutil, etc.).
+
+### Agent
+
+- **Poll timeout scaled to time_limit** — `poll_slurm_status_impl` scales poll count to `max(60, time_limit_min * 60 / 5 + 12)` instead of a fixed 60 polls. Jobs longer than 5 min no longer hit false poll timeouts. On poll timeout, the Slurm job is cancelled to prevent free compute.

@@ -30,6 +30,8 @@
 3. `submit_to_slurm` — Calls SlurmClient.submit_job() with workspace_path + entrypoint (and optional `docker_image` + `needs_docker_build` + `entrypoint_cmd` from Dockerfile), updates DB status to `running`
 4. `poll_slurm_status` — Polls every 5s for up to 5min, captures output on completion
 
+The oracle agent is wrapped in `asyncio.wait_for(..., timeout=900)` (15 minutes) to prevent infinite hangs. `poll_slurm_status` wraps `get_job_status()` in try/except so transient network errors don't crash the run. Poll count scales with `time_limit_min`: `max(60, time_limit_min * 60 / 5 + 12)` polls at 5s intervals. On poll timeout, the Slurm job is cancelled.
+
 ## OracleDeps
 
 The `OracleDeps` dataclass passed to the oracle agent has been simplified for the unified workspace model. Removed fields: `submission_mode`, `script`, `workspace_cleanup_needed`. The `workspace_path` and `entrypoint` fields are now required strings (never None), since every submission creates a workspace. Dockerfile-related fields: `dockerfile_content: str | None` (raw Dockerfile text), `docker_image: str | None` (resolved Docker image name/tag, set by `build_image_if_needed`), `needs_docker_build: bool` (whether a `docker build` is needed vs just `docker pull`), `entrypoint_cmd: list[str] | None` (exec-form command extracted from Dockerfile ENTRYPOINT/CMD).
@@ -42,94 +44,14 @@ The agent uses `x402ResourceServer` with either:
 
 Payment verification happens in `POST /api/compute/submit`. No payment header → 402 response with price. Valid payment → job created.
 
-## Dashboard Security Architecture
+## Dashboard
 
-The dashboard splits into public and admin views:
-
-- **Public dashboard** (`/`) — Aggregate stats only (WalletBalance, RevenueModel, FinancialPnL, SustainabilityGauge, PublicJobStats, AttributionPanel). No individual job scripts, outputs, or internal logs.
-- **Admin page** (`/admin`) — Full JobsPanel, TerminalFeed, AuditPanel. Requires: (1) connecting the operator wallet matching `NEXT_PUBLIC_ADMIN_ADDRESS`, (2) signing a timestamped message to prove ownership, (3) server-verified JWT cookie (HttpOnly, Secure in prod, SameSite=Strict, 24h expiry).
-- **My Jobs** (`/history`) — Wallet-scoped. The proxy forwards `X-Admin-Key` unconditionally since data is inherently filtered by address.
-
-Auth flow: wallet signature → `POST /api/admin/login` verifies via viem's `verifyMessage` + checks address match → signs JWT with `jose` using `ADMIN_API_KEY` as secret → sets HttpOnly cookie. Admin proxy routes verify the cookie before forwarding `X-Admin-Key` to the agent.
-
-Key files: `dashboard/src/lib/admin-auth.ts` (JWT helpers), `dashboard/src/app/api/admin/` (login/logout/check routes).
-
-## Dashboard Wallet Persistence
-
-Uses `cookieStorage` from wagmi so wallet connection survives page reloads with SSR. The layout reads cookies via `headers()` and passes `cookieToInitialState(config, cookie)` as `initialState` to `WagmiProvider`.
-
-## Dashboard Proxy Pattern
-
-All dashboard API calls go through Next.js API routes that proxy to the agent:
-- `/api/stats` → `AGENT_URL/api/stats`
-- `/api/proxy/submit` → `AGENT_URL/api/compute/submit` (forwards x402 payment headers)
-
-This avoids exposing `AGENT_URL` to the client and works with Railway's internal networking.
-
-## Job Sorting
-
-Jobs are merged (active + historical) and sorted by timestamp descending (newest first). Active jobs use `submitted_at`, historical use `completed_at`.
-
-## Design Tokens (Tailwind)
-
-Defined in `dashboard/tailwind.config.ts`. All dashboard components use these `ouro-*` tokens:
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `ouro-bg` | `#0a0e17` | Page background |
-| `ouro-card` | `#111827` | Card/panel backgrounds |
-| `ouro-border` | `#1e293b` | Borders, dividers |
-| `ouro-accent` | `#22d3ee` | Primary accent (cyan) — links, highlights, active states |
-| `ouro-green` | `#10b981` | Positive values (revenue, completed) |
-| `ouro-red` | `#ef4444` | Negative values (costs, errors, failed) |
-| `ouro-amber` | `#f59e0b` | Warnings, pending states |
-| `ouro-muted` | `#64748b` | Secondary text, labels |
-| `ouro-text` | `#e2e8f0` | Primary text |
-
-Fonts: `JetBrains Mono` (display headings + monospace code), `IBM Plex Sans` (body text).
-
-Custom animations: `pulse-glow`, `fade-in`, `slide-up`. CSS class `.card` is used across all panel components.
+See `docs/architecture.md` § Dashboard Architecture for auth flow, proxy pattern, and wallet persistence. See `dashboard/DESIGN.md` for design tokens and visual guidelines.
 
 ## Agent Discoverability
 
-Ouro is discoverable by autonomous agents through multiple channels:
-
-| Channel | URL / Endpoint | Purpose |
-|---------|---------------|---------|
-| **A2A Agent Card** | `GET /.well-known/agent-card.json` | Google A2A protocol discovery — skills, auth, capabilities |
-| **MCP Registry** | `.mcp/server.json` (publish via `mcp-publisher`) | Official MCP server registry at registry.modelcontextprotocol.io |
-| **x402 Bazaar** | Automatic via CDP facilitator | Discovery via Bazaar extension in 402 response (input schema, output example) |
-| **ERC-8004 Identity** | On-chain at `0x8004...9432` | Agent identity NFT with service endpoints |
-| **Capabilities** | `GET /api/capabilities` | Machine-readable service description with trust section |
+See `docs/architecture.md` § Agent Discoverability.
 
 ## MCP Integration
 
-The MCP server runs locally via `npx ouro-mcp` (Node.js, stdio transport). It signs x402 USDC payments from the user's wallet automatically.
-
-Add to `.cursor/mcp.json`:
-```json
-{
-  "mcpServers": {
-    "ouro": {
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}
-```
-
-**Claude Code CLI:**
-```bash
-claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp
-```
-
-See `mcp/README.md` for setup instructions (works with any MCP-compatible client).
-
-MCP tools:
-- `run_job(script?, files?, image?, cpus?, time_limit_min?, builder_code?, webhook_url?, mount_storage?)` → Submit + auto-pay in one step. Returns job_id.
-- `get_job_status(job_id)` → Returns job details and output (SSE streaming, waits for completion)
-- `get_price_quote(cpus?, time_limit_min?, submission_mode?)` → Returns price without submitting
-- `get_allowed_images()` → Returns available container images (ouro-ubuntu, ouro-python, ouro-nodejs)
-- `list_storage()` → Returns persistent storage quota usage and file listing
-- `delete_storage_file(path)` → Deletes a file from persistent storage (EIP-191 signed)
+See `mcp/README.md` for MCP setup, tools reference, and payment flow.

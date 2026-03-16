@@ -42,13 +42,13 @@ const TOOLS = [
     ],
     response: `{
   "id": "a1b2c3d4-...",
-  "slurm_job_id": 42,
   "status": "completed",
   "price_usdc": 0.01,
   "submitted_at": "2025-01-01T00:00:00+00:00",
   "completed_at": "2025-01-01T00:00:04+00:00",
   "output": "Hello world\\n",
   "error_output": "",
+  "failure_reason": null,
   "compute_duration_s": 2.4
 }`,
   },
@@ -122,8 +122,7 @@ const TOOLS = [
       },
     ],
     response: `{
-  "deleted": "models/checkpoint.pt",
-  "wallet": "0x1234...abcd"
+  "deleted": "models/checkpoint.pt"
 }`,
   },
 ];
@@ -203,6 +202,16 @@ export default function McpToolsPage() {
           on the API page.
         </p>
       </section>
+
+      {/* Next page */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+        <Link
+          href="/docs/api"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          REST API <span aria-hidden="true">→</span>
+        </Link>
+      </div>
     </>
   );
 }

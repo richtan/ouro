@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/docs", label: "Get Started" },
   { href: "/docs/mcp", label: "MCP Tools" },
-  { href: "/docs/agent", label: "Autonomous Agents" },
   { href: "/docs/api", label: "REST API" },
+  { href: "/docs/agent", label: "Build an Agent" },
   { href: "/docs/pricing", label: "Pricing" },
 ];
 

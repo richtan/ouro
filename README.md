@@ -2,7 +2,7 @@
 
 Pay for compute over HTTP. No accounts. No API keys. Just USDC and a POST request.
 
-Submit a script via HTTP, get an x402 price quote, sign a USDC payment on Base, and your job runs on an HPC cluster. Integrate via MCP (AI agents), REST API (any HTTP client), or the Python SDK.
+Submit code via HTTP, pay with USDC on Base, and your job runs on an HPC cluster. Payment uses the x402 protocol — no accounts or API keys needed. Integrate via MCP (AI agents), REST API (any HTTP client), or the web dashboard.
 
 **[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)**
 
@@ -96,23 +96,22 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Railway (PaaS)                             │
 │                                                                     │
-│  ┌───────────────┐   ┌──────────────────┐   ┌────────────────────┐  │
-│  ┌───────────────┐   ┌──────────────────┐                           │
-│  │  Dashboard    │   │  Agent (FastAPI) │                           │
-│  │  Next.js 15   │──▶│  Python 3.12     │                           │
-│  │  :3000        │   │  :8000           │                           │
-│  └───────────────┘   └────────┬─────────┘                           │
-│                               │                                     │
-│                     ┌─────────▼───────────┐                         │
-│                     │  PostgreSQL 16      │                         │
-│                     │  (Railway managed)  │                         │
-│                     └─────────────────────┘                         │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │ HTTP (slurmrestd proxy)
-                     ┌──────────▼──────────┐
-                     │  GCP Compute Engine │
-                     │  Slurm HPC Cluster  │
-                     └─────────────────────┘
+│  ┌──────────────┐   ┌──────────────────┐                            │
+│  │  Dashboard    │   │  Agent (FastAPI)  │                            │
+│  │  Next.js 15   │──▶│  Python 3.12     │                            │
+│  │  :3000        │   │  :8000           │                            │
+│  └──────────────┘   └────────┬─────────┘                            │
+│                              │                                      │
+│                    ┌─────────▼──────────┐                          │
+│                    │  PostgreSQL 16      │                          │
+│                    │  (Railway managed)  │                          │
+│                    └────────────────────┘                          │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ HTTP (slurmrestd proxy)
+                    ┌──────────▼──────────┐
+                    │  GCP Compute Engine  │
+                    │  Slurm HPC Cluster   │
+                    └─────────────────────┘
 ```
 
 - **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, runs autonomous pricing loop
@@ -145,9 +144,10 @@ docker compose up --build
 - Dashboard: http://localhost:3000
 - Agent API: http://localhost:8000
 
-Without `SLURMREST_URL`/`SLURMREST_JWT`, the stack runs but submitted jobs won't execute. Without `CDP_API_KEY_ID`/`CDP_API_KEY_SECRET`, x402 payments won't work. See `.env.example` for all options.
+> **Note**: Without `SLURMREST_URL`/`SLURMREST_JWT`, the stack runs but jobs won't execute.
+> Without `CDP_API_KEY_ID`/`CDP_API_KEY_SECRET`, payments won't work.
 
-For secrets management via Doppler: `doppler run -- docker compose up --build`
+See `.env.example` for all options. For secrets management via Doppler: `doppler run -- docker compose up --build`
 
 ## Deployment
 

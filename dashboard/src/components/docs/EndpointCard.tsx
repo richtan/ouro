@@ -26,7 +26,10 @@ export default function EndpointCard({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden">
+    <div
+      id={path.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '').toLowerCase()}
+      className="bg-o-surface border border-o-border rounded-xl overflow-hidden"
+    >
       <button
         onClick={() => children && setOpen((o) => !o)}
         className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${children ? "cursor-pointer hover:bg-o-surfaceHover" : "cursor-default"} transition-colors`}

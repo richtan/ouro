@@ -73,7 +73,7 @@ export default function AgentPage() {
         <div className="bg-o-surface border border-o-border rounded-xl p-4">
           <h3 className="font-display text-sm font-semibold text-o-text mb-3">Prerequisites</h3>
           <ul className="text-sm text-o-textSecondary space-y-1 ml-4 list-disc">
-            <li>Node.js 18+ or Python 3.10+</li>
+            <li>Node.js 18+</li>
             <li>A wallet with USDC on Base</li>
             <li>
               <span className="font-mono text-xs text-o-text">@x402/fetch</span> and{" "}
@@ -152,6 +152,16 @@ export default function AgentPage() {
           {AGENT_TS}
         </CodeBlock>
       </section>
+
+      {/* Next page */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+        <Link
+          href="/docs/pricing"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          Pricing <span aria-hidden="true">→</span>
+        </Link>
+      </div>
     </>
   );
 }

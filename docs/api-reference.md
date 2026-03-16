@@ -5,8 +5,8 @@
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, cpus, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], cpus, time_limit_min}` (multi-file mode). Optional body params: `webhook_url` (see Webhooks section), `mount_storage` (boolean, mounts persistent `/storage` volume). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. |
-| `GET` | `/api/jobs/{job_id}/stream` | None | SSE stream of job status events. Emits `job_update` events until the job reaches a terminal state (`completed` or `failed`). UUID serves as capability token. |
-| `GET` | `/api/price` | None | Price quote without submitting. Query params: `cpus`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
+| `GET` | `/api/jobs/{job_id}/events` | None | SSE stream of job status events. Emits events until the job reaches a terminal state (`completed` or `failed`). UUID serves as capability token. |
+| `GET` | `/api/price` | None | Price quote without submitting. Query params: `cpus`, `time_limit_min`, `submission_mode` (script/multi_file). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
@@ -56,16 +56,24 @@ Ouro delivers webhooks with 3 attempts using exponential backoff. Each delivery 
   "webhook_event": "job.completed",
   "job_id": "abc123-...",
   "status": "completed",
-  "output": "Hello, world!\n",
-  "exit_code": 0,
+  "submitter_address": "0x1234...abcd",
+  "price_usdc": 0.01,
+  "submitted_at": "2026-03-16T12:00:00+00:00",
+  "completed_at": "2026-03-16T12:00:04+00:00",
   "compute_duration_s": 4.2,
-  "price_usdc": "0.01",
-  "submitted_at": "2026-03-16T12:00:00Z",
-  "completed_at": "2026-03-16T12:00:04Z"
+  "image": "ouro-ubuntu",
+  "cpus": 1,
+  "output": "Hello, world!\n",
+  "error_output": ""
 }
 ```
 
 The `webhook_event` field is `job.completed` or `job.failed`.
+
+For failed jobs (`webhook_event: "job.failed"`), the payload also includes:
+- `failure_reason`: Human-readable failure description
+- `fault`: `"platform_error"` or `"user_error"` — determines credit eligibility
+- `credit_applied`: Amount of credit issued (only present if > 0)
 
 ### Signature verification
 
@@ -106,7 +114,7 @@ assert hmac.compare_digest(f"sha256={expected}", signature)
 | `DELETE` | `/slurm/v0.0.38/storage/{wallet}/files/{path}` | `X-SLURM-USER-TOKEN` header | Delete a file from a wallet's storage directory. |
 | `DELETE` | `/slurm/v0.0.38/storage/{wallet}` | `X-SLURM-USER-TOKEN` header | Delete entire storage directory for a wallet (TTL cleanup). |
 
-Also supports v0.0.37 paths for backward compatibility.
+
 
 ## Dashboard proxy routes (in `dashboard/src/app/api/`)
 
@@ -126,3 +134,8 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | None | Forwards `X-Admin-Key` (credit balance is wallet-scoped) |
 | `GET /api/storage` | `AGENT_URL/api/storage` | None | Forwards `wallet` query param (public, wallet-scoped) |
 | `DELETE /api/storage/files` | `AGENT_URL/api/storage/files` | None | Forwards `wallet`, `path`, `signature`, `timestamp` query params |
+| `GET /api/proxy/price` | `AGENT_URL/api/price` | None | Forwards query params |
+| `GET /api/proxy/jobs/{jobId}/events` | `AGENT_URL/api/jobs/{jobId}/events` | None | SSE stream proxy |
+| `POST /api/admin/login` | — | None (wallet sig) | Verifies wallet signature, sets JWT cookie |
+| `POST /api/admin/logout` | — | None | Clears JWT cookie |
+| `GET /api/admin/check` | — | JWT cookie | Verifies JWT cookie validity |

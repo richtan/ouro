@@ -184,30 +184,41 @@ export default function DocsGetStarted() {
         </div>
       </section>
 
-      {/* Quick Start: MCP */}
+      {/* Quick Start */}
       <section className="border-t border-o-border pt-10 mb-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-4">
-          Quick Start: MCP
+          Quick Start
         </h2>
         <p className="text-sm text-o-textSecondary mb-4">
-          Set <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">WALLET_PRIVATE_KEY</span> to your wallet&apos;s hex private key (starts with <span className="font-mono text-xs text-o-text">0x</span>). Paste the config for your client:
+          The fastest way to start is with MCP. Set{" "}
+          <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">WALLET_PRIVATE_KEY</span>
+          {" "}to your wallet&apos;s hex private key (starts with{" "}
+          <span className="font-mono text-xs text-o-text">0x</span>):
         </p>
-        <div className="space-y-6">
-          {CLIENT_CONFIGS.map((cfg) => (
-            <div key={cfg.name}>
-              <h3 className="font-display text-sm font-semibold text-o-text mb-2">
-                {cfg.name}
-              </h3>
-              <CodeBlock filename={cfg.file} language={cfg.language} copyText={cfg.code}>
-                {cfg.code}
-              </CodeBlock>
-            </div>
-          ))}
-        </div>
-        <p className="text-sm text-o-textSecondary mt-6">
+        <CodeBlock filename=".cursor/mcp.json" language="json" copyText={CLIENT_CONFIGS[0].code}>
+          {CLIENT_CONFIGS[0].code}
+        </CodeBlock>
+        <p className="text-sm text-o-textSecondary mt-4">
           Then just say: &quot;Run <span className="text-o-blueText">echo hello world</span> on Ouro&quot;
         </p>
+        <p className="text-sm text-o-textSecondary mt-3">
+          Using a different client?{" "}
+          <Link href="/docs/mcp" className="text-o-blueText hover:underline">
+            See all MCP client configs
+          </Link>
+          {" "}(Claude Code, Claude Desktop, VS Code, Windsurf, and more).
+        </p>
       </section>
+
+      {/* Next page */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+        <Link
+          href="/docs/mcp"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          MCP Tools <span aria-hidden="true">→</span>
+        </Link>
+      </div>
     </>
   );
 }

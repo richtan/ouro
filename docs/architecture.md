@@ -186,3 +186,165 @@ Dynamic pricing with 4 survival phases based on sustainability ratio (revenue/co
 Price formula: `max(cost_floor × margin × demand_multiplier, cost_floor × 1.2, $0.01)`
 
 Cost floor = `max_gas × 1.25 + max_llm × 1.25 + cpus × minutes × $0.0002/cpu-min + setup_cost`
+
+## Credit System
+
+Ouro issues USDC credits when jobs fail due to platform errors, automatically redeemable on future submissions.
+
+### Fault Classification
+
+`agent/src/agent/classifier.py` classifies failures by Slurm state (unforgeable from inside Docker with `--network none --cap-drop ALL`), not exit codes:
+
+| Fault | When | Credit? |
+|-------|------|---------|
+| `platform_error` | Stage 1 capacity failure, Stage 2 errors, Slurm CANCELLED/NODE_FAIL | Yes |
+| `user_error` | Stage 1 validation errors, Stage 3 FAILED/TIMEOUT | No |
+
+This prevents free compute via intentional `exit 1`.
+
+### Credit Redemption
+
+Credits are integrated into the submit endpoint (`routes.py`):
+- If credits ≥ job price → x402 payment skipped entirely, credits redeemed
+- If credits < job price → credit redeemed, x402 charges the remainder (partial credit)
+- `redeem_credits()` uses `SELECT ... FOR UPDATE` to prevent double-spend races
+- Credit redemption is **deferred** until after x402 payment verification to prevent credit loss on the 402 round-trip
+- `redeem_credits()` splits oversized credit rows (creates a "change" row for unused portion)
+- `redeem_credits()` does not commit — caller commits atomically with job creation
+
+### Unused Compute Credits
+
+Jobs that finish early receive proportional credits for unused compute time:
+- Calculated via `calculate_unused_compute_credit()` in `pricing.py`
+- Based on the marked-up price (not raw cost); uses `cost_floor` and `compute_cost` from the job payload at submission time
+- Credits below $0.001 are filtered out
+- Only applies to jobs with `cost_floor` in payload (new jobs); legacy jobs skipped
+
+### x402 Facilitator Minimum
+
+The x402 facilitator rejects payments below $0.001 USDC. When partial credit reduces the remainder below this threshold, the job is treated as fully credit-covered (sub-$0.001 shortfall waived). Constant: `X402_FACILITATOR_MIN_USD` in `routes.py`. Dashboard mirrors this in `StickySubmitBar.tsx`.
+
+### Compute Cost Tracking
+
+`_finalize_success()` and `_mark_failed()` in `processor.py` log actual compute infrastructure costs via `log_cost(cost_type="compute")`. These appear in `/api/stats` as `compute_costs_usd` and factor into the sustainability ratio (which sums all `agent_costs`), enabling accurate phase transitions.
+
+## Persistent Storage
+
+Per-wallet persistent storage mounted at `/storage` inside containers. NFS-backed on `/ouro-storage` on the Slurm controller, exported to all workers.
+
+### Configuration
+
+- `STORAGE_FREE_TIER_BYTES` (default 1GB) — per-wallet quota
+- `STORAGE_TTL_DAYS` (default 90 days) — inactivity TTL with warning at 60 days
+- DB table: `storage_quotas` — tracks wallet tier, quota, cached usage, last access time
+
+### API Surface
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/storage?wallet=0x...` | Quota usage + file listing |
+| `DELETE /api/storage/files?wallet=...&path=...&signature=...&timestamp=...` | EIP-191 signed delete |
+| `POST /api/compute/submit` with `mount_storage: true` | Creates quota on first use, validates quota, mounts `/storage` |
+
+MCP tools: `list_storage`, `delete_storage_file`, `mount_storage` param on `run_job`.
+Dashboard: `/storage` page (quota bar, file list, signed delete), toggle in submit Advanced section.
+
+### Security
+
+- Path traversal: `os.path.realpath()` + prefix check, symlinks skipped, `followlinks=False`
+- File deletion: EIP-191 signature required (`ouro-storage-delete:{wallet}:{path}:{timestamp}`, 5-min window)
+- Storage paths: `shlex.quote()` + regex validation
+- Docker mount: `-v /ouro-storage/0x...:/storage`, protected by `--cap-drop ALL` + `--no-new-privileges`
+
+### Known Limitations
+
+- **No kernel quotas on NFS bind mounts** — containers can write beyond 1GB during a job. Post-job sync catches overages and blocks new `mount_storage=true` jobs until under quota.
+- **Concurrent writes** — two jobs from the same wallet with `mount_storage=true` both write to `/storage`. NFS provides POSIX semantics but file conflicts are last-writer-wins.
+- **TTL cleanup race** — `_storage_cleanup()` uses `SELECT ... FOR UPDATE` to re-check `last_accessed_at` under row lock, preventing races with concurrent `submit_compute` calls.
+
+### Infrastructure
+
+`setup-slurm-cluster.sh` and `setup-elastic-infra.sh` create and export `/ouro-storage`. `node-startup.sh` mounts it on spot instances.
+
+## Docker Security Model
+
+All user code runs inside hardened Docker containers on Slurm workers.
+
+### Container Hardening
+
+Every container runs with:
+```
+--read-only --network none --cap-drop ALL --no-new-privileges
+--user 65534:65534 --memory {limit} --pids-limit {limit} --tmpfs /tmp
+```
+
+### Worker-Level Hardening
+
+- `userns-remap: "default"` in Docker daemon config — maps container root to unprivileged host user
+- iptables rules block the GCP metadata server (`169.254.169.254`) to prevent credential theft
+
+### Build Security
+
+- Docker builds happen **on-worker** inside the Slurm job script (not as a separate step). The proxy generates Docker wrapper scripts.
+- `DOCKER_BUILDKIT=0` enforced — `RUN --mount=...` and `# syntax=` directives rejected at Dockerfile parse time
+- Multi-stage builds (multiple `FROM`) rejected to prevent build-time escapes
+- Supported instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL
+- Rejected with error: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD
+- COPY/ADD: local workspace paths only (no globs, no URLs for ADD)
+- Build time is included in the Slurm job's `time_limit_min`
+
+### Image Validation
+
+External (non-prebuilt) Docker images are validated against Docker Hub's tag API at submission time (`validate_docker_image()` in `dockerfile.py`):
+- Returns 422 if image/tag not found
+- Fails open on timeout/5xx/429 to avoid blocking during Docker Hub outages
+- Digest references (`@sha256:...`) and non-Docker-Hub registries skip validation
+- Prebuilt aliases (`ouro-ubuntu`, `ouro-python`, `ouro-nodejs`) skip validation
+- Validation runs before payment
+
+### Image Cache
+
+Two-layer cleanup prevents disk exhaustion:
+1. Per-job `docker rmi` in `slurm_proxy.py` removes non-prebuilt images after each job
+2. `deploy/slurm/docker-cleanup.sh` runs every 6h via cron, with aggressive cleanup at >85% disk usage
+
+Prebuilt images (`ubuntu:22.04`, `python:3.12-slim`, `node:20-slim`) are re-pulled after aggressive prunes.
+
+## Dashboard Architecture
+
+### Views
+
+- **Public dashboard** (`/`) — Aggregate stats only (WalletBalance, RevenueModel, FinancialPnL, SustainabilityGauge, PublicJobStats, AttributionPanel). No individual job scripts, outputs, or internal logs.
+- **Admin page** (`/admin`) — Full JobsPanel, TerminalFeed, AuditPanel. Requires operator wallet + signature auth + JWT cookie.
+- **My Jobs** (`/history`) — Wallet-scoped. Proxy forwards `X-Admin-Key` since data is inherently filtered by address.
+
+### Auth Flow
+
+1. Connect operator wallet matching `NEXT_PUBLIC_ADMIN_ADDRESS`
+2. Sign timestamped message to prove ownership
+3. `POST /api/admin/login` verifies via viem's `verifyMessage` + checks address match
+4. Signs JWT with `jose` using `ADMIN_API_KEY` as secret
+5. Sets HttpOnly cookie (Secure in prod, SameSite=Strict, 24h expiry)
+6. Admin proxy routes verify the cookie before forwarding `X-Admin-Key` to the agent
+
+Key files: `dashboard/src/lib/admin-auth.ts` (JWT helpers), `dashboard/src/app/api/admin/` (login/logout/check routes).
+
+### Proxy Pattern
+
+All dashboard API calls go through Next.js API routes that proxy to the agent. This avoids exposing `AGENT_URL` to the client and works with Railway's internal networking. See `docs/api-reference.md` § Dashboard Proxy Routes for the full routing table.
+
+### Wallet Persistence
+
+Uses `cookieStorage` from wagmi so wallet connection survives page reloads with SSR. The layout reads cookies via `headers()` and passes `cookieToInitialState(config, cookie)` as `initialState` to `WagmiProvider`.
+
+## Agent Discoverability
+
+Ouro is discoverable by autonomous agents through multiple channels:
+
+| Channel | URL / Endpoint | Purpose |
+|---------|---------------|---------|
+| **A2A Agent Card** | `GET /.well-known/agent-card.json` | Google A2A protocol discovery — skills, auth, capabilities |
+| **MCP Registry** | `.mcp/server.json` (publish via `mcp-publisher`) | Official MCP server registry at registry.modelcontextprotocol.io |
+| **x402 Bazaar** | Automatic via CDP facilitator | Discovery via Bazaar extension in 402 response (input schema, output example) |
+| **ERC-8004 Identity** | On-chain at `0x8004...9432` | Agent identity NFT with service endpoints |
+| **Capabilities** | `GET /api/capabilities` | Machine-readable service description with trust section |

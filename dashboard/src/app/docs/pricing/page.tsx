@@ -1,3 +1,4 @@
+import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
 
 const FORMULA = `price = max(
@@ -16,18 +17,26 @@ export default function PricingPage() {
           Pricing
         </h1>
         <p className="text-sm text-o-textSecondary mt-1">
-          Dynamic pricing engine with survival phases and demand elasticity.
+          How pricing works — dynamic adjustments based on costs and demand.
         </p>
       </div>
 
-      {/* Formula */}
+      {/* Overview */}
       <section className="mb-10">
-        <h2 className="font-display text-lg font-bold text-o-text mb-4">
-          Price Formula
-        </h2>
-        <CodeBlock filename="pricing.py" language="python" copyText={FORMULA}>
-          {FORMULA}
-        </CodeBlock>
+        <div className="bg-o-surface border border-o-border rounded-xl px-4 py-3.5">
+          <p className="text-sm text-o-textSecondary leading-relaxed">
+            Jobs start at <strong className="text-o-text font-display">~$0.01 USDC</strong> for
+            1 CPU, 1 minute. Price scales with CPUs and time. Use{" "}
+            <Link href="/docs/mcp" className="text-o-blueText hover:underline">
+              <code className="text-xs">get_price_quote</code>
+            </Link>{" "}
+            or{" "}
+            <Link href="/docs/api" className="text-o-blueText hover:underline">
+              <code className="text-xs">GET /api/price</code>
+            </Link>{" "}
+            to check the current price before submitting.
+          </p>
+        </div>
       </section>
 
       {/* Cost breakdown */}
@@ -60,25 +69,16 @@ export default function PricingPage() {
           Setup Costs by Mode
         </h2>
         <p className="text-sm text-o-textSecondary leading-relaxed mb-4">
-          The <code className="font-mono text-o-accent">setup_cost</code> component varies by submission mode,
-          covering workspace provisioning overhead on the Slurm cluster.
+          A small setup cost covers workspace provisioning on the cluster.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-o-bg rounded-lg p-3 border border-o-border">
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Script</div>
             <div className="font-mono text-xs text-o-text mt-1">$0.00</div>
           </div>
           <div className="bg-o-bg rounded-lg p-3 border border-o-border">
             <div className="text-xs text-o-textSecondary uppercase tracking-wider">Multi-File</div>
-            <div className="font-mono text-xs text-o-text mt-1">$0.005 workspace provisioning</div>
-          </div>
-          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
-            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Archive</div>
-            <div className="font-mono text-xs text-o-text mt-1">$0.008 extraction + provisioning</div>
-          </div>
-          <div className="bg-o-bg rounded-lg p-3 border border-o-border">
-            <div className="text-xs text-o-textSecondary uppercase tracking-wider">Git</div>
-            <div className="font-mono text-xs text-o-text mt-1">$0.01 clone + provisioning</div>
+            <div className="font-mono text-xs text-o-text mt-1">$0.001 workspace provisioning</div>
           </div>
         </div>
       </section>
@@ -89,8 +89,9 @@ export default function PricingPage() {
           Survival Phases
         </h2>
         <p className="text-sm text-o-textSecondary leading-relaxed mb-4">
-          The agent monitors its sustainability ratio (24h revenue / 24h costs) and adjusts
-          pricing automatically. When revenue drops, margins increase to ensure survival.
+          Ouro automatically adjusts pricing based on its financial health.
+          When operating costs (gas, compute, LLM inference) approach revenue,
+          margins increase to ensure the service stays online. When healthy, prices stay low.
         </p>
         <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden overflow-x-auto">
           <table className="w-full min-w-[540px]">
@@ -146,10 +147,14 @@ export default function PricingPage() {
             </tbody>
           </table>
         </div>
+        <p className="text-xs text-o-muted mt-3">
+          Heartbeat is an on-chain transaction sent periodically to demonstrate liveness.
+          In lower phases, heartbeats are disabled to conserve funds.
+        </p>
       </section>
 
       {/* Demand multiplier */}
-      <section className="border-t border-o-border pt-10">
+      <section className="border-t border-o-border pt-10 mb-10">
         <h2 className="font-display text-lg font-bold text-o-text mb-4">
           Demand Multiplier
         </h2>
@@ -184,6 +189,21 @@ export default function PricingPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* Price formula */}
+      <section className="border-t border-o-border pt-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
+          Price Formula
+        </h2>
+        <CodeBlock filename="pricing.py" language="python" copyText={FORMULA}>
+          {FORMULA}
+        </CodeBlock>
+        <p className="text-xs text-o-muted mt-3">
+          The <code className="font-mono text-o-blueText">cost_floor</code> is the minimum cost
+          to break even on a job — it covers gas, LLM inference, compute time, and workspace setup.
+          The final price is always at least 20% above this floor.
+        </p>
       </section>
     </>
   );

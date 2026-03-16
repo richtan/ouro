@@ -44,5 +44,4 @@ When modifying tools in `src/index.ts`, also update:
 - MCP instructions string in `src/index.ts` (lines ~105-123)
 - Root `CLAUDE.md` — Services table (MCP Server row), Project Structure (mcp/ line)
 - `dashboard/src/app/docs/mcp/page.tsx` — MCP tools reference page
-- `docs/agent-internals.md` — MCP tools list (lines ~129-133)
 - `docs/architecture.md` — MCP tool list in project tree (line ~89)

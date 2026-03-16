@@ -1,3 +1,4 @@
+import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
 import EndpointCard from "@/components/docs/EndpointCard";
 import ParamTable from "@/components/docs/ParamTable";
@@ -28,11 +29,9 @@ const CURL_MULTIFILE_CMD = `curl -X POST https://api.ourocompute.com/api/compute
   -H "payment-signature: <your-signed-x402-payment>" \\
   -d '{
     "files": [
-      {"path": "main.py", "content": "from utils import greet\\ngreet()"},
-      {"path": "utils.py", "content": "def greet():\\n    print(\\"hello\\")"}
+      {"path": "Dockerfile", "content": "FROM ouro-python\\nRUN pip install requests\\nENTRYPOINT [\\"python\\", \\"main.py\\"]"},
+      {"path": "main.py", "content": "import requests\\nprint(requests.get(\\"https://httpbin.org/ip\\").json())"}
     ],
-    "entrypoint": "python main.py",
-    "image": "ouro-python",
     "cpus": 1,
     "time_limit_min": 5
   }'`;
@@ -116,6 +115,7 @@ export default function ApiPage() {
           Endpoints
         </h2>
         <div className="space-y-3">
+          <h3 className="text-xs text-o-muted uppercase tracking-wider pt-6 pb-1">Compute</h3>
           <EndpointCard
             method="POST"
             path="/api/compute/submit"
@@ -124,19 +124,24 @@ export default function ApiPage() {
           >
             <p className="text-xs text-o-textSecondary mb-4">
               Supports two submission modes: <strong className="text-o-text">script mode</strong> (single shell script string)
-              and <strong className="text-o-text">multi-file mode</strong> (array of files with an entrypoint command).
-              Provide either <code className="text-o-blueText">script</code> or <code className="text-o-blueText">files</code> + <code className="text-o-blueText">entrypoint</code>.
+              and <strong className="text-o-text">multi-file mode</strong> (array of files, optionally with a Dockerfile).
+              Provide either <code className="text-o-blueText">script</code> or <code className="text-o-blueText">files</code>.
+              When <code className="text-o-blueText">files</code> includes a Dockerfile with ENTRYPOINT/CMD,
+              the <code className="text-o-blueText">entrypoint</code> param is not needed.
+              Without a Dockerfile, provide <code className="text-o-blueText">entrypoint</code> and <code className="text-o-blueText">image</code>.
             </p>
             <h4 className="text-xs text-o-muted uppercase tracking-wider mb-3">Request Body</h4>
             <ParamTable
               params={[
                 { name: "script", type: "string", description: "Shell script to execute (script mode)" },
-                { name: "files", type: "array", description: 'Array of {path, content} objects written to a workspace (multi-file mode)' },
-                { name: "entrypoint", type: "string", description: 'Command to run inside the workspace, e.g. "python main.py" (multi-file mode)' },
+                { name: "files", type: "array", description: 'Array of {path, content} objects — can include a Dockerfile (multi-file mode)' },
+                { name: "entrypoint", type: "string", description: 'Command to run, e.g. "python main.py" (required for multi-file without Dockerfile)' },
                 { name: "image", type: "string", description: "Container image: ouro-ubuntu, ouro-python, ouro-nodejs (default: ouro-ubuntu)" },
                 { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
-                { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
+                { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1, max 60)" },
                 { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
+                { name: "webhook_url", type: "string", description: "HTTPS URL for POST notification on completion/failure (optional)" },
+                { name: "mount_storage", type: "boolean", description: "Mount persistent /storage volume (default: false)" },
               ]}
             />
             <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>
@@ -158,7 +163,7 @@ export default function ApiPage() {
               params={[
                 { name: "cpus", type: "int", description: "Number of CPU cores (default 1, max 8)" },
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-                { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file, archive, or git (default: script)" },
+                { name: "submission_mode", type: "string", description: "Submission mode: script or multi_file (default: script)" },
               ]}
             />
             <p className="text-xs text-o-textSecondary mt-3">
@@ -166,6 +171,7 @@ export default function ApiPage() {
             </p>
           </EndpointCard>
 
+          <h3 className="text-xs text-o-muted uppercase tracking-wider pt-6 pb-1">Jobs</h3>
           <EndpointCard
             method="GET"
             path="/api/jobs/{job_id}"
@@ -173,10 +179,46 @@ export default function ApiPage() {
           >
             <p className="text-xs text-o-textSecondary">
               The job UUID serves as a capability token — anyone with the ID can view the job.
-              Returns status, output, error_output, compute_duration_s, and price_usdc.
+              Returns status, output, error_output, failure_reason, compute_duration_s, and price_usdc.
             </p>
           </EndpointCard>
 
+          <EndpointCard
+            method="GET"
+            path="/api/jobs/{job_id}/events"
+            description="Stream job status updates via SSE"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Server-Sent Events stream that emits updates until the job reaches a terminal state
+              (<code className="text-o-blueText">completed</code> or <code className="text-o-blueText">failed</code>).
+              The MCP server uses this internally — you don&apos;t need to call it directly when using MCP.
+            </p>
+          </EndpointCard>
+
+          <h3 className="text-xs text-o-muted uppercase tracking-wider pt-6 pb-1">Storage</h3>
+          <EndpointCard
+            method="GET"
+            path="/api/storage?wallet=0x..."
+            description="Persistent storage quota usage and file listing"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Returns quota (bytes), usage (bytes), tier, and a list of files with paths, sizes, and modification times.
+              Public endpoint — wallet address is the only required query parameter.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="DELETE"
+            path="/api/storage/files?wallet=...&path=...&signature=...&timestamp=..."
+            description="Delete a file from persistent storage"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Requires an EIP-191 signed message: <code className="text-o-blueText">ouro-storage-delete:{'{wallet}'}:{'{path}'}:{'{timestamp}'}</code>.
+              Timestamp must be within 5 minutes. The MCP server signs this automatically.
+            </p>
+          </EndpointCard>
+
+          <h3 className="text-xs text-o-muted uppercase tracking-wider pt-6 pb-1">Discovery & Stats</h3>
           <EndpointCard
             method="GET"
             path="/api/stats"
@@ -212,28 +254,7 @@ export default function ApiPage() {
             </p>
           </EndpointCard>
 
-          <EndpointCard
-            method="GET"
-            path="/api/storage?wallet=0x..."
-            description="Persistent storage quota usage and file listing"
-          >
-            <p className="text-xs text-o-textSecondary">
-              Returns quota (bytes), usage (bytes), tier, and a list of files with paths, sizes, and modification times.
-              Public endpoint — wallet address is the only required query parameter.
-            </p>
-          </EndpointCard>
-
-          <EndpointCard
-            method="DELETE"
-            path="/api/storage/files?wallet=...&path=...&signature=...&timestamp=..."
-            description="Delete a file from persistent storage"
-          >
-            <p className="text-xs text-o-textSecondary">
-              Requires an EIP-191 signed message: <code className="text-o-blueText">ouro-storage-delete:{'{wallet}'}:{'{path}'}:{'{timestamp}'}</code>.
-              Timestamp must be within 5 minutes. The MCP server signs this automatically.
-            </p>
-          </EndpointCard>
-
+          <h3 className="text-xs text-o-muted uppercase tracking-wider pt-6 pb-1">Health</h3>
           <EndpointCard
             method="GET"
             path="/health"
@@ -248,6 +269,16 @@ export default function ApiPage() {
 
         </div>
       </section>
+
+      {/* Next page */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+        <Link
+          href="/docs/agent"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          Build an Agent <span aria-hidden="true">&rarr;</span>
+        </Link>
+      </div>
     </>
   );
 }

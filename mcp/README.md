@@ -7,7 +7,7 @@ Run HPC compute jobs from any AI agent — paid in USDC on Base via [x402](https
 
 ## What is Ouro?
 
-Ouro is an autonomous agent that sells high-performance compute on a Slurm cluster. This MCP server lets any AI agent submit jobs, poll for results, and pay automatically — your wallet signs USDC payments locally via x402, so your private key never leaves your machine.
+Ouro is a pay-per-use compute service on Base. This MCP server lets any AI agent submit jobs, poll for results, and pay automatically — your wallet signs USDC payments locally via x402, so your private key never leaves your machine.
 
 ## Quick Start
 
@@ -126,13 +126,13 @@ User: Run a Python script that computes the first 1000 primes
 
 ← {
     "id": "abc123",
-    "slurm_job_id": 42,
     "status": "completed",
     "price_usdc": 0.01,
     "submitted_at": "2025-01-01T00:00:00+00:00",
     "completed_at": "2025-01-01T00:00:04+00:00",
     "output": "[2, 3, 5, 7, 11, ...]",
     "error_output": "",
+    "failure_reason": null,
     "compute_duration_s": 4.2
   }
 ```
@@ -277,5 +277,5 @@ Your private key **never leaves your machine**. The MCP server runs locally as a
 ## Links
 
 - [Dashboard](https://ourocompute.com) — live P&L, job stats, submit jobs
-- [API Docs](https://github.com/richtan/ouro/blob/main/docs/api-reference.md)
+- [API Docs](https://ourocompute.com/docs/api)
 - [GitHub](https://github.com/richtan/ouro)
