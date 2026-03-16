@@ -91,6 +91,11 @@ gcloud compute ssh "$CONTROLLER" --project="$PROJECT" --zone="$ZONE" --command="
   # Replace per-IP exports with subnet-based export
   sudo sed -i '/^\/ouro-jobs/d' /etc/exports
   echo '/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)' | sudo tee -a /etc/exports
+  sudo mkdir -p /ouro-storage
+  sudo chown nobody:nogroup /ouro-storage
+  sudo chmod 755 /ouro-storage
+  sudo sed -i '/^\/ouro-storage/d' /etc/exports
+  echo '/ouro-storage 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)' | sudo tee -a /etc/exports
   sudo exportfs -ra
 "
 

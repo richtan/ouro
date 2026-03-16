@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Computed,
@@ -117,4 +118,17 @@ class ScalingEvent(Base):
     event_type = Column(Text, nullable=False)
     node_name = Column(Text, nullable=False)
     reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class StorageQuota(Base):
+    __tablename__ = "storage_quotas"
+
+    wallet_address = Column(Text, primary_key=True)  # lowercase 0x...
+    tier = Column(Text, nullable=False, default="free", server_default="free")
+    quota_bytes = Column(BigInteger, nullable=False, default=1_073_741_824, server_default="1073741824")  # 1GB
+    used_bytes = Column(BigInteger, nullable=False, default=0, server_default="0")
+    file_count = Column(Integer, nullable=False, default=0, server_default="0")
+    last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    last_accessed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

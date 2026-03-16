@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,7 +11,7 @@ import src.api.pricing as pricing_state
 from src.agent.event_bus import EventBus
 from src.chain.client import BaseChainClient
 from src.config import settings
-from src.db.models import ActiveJob, AgentCost, AttributionLog, HistoricalData, WalletSnapshot
+from src.db.models import ActiveJob, AgentCost, AttributionLog, HistoricalData, StorageQuota, WalletSnapshot
 from src.slurm.client import SlurmClient
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,81 @@ async def _get_jobs_last_hour(db: AsyncSession) -> int:
         select(func.count(HistoricalData.id)).where(HistoricalData.submitted_at >= interval)
     )
     return int(active_q.scalar_one()) + int(hist_q.scalar_one())
+
+
+_last_storage_cleanup: datetime | None = None
+
+
+async def _storage_cleanup(
+    slurm_client: SlurmClient,
+    session_maker: async_sessionmaker,
+    event_bus: EventBus,
+) -> None:
+    """Check for inactive storage and clean up expired volumes. Runs daily."""
+    global _last_storage_cleanup
+    now = datetime.now(timezone.utc)
+
+    # Only run once per 24 hours
+    if _last_storage_cleanup and (now - _last_storage_cleanup).total_seconds() < 86400:
+        return
+    _last_storage_cleanup = now
+
+    ttl_days = settings.STORAGE_TTL_DAYS
+    warning_threshold = now - timedelta(days=ttl_days - 30)  # warn at 60 days
+    delete_threshold = now - timedelta(days=ttl_days)  # delete at 90 days
+
+    async with session_maker() as db:
+        result = await db.execute(
+            select(StorageQuota).where(
+                StorageQuota.last_accessed_at < warning_threshold
+            )
+        )
+        stale_quotas = result.scalars().all()
+
+        for quota in stale_quotas:
+            days_inactive = (now - quota.last_accessed_at).days
+
+            if quota.last_accessed_at < delete_threshold:
+                try:
+                    locked = await db.execute(
+                        select(StorageQuota)
+                        .where(StorageQuota.wallet_address == quota.wallet_address)
+                        .with_for_update()
+                    )
+                    fresh = locked.scalar_one_or_none()
+                    if not fresh or fresh.last_accessed_at >= delete_threshold:
+                        await db.rollback()
+                        continue
+
+                    deleted = await slurm_client.delete_wallet_storage(quota.wallet_address)
+                    if deleted:
+                        fresh.tier = "expired"
+                        fresh.used_bytes = 0
+                        fresh.file_count = 0
+                        await db.commit()
+                        event_bus.emit(
+                            "storage",
+                            f"Storage deleted for {quota.wallet_address[:10]}... "
+                            f"({days_inactive} days inactive, TTL expired)",
+                        )
+                    else:
+                        await db.rollback()
+                    logger.info(
+                        "Storage TTL cleanup for %s: deleted=%s (%d days inactive)",
+                        quota.wallet_address, deleted, days_inactive,
+                    )
+                except Exception as e:
+                    await db.rollback()
+                    logger.warning("Storage cleanup failed for %s: %s", quota.wallet_address, e)
+            else:
+                event_bus.emit(
+                    "storage",
+                    f"Storage warning: {quota.wallet_address[:10]}... inactive for {days_inactive} days "
+                    f"(expires in {ttl_days - days_inactive} days)",
+                )
+
+        if stale_quotas:
+            logger.info("Storage cleanup check: %d stale quotas found", len(stale_quotas))
 
 
 async def autonomous_loop(
@@ -147,7 +222,13 @@ async def autonomous_loop(
                         ))
                         await db.commit()
 
-                # 5. Periodic on-chain heartbeat (respects survival phase)
+                # 5. Storage TTL cleanup (runs daily)
+                try:
+                    await _storage_cleanup(slurm_client, session_maker, event_bus)
+                except Exception as e:
+                    logger.warning("Storage cleanup error: %s", e)
+
+                # 6. Periodic on-chain heartbeat (respects survival phase)
                 now = datetime.now(timezone.utc)
                 if last_tx_time is None:
                     last_tx_time = await _get_last_attribution_time(db) or now

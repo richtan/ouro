@@ -117,7 +117,10 @@ Use get_price_quote to check pricing before committing.
 Use get_allowed_images to see available container images.
 
 Prebuilt images (instant): ouro-ubuntu, ouro-python, ouro-nodejs.
-Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).`,
+Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).
+
+Use list_storage to view files in your persistent /storage volume.
+Use mount_storage=true in run_job to mount persistent storage into the container at /storage (read-write).`,
   },
 );
 
@@ -139,6 +142,7 @@ server.tool(
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
     builder_code: z.string().optional().describe("Builder code for ERC-8021 attribution"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
+    mount_storage: z.boolean().default(false).describe("Mount persistent /storage volume (read-write) for this job. Files written to /storage persist between jobs."),
   },
   async (params) => {
     // Validate: exactly one of script or files
@@ -161,6 +165,7 @@ server.tool(
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (params.builder_code) headers["X-BUILDER-CODE"] = params.builder_code;
     if (params.webhook_url) body.webhook_url = params.webhook_url;
+    if (params.mount_storage) body.mount_storage = true;
 
     try {
       const res = await apiFetch("/api/compute/submit", {
@@ -360,6 +365,67 @@ server.tool(
   async () => {
     try {
       const res = await apiFetch("/api/capabilities");
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: list_storage
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "list_storage",
+  "List files in your persistent storage. Shows quota usage and file listing.",
+  {},
+  async () => {
+    try {
+      const res = await apiFetch(
+        `/api/storage?wallet=${walletAddress}`,
+      );
+      const text = await res.text();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      }
+      return { content: [{ type: "text", text }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: "text", text: msg }] };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: delete_storage_file
+// ---------------------------------------------------------------------------
+
+server.tool(
+  "delete_storage_file",
+  "Delete a file or directory from your persistent storage.",
+  {
+    path: z.string().describe("File path relative to /storage (e.g. 'models/checkpoint.pt')"),
+  },
+  async (params) => {
+    try {
+      // Sign EIP-191 message to prove wallet ownership
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const message = `ouro-storage-delete:${walletAddress.toLowerCase()}:${params.path}:${timestamp}`;
+      const signature = await account.signMessage({ message });
+
+      const qs = new URLSearchParams({
+        wallet: walletAddress,
+        path: params.path,
+        signature,
+        timestamp,
+      });
+      const res = await apiFetch(`/api/storage/files?${qs}`, { method: "DELETE" });
       const text = await res.text();
       if (!res.ok) {
         return { content: [{ type: "text", text: errorText(res.status, text) }] };

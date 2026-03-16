@@ -103,6 +103,7 @@ export default function SubmitPage() {
   const [priceEstimate, setPriceEstimate] = useState<string | null>(null);
   const [priceLoading, setPriceLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [mountStorage, setMountStorage] = useState(false);
   const [creditBalance, setCreditBalance] = useState(0);
 
   // Fetch credit balance when wallet connects
@@ -176,6 +177,7 @@ export default function SubmitPage() {
         cpus,
         time_limit_min: timeLimit,
         submitter_address: address,
+        ...(mountStorage && { mount_storage: true }),
       };
 
       const res = await fetchWithPay("/api/proxy/submit", {
@@ -306,6 +308,27 @@ export default function SubmitPage() {
                 <p className="text-xs text-o-muted mt-1 text-right">
                   ERC-8021 builder code for dual attribution
                 </p>
+                <div className="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-o-border/50">
+                  <div>
+                    <span className="text-sm text-o-textSecondary">Persistent Storage</span>
+                    <p className="text-xs text-o-muted mt-0.5">
+                      Mount a read-write /storage volume that persists between jobs
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMountStorage(!mountStorage)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      mountStorage ? "bg-o-blue" : "bg-o-border"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        mountStorage ? "translate-x-5" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             )}
           </div>

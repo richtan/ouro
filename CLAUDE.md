@@ -84,7 +84,7 @@ Full annotated tree: `docs/architecture.md`
 
 ## Database Schema
 
-Tables: `active_jobs`, `historical_data`, `agent_costs`, `wallet_snapshots`, `attribution_log`, `credits`, `audit_log`.
+Tables: `active_jobs`, `historical_data`, `agent_costs`, `wallet_snapshots`, `attribution_log`, `credits`, `audit_log`, `storage_quotas`.
 
 Job lifecycle: `pending` → `processing` → `running` → `completed` (archived) or `failed` (archived).
 
@@ -101,6 +101,22 @@ Both `complete_job()` and `fail_job()` in `db/operations.py` archive to `histori
 Auto-migration: `agent/src/db/migrate.py` runs on every agent startup — handles `ADD/DROP COLUMN IF [NOT] EXISTS` and idempotent data migrations. No manual SQL needed for schema changes. See `docs/operations.md` § Database migrations.
 
 Full details: `docs/architecture.md` § Database Schema, `db/01-init.sql`
+
+## Persistent Storage
+
+Per-wallet persistent storage mounted at `/storage` inside containers. NFS-backed on `/ouro-storage` on the Slurm controller, exported to all workers.
+
+- **Config**: `STORAGE_FREE_TIER_BYTES` (default 1GB), `STORAGE_TTL_DAYS` (default 90 days)
+- **DB table**: `storage_quotas` — tracks wallet tier, quota, cached usage, last access time
+- **API**: `GET /api/storage?wallet=0x...` (usage + file list), `DELETE /api/storage/files?wallet=...&path=...&signature=...&timestamp=...` (EIP-191 signed delete)
+- **Submit**: `mount_storage: true` in `POST /api/compute/submit` creates quota on first use, validates quota, inits NFS directory, passes `storage_path` through to Slurm proxy
+- **MCP tools**: `list_storage`, `delete_storage_file`, `mount_storage` param on `run_job`
+- **Dashboard**: `/storage` page (quota bar, file list, signed delete), toggle in submit Advanced section
+- **Proxy endpoints**: `POST /slurm/v0.0.38/storage/init`, `GET .../storage/{wallet}/usage`, `GET .../storage/{wallet}/files`, `DELETE .../storage/{wallet}/files/{path}`, `DELETE .../storage/{wallet}`
+- **Docker mount**: `-v /ouro-storage/0x...:/storage` added to both Dockerfile-build and simple-pull paths in `wrap_in_docker()`
+- **TTL cleanup**: `_storage_cleanup()` in `loop.py` runs daily, warns at 60 days inactive, deletes at 90 days
+- **Security**: Path traversal prevention via `os.path.realpath()` + prefix check. Symlinks skipped in file listing. `shlex.quote()` + regex validation on storage paths. EIP-191 signature required for file deletion. No `noexec` on bind mount (Docker `--cap-drop ALL` + `--no-new-privileges` prevent escalation). `followlinks=False` in `os.walk()`.
+- **Infrastructure**: `setup-slurm-cluster.sh` and `setup-elastic-infra.sh` create and export `/ouro-storage`. `node-startup.sh` mounts it on spot instances.
 
 ## Local Development
 
@@ -154,6 +170,10 @@ docker compose up --build
 - **Compute cost tracking in P&L** — `_finalize_success()` and `_mark_failed()` in `processor.py` log actual compute infrastructure costs via `log_cost(cost_type="compute")`. These are included in `/api/stats` as `compute_costs_usd` and automatically factor into the sustainability ratio (which sums all `agent_costs`), enabling accurate phase transitions.
 - **Webhook notifications** — Jobs accept an optional `webhook_url` parameter at submission. On completion or failure, a POST is sent with job results. HMAC-SHA256 signing via `WEBHOOK_SECRET` env var (optional, set in Doppler). 3 delivery attempts with exponential backoff. HTTPS required (HTTP allowed only for localhost). See `docs/api-reference.md` § Webhooks.
 - **MCP SSE streaming** — `get_job_status` in the MCP server now uses SSE streaming (`/api/jobs/{id}/stream`) instead of manual polling. Call once and it returns when the job reaches a terminal state. Eliminates the need for repeated poll calls from AI agents.
+- **Persistent storage quota bypass during job execution** — No kernel quotas on NFS bind mounts. Containers can write beyond the 1GB limit during a job. Post-job sync catches overages and blocks new jobs with `mount_storage=true` until usage is under quota.
+- **Storage concurrent writes** — Two jobs from the same wallet with `mount_storage=true` can write to `/storage` concurrently. NFS provides POSIX semantics but file conflicts are "last writer wins". User responsibility.
+- **Storage TTL cleanup race** — `_storage_cleanup()` uses `SELECT ... FOR UPDATE` to re-check `last_accessed_at` under row lock before deletion, preventing races with concurrent `submit_compute` calls that update `last_accessed_at`.
+- **Storage DELETE requires EIP-191 signature** — `DELETE /api/storage/files` requires a signed message `"ouro-storage-delete:{wallet}:{path}:{timestamp}"` with a 5-minute timestamp window. Prevents unauthorized deletion. MCP server signs automatically; dashboard uses wagmi `useSignMessage`.
 
 ## Workflow Preferences
 

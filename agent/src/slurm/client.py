@@ -33,6 +33,7 @@ class SlurmClient:
         partition: str = "compute",
         cpus: int = 1,
         time_limit_min: int = 1,
+        storage_path: str | None = None,
     ) -> int:
         body: dict = {
             "workspace_path": workspace_path,
@@ -54,6 +55,8 @@ class SlurmClient:
             body["entrypoint_cmd"] = entrypoint_cmd
         if dockerfile_content:
             body["dockerfile_content"] = dockerfile_content
+        if storage_path:
+            body["storage_path"] = storage_path
 
         resp = await self.client.post("/slurm/v0.0.38/job/submit", json=body)
         resp.raise_for_status()
@@ -161,6 +164,54 @@ class SlurmClient:
                 "total_cpus": 0, "available_cpus": 0,
                 "nodes_detail": [], "status": "unreachable",
             }
+
+    async def init_storage(self, wallet_address: str) -> str:
+        """Create per-wallet storage directory on NFS. Returns storage_path."""
+        resp = await self.client.post(
+            "/slurm/v0.0.38/storage/init",
+            json={"wallet_address": wallet_address},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["storage_path"]
+
+    async def get_storage_usage(self, wallet_address: str) -> dict:
+        """Get {used_bytes, file_count} for a wallet's storage."""
+        resp = await self.client.get(
+            f"/slurm/v0.0.38/storage/{wallet_address}/usage",
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_storage_files(self, wallet_address: str) -> list[dict]:
+        """List files in a wallet's persistent storage."""
+        resp = await self.client.get(
+            f"/slurm/v0.0.38/storage/{wallet_address}/files",
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("files", [])
+
+    async def delete_storage_file(self, wallet_address: str, path: str) -> bool:
+        """Delete a file from a wallet's persistent storage."""
+        from urllib.parse import quote as url_quote
+        encoded = url_quote(path, safe='/')
+        resp = await self.client.delete(
+            f"/slurm/v0.0.38/storage/{wallet_address}/files/{encoded}",
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("deleted", False)
+
+    async def delete_wallet_storage(self, wallet_address: str) -> bool:
+        """Delete an entire wallet's storage directory."""
+        resp = await self.client.delete(
+            f"/slurm/v0.0.38/storage/{wallet_address}",
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("deleted", False)
 
     async def close(self) -> None:
         await self.client.aclose()

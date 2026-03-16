@@ -177,6 +177,11 @@ for w in "${WORKERS[@]}"; do
     NFS_EXPORTS="$NFS_EXPORTS ${WORKER_IPS[$w]}(rw,sync,no_subtree_check,root_squash)"
 done
 
+STORAGE_EXPORTS="/ouro-storage"
+for w in "${WORKERS[@]}"; do
+    STORAGE_EXPORTS="$STORAGE_EXPORTS ${WORKER_IPS[$w]}(rw,sync,no_subtree_check,root_squash)"
+done
+
 ssh_cmd "$CONTROLLER" "
     sudo mkdir -p /ouro-jobs/output /ouro-jobs/scripts /ouro-jobs/images /ouro-jobs/workspaces
     sudo chown -R nobody:nogroup /ouro-jobs
@@ -186,6 +191,14 @@ ssh_cmd "$CONTROLLER" "
     # Replace any existing /ouro-jobs export line with worker-specific IPs
     sudo sed -i '\|^/ouro-jobs|d' /etc/exports 2>/dev/null || true
     echo '$NFS_EXPORTS' | sudo tee -a /etc/exports
+
+    # --- Persistent storage ---
+    sudo mkdir -p /ouro-storage
+    sudo chown nobody:nogroup /ouro-storage
+    sudo chmod 755 /ouro-storage
+    sudo sed -i '\|^/ouro-storage|d' /etc/exports 2>/dev/null || true
+    echo '$STORAGE_EXPORTS' | sudo tee -a /etc/exports
+
     sudo exportfs -ra
     sudo systemctl restart nfs-kernel-server
 "
@@ -197,6 +210,12 @@ for w in "${WORKERS[@]}"; do
             echo '$CONTROLLER_IP:/ouro-jobs /ouro-jobs nfs defaults 0 0' | sudo tee -a /etc/fstab
         fi
         sudo mount -a || sudo mount $CONTROLLER_IP:/ouro-jobs /ouro-jobs
+
+        sudo mkdir -p /ouro-storage
+        if ! grep -q '/ouro-storage' /etc/fstab; then
+            echo '${CONTROLLER_IP}:/ouro-storage /ouro-storage nfs defaults 0 0' | sudo tee -a /etc/fstab
+        fi
+        sudo mount /ouro-storage || true
     "
     echo "  $w NFS mounted"
 done

@@ -12,6 +12,7 @@ const ADMIN_ADDRESS =
 const BASE_NAV = [
   { href: "/submit", label: "Submit" },
   { href: "/history", label: "My Jobs" },
+  { href: "/storage", label: "Storage" },
 ];
 
 export default function NavBar() {

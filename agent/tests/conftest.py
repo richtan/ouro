@@ -37,6 +37,11 @@ def mock_slurm_client():
     client.create_workspace.return_value = "/ouro-jobs/workspaces/test-workspace"
     client.delete_workspace.return_value = True
     client.cancel_job.return_value = True
+    client.init_storage.return_value = "/ouro-storage/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    client.get_storage_usage.return_value = {"used_bytes": 0, "file_count": 0}
+    client.list_storage_files.return_value = []
+    client.delete_storage_file.return_value = True
+    client.delete_wallet_storage.return_value = True
     client.get_cluster_info.return_value = {
         "total_nodes": 2,
         "idle_nodes": 2,

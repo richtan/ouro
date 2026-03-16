@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS scaling_events (
 );
 CREATE INDEX IF NOT EXISTS idx_scaling_events_time ON scaling_events (created_at DESC);
 
+-- Persistent storage quotas
+CREATE TABLE IF NOT EXISTS storage_quotas (
+    wallet_address  TEXT PRIMARY KEY,
+    tier            TEXT NOT NULL DEFAULT 'free',
+    quota_bytes     BIGINT NOT NULL DEFAULT 1073741824,
+    used_bytes      BIGINT NOT NULL DEFAULT 0,
+    file_count      INTEGER NOT NULL DEFAULT 0,
+    last_synced_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_accessed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Create monthly partitions for historical_data (12 months ahead)
 DO $$
 DECLARE

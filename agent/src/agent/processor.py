@@ -417,6 +417,7 @@ async def _process_one_job(
                 db=db,
                 event_bus=event_bus,
                 dockerfile_content=payload.get("dockerfile_content"),
+                storage_path=payload.get("storage_path"),
             )
 
             job_result = await asyncio.wait_for(

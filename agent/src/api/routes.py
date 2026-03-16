@@ -34,6 +34,7 @@ from src.db.models import (
     AuditLog,
     Credit,
     HistoricalData,
+    StorageQuota,
     WalletSnapshot,
 )
 from src.db.operations import get_available_credit, log_audit, redeem_credits
@@ -92,6 +93,7 @@ class ComputeSubmitRequest(BaseModel):
     submitter_address: Optional[str] = None
     builder_code: Optional[str] = None
     webhook_url: Optional[str] = Field(None, max_length=2048)
+    mount_storage: bool = Field(default=False, description="Mount persistent /storage volume (read-write)")
 
     @property
     def submission_mode(self) -> str:
@@ -202,6 +204,8 @@ def _job_summary(payload: dict | None) -> dict:
         base["credit_applied"] = payload["credit_applied"]
     if "event_log" in payload:
         base["event_log"] = payload["event_log"]
+    if payload.get("mount_storage"):
+        base["mount_storage"] = True
     return base
 
 
@@ -630,6 +634,57 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
             "Your job will be retried. Contact support if funds are not returned.",
         )
 
+    # Persistent storage mount
+    storage_path = None
+    if body.mount_storage and not submitter_address:
+        raise HTTPException(422, "mount_storage requires submitter_address (wallet address)")
+    if body.mount_storage and submitter_address:
+        wallet_lower = submitter_address.lower()
+        # Get or create storage quota
+        quota = await db.get(StorageQuota, wallet_lower)
+        if not quota:
+            quota = StorageQuota(
+                wallet_address=wallet_lower,
+                quota_bytes=settings.STORAGE_FREE_TIER_BYTES,
+            )
+            db.add(quota)
+            await db.flush()
+
+        # Live quota check — fetch real-time usage from proxy (~50ms)
+        try:
+            live_usage = await _slurm_client.get_storage_usage(wallet_lower)
+            current_bytes = live_usage["used_bytes"]
+            quota.used_bytes = current_bytes  # update cached value
+            quota.file_count = live_usage["file_count"]
+        except Exception:
+            # Proxy unavailable — fall back to cached value
+            current_bytes = int(quota.used_bytes)
+
+        if current_bytes >= quota.quota_bytes:
+            raise HTTPException(
+                422,
+                f"Storage quota exceeded ({current_bytes / 1_073_741_824:.2f}GB / "
+                f"{int(quota.quota_bytes) / 1_073_741_824:.2f}GB). "
+                f"Delete files at /storage to free space.",
+            )
+
+        # Init storage directory on NFS (idempotent)
+        try:
+            storage_path = await _slurm_client.init_storage(wallet_lower)
+        except Exception as e:
+            logger.error("Storage init failed for %s: %s", wallet_lower, e)
+            raise HTTPException(503, "Failed to initialize persistent storage")
+
+        # Update last_accessed_at
+        from datetime import datetime, timezone
+        quota.last_accessed_at = datetime.now(timezone.utc)
+
+        _event_bus.emit(
+            "storage",
+            f"Storage mounted for {submitter_address[:10]}... "
+            f"(usage: {current_bytes / 1_073_741_824:.2f}GB / {int(quota.quota_bytes) / 1_073_741_824:.2f}GB)",
+        )
+
     job_payload: dict = {
         "cpus": cpus,
         "time_limit_min": time_limit_min,
@@ -648,6 +703,9 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
     if body.webhook_url:
         _validate_webhook_url(body.webhook_url)
         job_payload["webhook_url"] = body.webhook_url
+    if storage_path:
+        job_payload["storage_path"] = storage_path
+        job_payload["mount_storage"] = True
 
     job = ActiveJob(
         id=job_id,
@@ -668,6 +726,15 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         detail={"price_str": quote.price_str, "paid_with_credit": paid_with_credit, "credit_applied": credit_applied},
     )
 
+    if storage_path:
+        await log_audit(
+            db,
+            event_type="storage_mounted",
+            job_id=uuid.UUID(job_id),
+            wallet_address=submitter_address,
+            detail={"storage_path": storage_path},
+        )
+
     _event_bus.emit("job", f"Job {job_id[:8]} created, queued for processing")
 
     return {
@@ -677,11 +744,144 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         "paid_with_credit": paid_with_credit,
         "credit_applied": credit_applied,
         "webhook_configured": bool(body.webhook_url),
+        "mount_storage": bool(storage_path),
         "profitability": {
             "guaranteed": quote.guaranteed_profitable,
             "estimated_profit_pct": round(quote.profit_pct, 1),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/storage — storage info + file listing for a wallet
+# ---------------------------------------------------------------------------
+
+@router.get("/api/storage")
+async def get_storage(wallet: str, db: AsyncSession = Depends(get_db)):
+    """Get storage quota, usage, and file listing for a wallet."""
+    if not _ETH_ADDRESS_RE.match(wallet):
+        raise HTTPException(422, "Invalid wallet address format")
+    wallet_lower = wallet.lower()
+
+    if not _slurm_client:
+        raise HTTPException(503, "Storage service unavailable")
+
+    # Read-only lookup — do NOT create quota on GET (prevents DoS via arbitrary addresses)
+    quota = await db.get(StorageQuota, wallet_lower)
+
+    # Fetch live usage + file list from proxy (may return empty if no storage dir exists)
+    try:
+        usage = await _slurm_client.get_storage_usage(wallet_lower)
+        files = await _slurm_client.list_storage_files(wallet_lower)
+    except Exception as e:
+        logger.warning("Storage proxy call failed for %s: %s", wallet_lower, e)
+        if not quota:
+            return {
+                "wallet": wallet_lower,
+                "tier": "free",
+                "quota_bytes": settings.STORAGE_FREE_TIER_BYTES,
+                "used_bytes": 0,
+                "file_count": 0,
+                "files": [],
+                "last_accessed_at": None,
+                "created_at": None,
+            }
+        usage = {"used_bytes": int(quota.used_bytes), "file_count": int(quota.file_count)}
+        files = []
+
+    # Update cached values only if quota record exists (created during first job submission)
+    if quota:
+        quota.used_bytes = usage["used_bytes"]
+        quota.file_count = usage["file_count"]
+        from datetime import datetime, timezone
+        quota.last_synced_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    return {
+        "wallet": wallet_lower,
+        "tier": quota.tier if quota else "free",
+        "quota_bytes": int(quota.quota_bytes) if quota else settings.STORAGE_FREE_TIER_BYTES,
+        "used_bytes": usage["used_bytes"],
+        "file_count": usage["file_count"],
+        "files": files,
+        "last_accessed_at": quota.last_accessed_at.isoformat() if quota and quota.last_accessed_at else None,
+        "created_at": quota.created_at.isoformat() if quota and quota.created_at else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/storage/files — delete a file from persistent storage
+# ---------------------------------------------------------------------------
+
+def _verify_storage_signature(wallet: str, path: str, signature: str, timestamp: str) -> None:
+    """Verify EIP-191 signature proving wallet ownership for storage operations.
+
+    Message format: "ouro-storage-delete:{wallet}:{path}:{timestamp}"
+    Timestamp must be within 5 minutes of current time to prevent replay attacks.
+    """
+    from eth_account.messages import encode_defunct
+    from eth_account import Account
+    from datetime import datetime, timezone
+
+    # Validate timestamp freshness (5 min window)
+    try:
+        ts = int(timestamp)
+    except ValueError:
+        raise HTTPException(401, "Invalid timestamp")
+    now = int(datetime.now(timezone.utc).timestamp())
+    if abs(now - ts) > 300:
+        raise HTTPException(401, "Signature expired (must be within 5 minutes)")
+
+    # Verify signature
+    message = f"ouro-storage-delete:{wallet.lower()}:{path}:{timestamp}"
+    try:
+        msg = encode_defunct(text=message)
+        recovered = Account.recover_message(msg, signature=signature)
+    except Exception:
+        raise HTTPException(401, "Invalid signature")
+
+    if recovered.lower() != wallet.lower():
+        raise HTTPException(401, "Signature does not match wallet address")
+
+
+@router.delete("/api/storage/files")
+async def delete_storage_file_route(
+    wallet: str,
+    path: str,
+    signature: str,
+    timestamp: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a file from a wallet's persistent storage. Requires EIP-191 signature."""
+    if not _ETH_ADDRESS_RE.match(wallet):
+        raise HTTPException(422, "Invalid wallet address format")
+    wallet_lower = wallet.lower()
+
+    # Verify wallet ownership via EIP-191 signature
+    _verify_storage_signature(wallet_lower, path, signature, timestamp)
+
+    if not _slurm_client:
+        raise HTTPException(503, "Storage service unavailable")
+
+    # Verify wallet has storage
+    quota = await db.get(StorageQuota, wallet_lower)
+    if not quota:
+        raise HTTPException(404, "No storage found for this wallet")
+
+    try:
+        deleted = await _slurm_client.delete_storage_file(wallet_lower, path)
+    except Exception as e:
+        logger.error("Storage delete failed for %s/%s: %s", wallet_lower, path, e)
+        raise HTTPException(500, "Failed to delete file")
+
+    await log_audit(
+        db,
+        event_type="storage_file_deleted",
+        wallet_address=wallet_lower,
+        detail={"path": path},
+    )
+
+    return {"deleted": deleted}
 
 
 # ---------------------------------------------------------------------------
@@ -1200,7 +1400,15 @@ async def get_capabilities():
             "max_script_bytes": MAX_SCRIPT_SIZE,
             "max_workspace_bytes": 10 * 1024 * 1024,
             "submission_modes": ["script", "multi_file"],
+            "persistent_storage": True,
             "allowed_images": sorted(settings.allowed_images_set),
+        },
+        "storage": {
+            "enabled": True,
+            "mount_point": "/storage",
+            "free_tier_bytes": settings.STORAGE_FREE_TIER_BYTES,
+            "ttl_days": settings.STORAGE_TTL_DAYS,
+            "access": "read-write",
         },
         "trust": {
             "agent_address": settings.WALLET_ADDRESS,

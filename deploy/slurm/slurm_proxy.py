@@ -36,6 +36,21 @@ app = FastAPI(title="Ouro Slurm Proxy")
 OUTPUT_DIR = "/ouro-jobs/output"
 SCRIPTS_DIR = "/ouro-jobs/scripts"
 WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
+STORAGE_BASE_DIR = "/ouro-storage"
+_STORAGE_WALLET_RE = re.compile(r"^0x[0-9a-f]{40}$")
+
+
+def _validate_storage_wallet(wallet: str) -> str:
+    """Validate wallet address and return its storage directory path.
+    Raises HTTPException on invalid input or path traversal."""
+    if not _STORAGE_WALLET_RE.match(wallet):
+        raise HTTPException(400, "Invalid wallet address format (expected lowercase 0x + 40 hex)")
+    storage_path = os.path.join(STORAGE_BASE_DIR, wallet)
+    real = os.path.realpath(storage_path)
+    if not real.startswith(os.path.realpath(STORAGE_BASE_DIR)):
+        raise HTTPException(400, "Path traversal detected")
+    return real
+
 
 DOCKER_IMAGES = {
     "ouro-ubuntu": "ubuntu:22.04",
@@ -121,6 +136,7 @@ def wrap_in_docker(
     dockerfile_content: str | None = None,
     cpus: str = "1",
     memory_mb: int = 1600,
+    storage_path: str | None = None,
 ) -> str:
     """Generate a wrapper script for Docker execution on the worker."""
     image_ref = docker_image or resolve_docker_image(image_name)
@@ -144,6 +160,13 @@ def wrap_in_docker(
         "--rm",
     ])
 
+    storage_mount = ""
+    if storage_path:
+        # Validate path format to prevent injection
+        if not re.match(r"^/ouro-storage/0x[0-9a-f]{40}$", storage_path):
+            raise HTTPException(400, "Invalid storage path format")
+        storage_mount = f"-v {shlex.quote(storage_path)}:/storage \\\n    "
+
     if dockerfile_content:
         # Complex Dockerfile: docker build on worker, then run
         if entrypoint_cmd:
@@ -164,7 +187,7 @@ cd {shlex.quote(workspace_path)}
 DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >/dev/null 2>&1
 docker run \\
     {sec_flags} \\
-    -v {shlex.quote(workspace_path)}:/workspace:ro \\
+    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace:ro \\
     -w /workspace \\
     "$DOCKER_TAG" \\
     {cmd_str}
@@ -192,7 +215,7 @@ set -euo pipefail
 docker pull -q {shlex.quote(image_ref)} >/dev/null 2>&1 || true
 docker run \\
     {sec_flags} \\
-    -v {shlex.quote(workspace_path)}:/workspace:ro \\
+    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace:ro \\
     -w /workspace \\
     {shlex.quote(image_ref)} \\
     {cmd_str}
@@ -249,6 +272,10 @@ async def submit_job(
     docker_image = body.get("docker_image")
     dockerfile_content = body.get("dockerfile_content")
     entrypoint_cmd = body.get("entrypoint_cmd")
+    storage_path = body.get("storage_path")
+    # Validate storage path if present
+    if storage_path and not re.match(r"^/ouro-storage/0x[0-9a-f]{40}$", storage_path):
+        raise HTTPException(400, "Invalid storage_path format")
 
     if not workspace_path or (not entrypoint and not entrypoint_cmd):
         raise HTTPException(400, "workspace_path and entrypoint (or entrypoint_cmd) required")
@@ -275,6 +302,7 @@ async def submit_job(
         dockerfile_content=dockerfile_content,
         cpus=cpus,
         memory_mb=1600 * int(cpus),
+        storage_path=storage_path,
     )
 
     with tempfile.NamedTemporaryFile(
@@ -551,6 +579,159 @@ async def get_allowed_images(x_slurm_user_token: str | None = Header(None)):
     """Return available Docker image aliases and their Docker Hub references."""
     check_auth(x_slurm_user_token)
     return {"images": DOCKER_IMAGES}
+
+
+# ---------------------------------------------------------------------------
+# Persistent storage management
+# ---------------------------------------------------------------------------
+
+
+@app.post("/slurm/v0.0.38/storage/init")
+async def init_storage(
+    request: Request, x_slurm_user_token: str | None = Header(None)
+):
+    """Create per-wallet storage directory on NFS. Idempotent."""
+    check_auth(x_slurm_user_token)
+    body = await request.json()
+    wallet = body.get("wallet_address", "")
+    storage_path = _validate_storage_wallet(wallet)
+
+    created = False
+    if not os.path.exists(storage_path):
+        os.makedirs(storage_path, mode=0o755, exist_ok=True)
+        # Proxy runs as root (confirmed: systemd slurm-proxy service).
+        # Chown to uid 65534 (nobody) so containers (--user 65534:65534) can write.
+        os.chown(storage_path, 65534, 65534)
+        created = True
+        logger.info("Storage initialized for wallet %s", wallet)
+
+    return {"storage_path": storage_path, "created": created}
+
+
+@app.get("/slurm/v0.0.38/storage/{wallet}/usage")
+async def get_storage_usage(
+    wallet: str, x_slurm_user_token: str | None = Header(None)
+):
+    """Get storage usage (bytes + file count) for a wallet."""
+    check_auth(x_slurm_user_token)
+    storage_path = _validate_storage_wallet(wallet)
+
+    if not os.path.exists(storage_path):
+        return {"used_bytes": 0, "file_count": 0}
+
+    try:
+        result = await asyncio.wait_for(
+            run_cmd(["du", "-sb", storage_path]),
+            timeout=5.0,
+        )
+        used_bytes = int(result.strip().split("\t")[0])
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning("du failed for %s: %s", wallet, e)
+        used_bytes = 0
+
+    file_count = 0
+    for dirpath, _, filenames in os.walk(storage_path, followlinks=False):
+        for fname in filenames:
+            if not os.path.islink(os.path.join(dirpath, fname)):
+                file_count += 1
+
+    return {"used_bytes": used_bytes, "file_count": file_count}
+
+
+@app.get("/slurm/v0.0.38/storage/{wallet}/files")
+async def list_storage_files(
+    wallet: str, x_slurm_user_token: str | None = Header(None)
+):
+    """List files in a wallet's persistent storage (max depth 5, max 1000 entries)."""
+    check_auth(x_slurm_user_token)
+    storage_path = _validate_storage_wallet(wallet)
+
+    if not os.path.exists(storage_path):
+        return {"files": []}
+
+    files = []
+    max_entries = 1000
+    max_depth = 5
+    base_depth = storage_path.rstrip("/").count("/")
+
+    # followlinks=False prevents symlink-based info leaks (container could
+    # create symlinks pointing outside storage; we must not follow them)
+    for dirpath, dirnames, filenames in os.walk(storage_path, followlinks=False):
+        current_depth = dirpath.rstrip("/").count("/") - base_depth
+        if current_depth >= max_depth:
+            dirnames.clear()
+            continue
+        for fname in filenames:
+            if len(files) >= max_entries:
+                break
+            full = os.path.join(dirpath, fname)
+            # Skip symlinks — containers could create symlinks to sensitive paths
+            if os.path.islink(full):
+                continue
+            rel = os.path.relpath(full, storage_path)
+            try:
+                stat = os.lstat(full)  # lstat to avoid following symlinks
+                files.append({
+                    "path": rel,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                })
+            except OSError:
+                continue
+        if len(files) >= max_entries:
+            break
+
+    return {"files": files}
+
+
+@app.delete("/slurm/v0.0.38/storage/{wallet}/files/{file_path:path}")
+async def delete_storage_file(
+    wallet: str, file_path: str, x_slurm_user_token: str | None = Header(None)
+):
+    """Delete a file or directory from a wallet's persistent storage."""
+    check_auth(x_slurm_user_token)
+    storage_path = _validate_storage_wallet(wallet)
+
+    if not os.path.exists(storage_path):
+        raise HTTPException(404, "Storage not found")
+
+    # Reuse workspace path validation pattern for traversal prevention
+    if "\x00" in file_path:
+        raise HTTPException(400, "Null bytes in path")
+    normalized = os.path.normpath(file_path)
+    if normalized.startswith("..") or normalized.startswith("/"):
+        raise HTTPException(400, f"Invalid path: {file_path}")
+
+    abs_path = os.path.realpath(os.path.join(storage_path, normalized))
+    if not abs_path.startswith(os.path.realpath(storage_path) + "/"):
+        raise HTTPException(400, "Path traversal detected")
+
+    if not os.path.exists(abs_path):
+        raise HTTPException(404, "File not found")
+
+    if os.path.isdir(abs_path):
+        shutil.rmtree(abs_path, ignore_errors=True)
+    else:
+        os.remove(abs_path)
+
+    logger.info("Deleted storage file %s for %s", file_path, wallet)
+    return {"deleted": True}
+
+
+@app.delete("/slurm/v0.0.38/storage/{wallet}")
+async def delete_wallet_storage(
+    wallet: str, x_slurm_user_token: str | None = Header(None)
+):
+    """Delete an entire wallet's storage directory. Used for TTL cleanup."""
+    check_auth(x_slurm_user_token)
+    storage_path = _validate_storage_wallet(wallet)
+
+    if not os.path.exists(storage_path):
+        return {"deleted": False}
+
+    shutil.rmtree(storage_path, ignore_errors=True)
+    logger.info("Deleted entire storage for wallet %s", wallet)
+    return {"deleted": True}
 
 
 @app.get("/health")

@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # Webhooks
     WEBHOOK_SECRET: str = ""  # HMAC-SHA256 secret for signing webhook payloads
 
+    # Storage
+    STORAGE_FREE_TIER_BYTES: int = 1_073_741_824  # 1GB
+    STORAGE_TTL_DAYS: int = 90  # inactive storage cleanup threshold
+
     # Public URLs
     PUBLIC_DASHBOARD_URL: str = ""
     PUBLIC_API_URL: str = ""

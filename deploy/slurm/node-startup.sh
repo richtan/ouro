@@ -25,6 +25,13 @@ if ! mountpoint -q /ouro-jobs; then
 fi
 log "NFS mounted"
 
+# 4b. Mount persistent storage
+mkdir -p /ouro-storage
+if ! mountpoint -q /ouro-storage; then
+  mount -t nfs -o timeo=10,retrans=3 ouro-slurm:/ouro-storage /ouro-storage
+fi
+log "Storage NFS mounted"
+
 # 5. Install Docker if not present
 if ! command -v docker &>/dev/null; then
     curl -fsSL https://get.docker.com | sh

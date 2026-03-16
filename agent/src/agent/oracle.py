@@ -39,6 +39,8 @@ class OracleDeps:
     dockerfile_content: str | None = None
     docker_image: str | None = None
     entrypoint_cmd: list[str] | None = field(default=None)
+    # Persistent storage
+    storage_path: str | None = None
 
 
 class JobResult(BaseModel):
@@ -88,6 +90,7 @@ async def submit_to_slurm_impl(deps: OracleDeps) -> str:
             partition=deps.partition,
             cpus=deps.cpus,
             time_limit_min=deps.time_limit_min,
+            storage_path=deps.storage_path,
         )
 
         await deps.db.execute(
