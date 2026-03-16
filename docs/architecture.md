@@ -316,7 +316,7 @@ Prebuilt images (`ubuntu:22.04`, `python:3.12-slim`, `node:20-slim`) are re-pull
 
 - **Public dashboard** (`/`) — Aggregate stats only (WalletBalance, RevenueModel, FinancialPnL, SustainabilityGauge, PublicJobStats, AttributionPanel). No individual job scripts, outputs, or internal logs.
 - **Admin page** (`/admin`) — Full JobsPanel, TerminalFeed, AuditPanel. Requires operator wallet + signature auth + JWT cookie.
-- **My Jobs** (`/history`) — Wallet-scoped. Requires EIP-191 wallet signature; proxy verifies signature then forwards `X-Admin-Key`.
+- **My Jobs** (`/history`) — Wallet-scoped. Requires session cookie (sign once on connect); proxy verifies JWT then forwards `X-Admin-Key`.
 
 ### Auth Flow
 
@@ -327,7 +327,7 @@ Prebuilt images (`ubuntu:22.04`, `python:3.12-slim`, `node:20-slim`) are re-pull
 5. Sets HttpOnly cookie (Secure in prod, SameSite=Strict, 24h expiry)
 6. Admin proxy routes verify the cookie before forwarding `X-Admin-Key` to the agent
 
-Key files: `dashboard/src/lib/admin-auth.ts` (JWT helpers), `dashboard/src/app/api/admin/` (login/logout/check routes).
+Key files: `dashboard/src/lib/admin-auth.ts` (admin JWT helpers), `dashboard/src/lib/wallet-auth.ts` (user session JWT helpers), `dashboard/src/contexts/AuthContext.tsx` (session state management), `dashboard/src/app/api/auth/` (user login/logout/check), `dashboard/src/app/api/admin/` (admin login/logout/check).
 
 ### Proxy Pattern
 

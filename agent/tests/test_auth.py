@@ -118,3 +118,79 @@ class TestVerifyWalletSignature:
         view_sig = _sign(view_msg)
         with pytest.raises(HTTPException):
             _verify_wallet_signature(TEST_WALLET, events_msg, view_sig, ts)
+
+
+class TestCheckAdminOrWalletSig:
+    """Tests for the _check_admin_or_wallet_sig helper with admin key bypass."""
+
+    def _make_request(self, admin_key: str | None = None):
+        """Create a mock Request with optional admin key header."""
+        from unittest.mock import MagicMock
+        from starlette.datastructures import Headers
+        request = MagicMock()
+        raw_headers = {}
+        if admin_key:
+            raw_headers["x-admin-key"] = admin_key
+        request.headers = Headers(raw_headers)
+        return request
+
+    def test_admin_key_bypasses_signature(self, monkeypatch):
+        """Valid admin key should return None (admin auth) without needing a signature."""
+        from src.api.routes import _check_admin_or_wallet_sig
+        from src.config import settings
+
+        monkeypatch.setattr(settings, "ADMIN_API_KEY", "test-admin-key-123")
+        request = self._make_request(admin_key="test-admin-key-123")
+
+        result = _check_admin_or_wallet_sig(
+            request, TEST_WALLET, None, None,
+            lambda w: f"ouro-storage-list:{w}:12345",
+        )
+        assert result is None  # None means admin auth
+
+    def test_wrong_admin_key_requires_signature(self, monkeypatch):
+        """Wrong admin key should fall back to signature check, failing without one."""
+        from src.api.routes import _check_admin_or_wallet_sig
+        from src.config import settings
+
+        monkeypatch.setattr(settings, "ADMIN_API_KEY", "test-admin-key-123")
+        request = self._make_request(admin_key="wrong-key")
+
+        with pytest.raises(HTTPException) as exc:
+            _check_admin_or_wallet_sig(
+                request, TEST_WALLET, None, None,
+                lambda w: f"ouro-storage-list:{w}:12345",
+            )
+        assert exc.value.status_code == 401
+
+    def test_admin_key_with_wallet_sig_fallback(self, monkeypatch):
+        """Without admin key, valid wallet signature should return the wallet."""
+        from src.api.routes import _check_admin_or_wallet_sig
+        from src.config import settings
+
+        monkeypatch.setattr(settings, "ADMIN_API_KEY", "test-admin-key-123")
+
+        ts = str(int(time.time()))
+        msg = f"ouro-storage-list:{TEST_WALLET}:{ts}"
+        sig = _sign(msg)
+        request = self._make_request()
+
+        result = _check_admin_or_wallet_sig(
+            request, TEST_WALLET, sig, ts,
+            lambda w: f"ouro-storage-list:{w}:{ts}",
+        )
+        assert result == TEST_WALLET
+
+    def test_no_admin_key_configured(self, monkeypatch):
+        """If ADMIN_API_KEY is not set, admin auth passes (no restriction)."""
+        from src.api.routes import _check_admin_or_wallet_sig
+        from src.config import settings
+
+        monkeypatch.setattr(settings, "ADMIN_API_KEY", "")
+        request = self._make_request()
+
+        result = _check_admin_or_wallet_sig(
+            request, TEST_WALLET, None, None,
+            lambda w: f"ouro-storage-list:{w}:12345",
+        )
+        assert result is None

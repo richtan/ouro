@@ -760,8 +760,9 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 @router.get("/api/storage")
 async def get_storage(
     wallet: str,
-    signature: str,
-    timestamp: str,
+    request: Request,
+    signature: str | None = None,
+    timestamp: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Get storage quota, usage, and file listing for a wallet."""
@@ -769,8 +770,10 @@ async def get_storage(
         raise HTTPException(422, "Invalid wallet address format")
     wallet_lower = wallet.lower()
 
-    message = f"ouro-storage-list:{wallet_lower}:{timestamp}"
-    _verify_wallet_signature(wallet_lower, message, signature, timestamp)
+    _check_admin_or_wallet_sig(
+        request, wallet, signature, timestamp,
+        lambda w: f"ouro-storage-list:{w}:{timestamp}",
+    )
 
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
@@ -879,18 +882,20 @@ def _check_admin_or_wallet_sig(
 async def delete_storage_file_route(
     wallet: str,
     path: str,
-    signature: str,
-    timestamp: str,
+    request: Request,
+    signature: str | None = None,
+    timestamp: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a file from a wallet's persistent storage. Requires EIP-191 signature."""
+    """Delete a file from a wallet's persistent storage. Requires EIP-191 signature or admin key."""
     if not _ETH_ADDRESS_RE.match(wallet):
         raise HTTPException(422, "Invalid wallet address format")
     wallet_lower = wallet.lower()
 
-    # Verify wallet ownership via EIP-191 signature
-    message = f"ouro-storage-delete:{wallet_lower}:{path}:{timestamp}"
-    _verify_wallet_signature(wallet_lower, message, signature, timestamp)
+    _check_admin_or_wallet_sig(
+        request, wallet, signature, timestamp,
+        lambda w: f"ouro-storage-delete:{w}:{path}:{timestamp}",
+    )
 
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
@@ -955,6 +960,9 @@ async def job_event_stream(
         request, wallet, signature, timestamp,
         lambda w: f"ouro-job-events:{job_id}:{w}:{timestamp}",
     )
+    # When admin key is used, allow dashboard proxy to enforce ownership via wallet query param
+    if verified_wallet is None and wallet:
+        verified_wallet = wallet.lower()
 
     async with async_session_maker() as db:
         active = await db.get(ActiveJob, job_id)
@@ -1376,6 +1384,9 @@ async def get_job_by_id(
         request, wallet, signature, timestamp,
         lambda w: f"ouro-job-view:{job_id}:{w}:{timestamp}",
     )
+    # When admin key is used, allow dashboard proxy to enforce ownership via wallet query param
+    if verified_wallet is None and wallet:
+        verified_wallet = wallet.lower()
 
     active = await db.get(ActiveJob, job_id)
     if active:

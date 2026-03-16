@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWithTimeout } from "@/lib/api";
+import { getWalletFromRequest } from "@/lib/wallet-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,18 @@ export async function GET(
     );
   }
 
+  const wallet = await getWalletFromRequest();
+  if (!wallet) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 },
+    );
+  }
+
   try {
     const url = new URL(`${agentUrl}/api/jobs/${jobId}/events`);
+    // Pass wallet as query param so agent can verify ownership
+    url.searchParams.set("wallet", wallet);
 
     const headers: Record<string, string> = {
       Accept: "text/event-stream",

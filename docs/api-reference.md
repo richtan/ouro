@@ -130,12 +130,15 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `GET /api/attribution/decode` | `AGENT_URL/api/attribution/decode` | None | Forwards query params |
 | `GET /api/stream` | `AGENT_URL/api/stream` | JWT cookie | Admin-only SSE; forwards `X-Admin-Key` |
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
-| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | EIP-191 sig | Verifies wallet signature, forwards `X-Admin-Key` |
-| `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | EIP-191 sig | Verifies wallet signature, forwards `X-Admin-Key` |
-| `GET /api/storage` | `AGENT_URL/api/storage` | EIP-191 sig | Forwards wallet, signature, timestamp to agent |
-| `DELETE /api/storage/files` | `AGENT_URL/api/storage/files` | None | Forwards `wallet`, `path`, `signature`, `timestamp` query params |
+| `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | Session cookie | Verifies session JWT, forwards `X-Admin-Key` |
+| `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | Session cookie | Verifies session JWT, forwards `X-Admin-Key` |
+| `GET /api/storage` | `AGENT_URL/api/storage` | Session cookie | Verifies session JWT, forwards `X-Admin-Key` + wallet |
+| `DELETE /api/storage/files` | `AGENT_URL/api/storage/files` | Session cookie | Verifies session JWT, forwards `X-Admin-Key` + wallet/path |
 | `GET /api/proxy/price` | `AGENT_URL/api/price` | None | Forwards query params |
-| `GET /api/proxy/jobs/{jobId}/events` | `AGENT_URL/api/jobs/{jobId}/events` | None | SSE stream proxy |
-| `POST /api/admin/login` | — | None (wallet sig) | Verifies wallet signature, sets JWT cookie |
-| `POST /api/admin/logout` | — | None | Clears JWT cookie |
-| `GET /api/admin/check` | — | JWT cookie | Verifies JWT cookie validity |
+| `GET /api/proxy/jobs/{jobId}/events` | `AGENT_URL/api/jobs/{jobId}/events` | Session cookie | SSE stream proxy; forwards wallet + `X-Admin-Key` |
+| `POST /api/auth/login` | — | None (wallet sig) | Verifies wallet signature (any wallet), sets `ouro-session` cookie |
+| `POST /api/auth/logout` | — | None | Clears `ouro-session` cookie |
+| `GET /api/auth/check` | — | Session cookie | Verifies session cookie validity |
+| `POST /api/admin/login` | — | None (wallet sig) | Verifies admin wallet signature, sets `ouro-admin-session` cookie |
+| `POST /api/admin/logout` | — | None | Clears admin cookie |
+| `GET /api/admin/check` | — | JWT cookie | Verifies admin JWT cookie validity |

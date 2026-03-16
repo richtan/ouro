@@ -37,3 +37,4 @@ pgdata/
 # Task tracking
 tasks/
 tasks/
+.gstack/

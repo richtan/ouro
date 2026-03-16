@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWithTimeout } from "@/lib/api";
-import { verifyMessage } from "viem";
+import { getWalletFromRequest } from "@/lib/wallet-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -16,30 +16,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "address parameter required" }, { status: 400 });
     }
 
-    const signature = request.nextUrl.searchParams.get("signature");
-    const timestamp = request.nextUrl.searchParams.get("timestamp");
-
-    if (!signature || !timestamp) {
-      return NextResponse.json({ error: "signature and timestamp required" }, { status: 401 });
+    const wallet = await getWalletFromRequest();
+    if (!wallet) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const ts = parseInt(timestamp, 10);
-    if (isNaN(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > 300) {
-      return NextResponse.json({ error: "Signature expired" }, { status: 401 });
-    }
-
-    const message = `ouro-list-my-data:${address.toLowerCase()}:${timestamp}`;
-    try {
-      const valid = await verifyMessage({
-        address: address as `0x${string}`,
-        message,
-        signature: signature as `0x${string}`,
-      });
-      if (!valid) {
-        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-      }
-    } catch {
-      return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
+    // Verify the session wallet matches the requested address
+    if (wallet.toLowerCase() !== address.toLowerCase()) {
+      return NextResponse.json({ error: "Address mismatch" }, { status: 403 });
     }
 
     const headers: Record<string, string> = {};

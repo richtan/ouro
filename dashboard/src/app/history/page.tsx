@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWalletReady } from "@/hooks/useWalletReady";
-import { useSignMessage } from "wagmi";
+import { useAuth } from "@/contexts/AuthContext";
 import { useJobEvents, type JobEvent } from "@/hooks/useJobEvents";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import OutputDisplay from "@/components/OutputDisplay";
@@ -286,7 +286,7 @@ export default function HistoryPage() {
   const searchParams = useSearchParams();
   const expandId = searchParams.get("expand");
   const { address, isConnected, isReady } = useWalletReady();
-  const { signMessageAsync } = useSignMessage();
+  const { isAuthenticated, signIn, authState } = useAuth();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
   const loadRef = useRef<(() => void) | undefined>(undefined);
@@ -294,56 +294,36 @@ export default function HistoryPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [creditBalance, setCreditBalance] = useState(0);
-  const sigCacheRef = useRef<{ signature: string; timestamp: string } | null>(null);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address || !isAuthenticated) return;
     setLoading(true);
-
-    const getSignature = async (): Promise<{ signature: string; timestamp: string }> => {
-      const now = Math.floor(Date.now() / 1000);
-      const cached = sigCacheRef.current;
-      if (cached && now - parseInt(cached.timestamp, 10) < 240) {
-        return cached;
-      }
-      const timestamp = String(now);
-      const message = `ouro-list-my-data:${address.toLowerCase()}:${timestamp}`;
-      const signature = await signMessageAsync({ message });
-      const entry = { signature, timestamp };
-      sigCacheRef.current = entry;
-      return entry;
-    };
 
     const load = async () => {
       try {
-        const { signature, timestamp } = await getSignature();
-        const sigParams = `&signature=${encodeURIComponent(signature)}&timestamp=${encodeURIComponent(timestamp)}`;
+        const jobsRes = await fetch(`/api/proxy/jobs?address=${address}`);
+        if (jobsRes.status === 401) return;
+        const data = await jobsRes.json();
+        const all: AnyJob[] = [
+          ...(data.active ?? []).map((j: ActiveJob) => ({ ...j, _type: "active" as const })),
+          ...(data.historical ?? []).map((j: HistoricalJob) => ({ ...j, _type: "historical" as const })),
+        ].sort((a, b) => {
+          const tsA = a._type === "historical"
+            ? new Date((a as HistoricalJob & { _type: "historical" }).completed_at).getTime()
+            : new Date((a as ActiveJob & { _type: "active" }).submitted_at).getTime();
+          const tsB = b._type === "historical"
+            ? new Date((b as HistoricalJob & { _type: "historical" }).completed_at).getTime()
+            : new Date((b as ActiveJob & { _type: "active" }).submitted_at).getTime();
+          return tsB - tsA;
+        });
+        setJobs(all);
+        setLoading(false);
 
-        fetch(`/api/proxy/jobs?address=${address}${sigParams}`)
+        fetch(`/api/proxy/credits?address=${address}`)
           .then((r) => r.json())
-          .then((data) => {
-            const all: AnyJob[] = [
-              ...(data.active ?? []).map((j: ActiveJob) => ({ ...j, _type: "active" as const })),
-              ...(data.historical ?? []).map((j: HistoricalJob) => ({ ...j, _type: "historical" as const })),
-            ].sort((a, b) => {
-              const tsA = a._type === "historical"
-                ? new Date((a as HistoricalJob & { _type: "historical" }).completed_at).getTime()
-                : new Date((a as ActiveJob & { _type: "active" }).submitted_at).getTime();
-              const tsB = b._type === "historical"
-                ? new Date((b as HistoricalJob & { _type: "historical" }).completed_at).getTime()
-                : new Date((b as ActiveJob & { _type: "active" }).submitted_at).getTime();
-              return tsB - tsA;
-            });
-            setJobs(all);
-            setLoading(false);
-          })
-          .catch(() => setLoading(false));
-        fetch(`/api/proxy/credits?address=${address}${sigParams}`)
-          .then((r) => r.json())
-          .then((data) => setCreditBalance(data.available ?? 0))
+          .then((d) => setCreditBalance(d.available ?? 0))
           .catch(() => {});
       } catch {
-        // User rejected signature or wallet error — stop polling
         setLoading(false);
       }
     };
@@ -351,7 +331,7 @@ export default function HistoryPage() {
     load();
     const id = setInterval(load, 10_000);
     return () => clearInterval(id);
-  }, [address]);
+  }, [address, isAuthenticated]);
 
   const isFiltering = search !== "" || dateFrom !== "" || dateTo !== "";
 
@@ -397,6 +377,20 @@ export default function HistoryPage() {
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to view your job history</p>
           <ConnectButton />
+        </div>
+      ) : !isAuthenticated ? (
+        <div className="card flex flex-col items-center justify-center py-16 gap-4">
+          <p className="text-o-textSecondary text-sm">Sign a message to verify wallet ownership</p>
+          <button
+            onClick={signIn}
+            disabled={authState === "signing"}
+            className="px-6 py-3 bg-o-blue text-white border border-o-blue rounded-lg text-sm font-medium hover:bg-o-blueHover transition-colors disabled:opacity-50"
+          >
+            {authState === "signing" ? "Signing..." : "Sign to verify wallet"}
+          </button>
+          {authState === "error" && (
+            <p className="text-o-red text-xs">Verification failed. Please try again.</p>
+          )}
         </div>
       ) : loading && jobs.length === 0 ? (
         <div className="card animate-pulse">

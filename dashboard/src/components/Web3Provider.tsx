@@ -9,6 +9,7 @@ import {
   coinbaseWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
+import { AuthProvider } from "@/contexts/AuthContext";
 import "@rainbow-me/rainbowkit/styles.css";
 
 export const config = getDefaultConfig({
@@ -104,7 +105,7 @@ export default function Web3Provider({
         <RainbowKitProvider
           theme={ouroTheme}
         >
-          {children}
+          <AuthProvider>{children}</AuthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

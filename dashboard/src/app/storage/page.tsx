@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWalletReady } from "@/hooks/useWalletReady";
-import { useSignMessage } from "wagmi";
+import { useAuth } from "@/contexts/AuthContext";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 interface StorageFile {
@@ -39,7 +39,7 @@ function formatDate(timestamp: number): string {
 
 export default function StoragePage() {
   const { address, isConnected, isReady } = useWalletReady();
-  const { signMessageAsync } = useSignMessage();
+  const { isAuthenticated, signIn, authState } = useAuth();
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -50,15 +50,9 @@ export default function StoragePage() {
     setLoading(true);
     setError("");
     try {
-      const timestamp = String(Math.floor(Date.now() / 1000));
-      const message = `ouro-storage-list:${address.toLowerCase()}:${timestamp}`;
-      const signature = await signMessageAsync({ message });
-      const params = new URLSearchParams({
-        wallet: address,
-        signature,
-        timestamp,
-      });
+      const params = new URLSearchParams({ wallet: address });
       const res = await fetch(`/api/storage?${params}`);
+      if (res.status === 401) return;
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || body.error || `HTTP ${res.status}`);
@@ -72,24 +66,14 @@ export default function StoragePage() {
   };
 
   useEffect(() => {
-    if (isConnected && address) fetchStorage();
-  }, [isConnected, address]);
+    if (isConnected && address && isAuthenticated) fetchStorage();
+  }, [isConnected, address, isAuthenticated]);
 
   const handleDelete = async (path: string) => {
     if (!address || !confirm(`Delete ${path}?`)) return;
     setDeleting(path);
     try {
-      // Sign EIP-191 message to prove wallet ownership
-      const timestamp = String(Math.floor(Date.now() / 1000));
-      const message = `ouro-storage-delete:${address.toLowerCase()}:${path}:${timestamp}`;
-      const signature = await signMessageAsync({ message });
-
-      const params = new URLSearchParams({
-        wallet: address,
-        path,
-        signature,
-        timestamp,
-      });
+      const params = new URLSearchParams({ wallet: address, path });
       const res = await fetch(`/api/storage/files?${params}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -122,6 +106,20 @@ export default function StoragePage() {
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to manage storage</p>
           <ConnectButton />
+        </div>
+      ) : !isAuthenticated ? (
+        <div className="card flex flex-col items-center justify-center py-16 gap-4">
+          <p className="text-o-textSecondary text-sm">Sign a message to verify wallet ownership</p>
+          <button
+            onClick={signIn}
+            disabled={authState === "signing"}
+            className="px-6 py-3 bg-o-blue text-white border border-o-blue rounded-lg text-sm font-medium hover:bg-o-blueHover transition-colors disabled:opacity-50"
+          >
+            {authState === "signing" ? "Signing..." : "Sign to verify wallet"}
+          </button>
+          {authState === "error" && (
+            <p className="text-o-red text-xs">Verification failed. Please try again.</p>
+          )}
         </div>
       ) : loading && !info ? (
         <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>

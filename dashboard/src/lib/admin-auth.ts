@@ -17,7 +17,7 @@ export function isAdminAuthEnabled(): boolean {
 }
 
 export async function signAdminJWT(address: string): Promise<string> {
-  return new SignJWT({ sub: address.toLowerCase() })
+  return new SignJWT({ sub: address.toLowerCase(), role: "admin" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(JWT_EXPIRY)
