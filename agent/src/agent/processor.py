@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -17,6 +18,7 @@ from src.api.pricing import calculate_unused_compute_credit, estimate_llm_cost, 
 from src.chain.client import BaseChainClient
 from src.config import settings
 from src.db.models import ActiveJob
+from src.agent.webhooks import build_webhook_payload, deliver_webhook
 from src.db.operations import complete_job, fail_job, issue_credit, log_audit, log_cost
 from src.slurm.client import SlurmClient
 
@@ -28,6 +30,32 @@ MAX_RETRIES = 2
 MAX_CONCURRENT_JOBS = 3
 
 TRANSIENT_ERRORS = ("timeout", "connection", "unreachable", "slurm_error")
+
+
+def _fire_webhook_if_configured(
+    job_id: str,
+    status: str,
+    payload: dict,
+    price_usdc: float,
+    submitter_address: str | None,
+    submitted_at: datetime | None,
+    compute_duration_s: float,
+    event_bus: EventBus | None = None,
+) -> None:
+    """Fire webhook as background task if webhook_url is in payload."""
+    webhook_url = (payload or {}).get("webhook_url")
+    if not webhook_url:
+        return
+    wh_payload = build_webhook_payload(
+        job_id=job_id,
+        status=status,
+        payload=payload,
+        price_usdc=price_usdc,
+        submitter_address=submitter_address,
+        submitted_at=submitted_at,
+        compute_duration_s=compute_duration_s,
+    )
+    asyncio.create_task(deliver_webhook(webhook_url, wh_payload, event_bus=event_bus))
 
 
 def _is_transient(error_msg: str) -> bool:
@@ -91,6 +119,19 @@ async def recover_stuck_jobs(
         if failed:
             event_bus.emit("system", f"Marked {len(failed)} orphaned running jobs as failed")
             logger.info("Orphaned running -> failed: %s", [str(r)[:8] for r in failed])
+
+        # Fire webhooks for recovered running jobs (after commit + credit issuance)
+        for rj in running_jobs:
+            _fire_webhook_if_configured(
+                job_id=str(rj.id),
+                status="failed",
+                payload=dict(rj.payload or {}, failure_reason="recovered_on_startup", fault="platform_error"),
+                price_usdc=float(rj.price_usdc),
+                submitter_address=rj.submitter_address,
+                submitted_at=rj.submitted_at,
+                compute_duration_s=0,
+                event_bus=event_bus,
+            )
 
 
 async def _mark_failed(
@@ -164,6 +205,17 @@ async def _mark_failed(
             "job",
             f"Job {str(job.id)[:8]} failed ({fault}): {reason}",
             job_id=str(job.id),
+        )
+
+        _fire_webhook_if_configured(
+            job_id=str(job.id),
+            status="failed",
+            payload=dict(job.payload or {}, failure_reason=reason, fault=fault),
+            price_usdc=float(job.price_usdc),
+            submitter_address=job.submitter_address,
+            submitted_at=job.submitted_at,
+            compute_duration_s=compute_duration_s,
+            event_bus=event_bus,
         )
     except Exception:
         logger.exception("failed to mark job %s as failed", job.id)
@@ -311,6 +363,17 @@ async def _finalize_success(
         logger.exception("Failed to issue unused compute credit for job %s", job.id)
 
     event_bus.emit("job", f"Job {str(job.id)[:8]} completed and archived", job_id=str(job.id))
+
+    _fire_webhook_if_configured(
+        job_id=str(job.id),
+        status="completed",
+        payload=updated_payload,
+        price_usdc=float(job.price_usdc),
+        submitter_address=job.submitter_address,
+        submitted_at=job.submitted_at,
+        compute_duration_s=compute_duration_s,
+        event_bus=event_bus,
+    )
 
 
 async def _process_one_job(

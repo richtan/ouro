@@ -4,7 +4,8 @@
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. |
+| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. Optional body param: `webhook_url` (see Webhooks section below). |
+| `GET` | `/api/jobs/{job_id}/stream` | None | SSE stream of job status events. Emits `job_update` events until the job reaches a terminal state (`completed` or `failed`). UUID serves as capability token. |
 | `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
@@ -21,6 +22,68 @@
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
 | `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
+
+## Webhooks
+
+Jobs can optionally include a `webhook_url` parameter in the submit request body. When the job completes or fails, Ouro sends a POST request to that URL with the job results.
+
+### Submit request parameter
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `webhook_url` | string | No | HTTPS URL to receive job result notifications (max 2048 chars). HTTP is allowed only for `localhost`/`127.0.0.1` URLs. |
+
+When `webhook_url` is provided, the submit response includes `"webhook_configured": true`.
+
+### Webhook delivery
+
+Ouro delivers webhooks with 3 attempts using exponential backoff. Each delivery is a `POST` request with the following headers:
+
+| Header | Description |
+|--------|-------------|
+| `Content-Type` | `application/json` |
+| `User-Agent` | `Ouro-Webhook/1.0` |
+| `X-Ouro-Delivery` | Unique delivery UUID |
+| `X-Ouro-Timestamp` | Unix timestamp (seconds) of the delivery attempt |
+| `X-Ouro-Signature-256` | HMAC-SHA256 signature (only present when `WEBHOOK_SECRET` env var is set) |
+
+### Webhook payload
+
+```json
+{
+  "webhook_event": "job.completed",
+  "job_id": "abc123-...",
+  "status": "completed",
+  "output": "Hello, world!\n",
+  "exit_code": 0,
+  "runtime_seconds": 4.2,
+  "price_usdc": "0.01",
+  "submitted_at": "2026-03-16T12:00:00Z",
+  "completed_at": "2026-03-16T12:00:04Z"
+}
+```
+
+The `webhook_event` field is `job.completed` or `job.failed`.
+
+### Signature verification
+
+When the `WEBHOOK_SECRET` environment variable is set, each delivery includes an `X-Ouro-Signature-256` header. Verify it by computing HMAC-SHA256 over `{timestamp}.{body}`:
+
+```python
+import hashlib, hmac
+
+timestamp = request.headers["X-Ouro-Timestamp"]
+signature = request.headers["X-Ouro-Signature-256"]
+body = await request.body()
+
+expected = hmac.new(
+    WEBHOOK_SECRET.encode(),
+    f"{timestamp}.{body.decode()}".encode(),
+    hashlib.sha256
+).hexdigest()
+
+assert hmac.compare_digest(f"sha256={expected}", signature)
+```
 
 ## Slurm proxy endpoints (defined in `deploy/slurm/slurm_proxy.py`, runs on controller:6820)
 

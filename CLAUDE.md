@@ -32,9 +32,9 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 
 | Service | Tech | Port | Location | Purpose |
 |---------|------|------|----------|---------|
-| **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop |
+| **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop, webhook delivery |
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
-| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet |
+| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet, SSE streaming for job status |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, payment sessions |
 | **Slurm Cluster** | Slurm + Docker + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
 
@@ -152,6 +152,8 @@ docker compose up --build
 - **x402 facilitator minimum ($0.001)** — The facilitator rejects payments below $0.001 USDC. When partial credit reduces the remainder below this threshold, the job is treated as fully credit-covered (sub-$0.001 shortfall waived). Constant: `X402_FACILITATOR_MIN_USD` in `routes.py`. Dashboard threshold mirrors this in `StickySubmitBar.tsx`.
 - **Unused compute credits** — Jobs that finish early get proportional credits for unused compute time. Credit is based on the marked-up price (not raw cost), calculated via `calculate_unused_compute_credit()` in `pricing.py`. `cost_floor` and `compute_cost` are stored in the job payload at submission so the credit calculation uses submission-time values. Credits below $0.001 are filtered out. Only applies to jobs with `cost_floor` in payload (new jobs); legacy jobs are skipped gracefully.
 - **Compute cost tracking in P&L** — `_finalize_success()` and `_mark_failed()` in `processor.py` log actual compute infrastructure costs via `log_cost(cost_type="compute")`. These are included in `/api/stats` as `compute_costs_usd` and automatically factor into the sustainability ratio (which sums all `agent_costs`), enabling accurate phase transitions.
+- **Webhook notifications** — Jobs accept an optional `webhook_url` parameter at submission. On completion or failure, a POST is sent with job results. HMAC-SHA256 signing via `WEBHOOK_SECRET` env var (optional, set in Doppler). 3 delivery attempts with exponential backoff. HTTPS required (HTTP allowed only for localhost). See `docs/api-reference.md` § Webhooks.
+- **MCP SSE streaming** — `get_job_status` in the MCP server now uses SSE streaming (`/api/jobs/{id}/stream`) instead of manual polling. Call once and it returns when the job reaches a terminal state. Eliminates the need for repeated poll calls from AI agents.
 
 ## Workflow Preferences
 

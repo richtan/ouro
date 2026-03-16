@@ -107,7 +107,7 @@ Payment is automatic — your wallet signs USDC payments locally.
 
 Typical flow:
   1. run_job(script="echo hello") → { job_id, price }
-  2. get_job_status(job_id) → poll until status is "completed"
+  2. get_job_status(job_id) → waits for completion and returns result
 
 Submission modes:
   - script: single shell script (simplest)
@@ -138,6 +138,7 @@ server.tool(
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
     builder_code: z.string().optional().describe("Builder code for ERC-8021 attribution"),
+    webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
   },
   async (params) => {
     // Validate: exactly one of script or files
@@ -159,6 +160,7 @@ server.tool(
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (params.builder_code) headers["X-BUILDER-CODE"] = params.builder_code;
+    if (params.webhook_url) body.webhook_url = params.webhook_url;
 
     try {
       const res = await apiFetch("/api/compute/submit", {
@@ -182,26 +184,132 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Polling fallback (used when SSE is unavailable)
+// ---------------------------------------------------------------------------
+
+async function pollUntilDone(jobId: string): Promise<{ content: { type: "text"; text: string }[] }> {
+  const maxPolls = 780; // 65 min at 5s intervals (matches SSE timeout)
+  for (let i = 0; i < maxPolls; i++) {
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          const text = await res.text();
+          return { content: [{ type: "text" as const, text: errorText(res.status, text) }] };
+        }
+        await new Promise((r) => setTimeout(r, 5_000));
+        continue;
+      }
+      const job = await res.json();
+      if (job.status === "completed" || job.status === "failed") {
+        return { content: [{ type: "text" as const, text: JSON.stringify(job, null, 2) }] };
+      }
+    } catch {
+      // Network error — continue polling
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+  return { content: [{ type: "text" as const, text: `Job ${jobId} still running after 65 minutes` }] };
+}
+
+// ---------------------------------------------------------------------------
 // Tool: get_job_status
 // ---------------------------------------------------------------------------
 
 server.tool(
   "get_job_status",
-  "Check the status of a job. Returns output when completed.",
+  "Check the status of a job. Returns immediately if already done, otherwise waits for completion and returns the final result with output.",
   {
     job_id: z.string().describe("Job ID to check"),
   },
   async (params) => {
+    // Step 1: Check current status — job may already be done
     try {
-      const res = await apiFetch(`/api/jobs/${params.job_id}`);
-      const text = await res.text();
-      if (!res.ok) {
-        return { content: [{ type: "text", text: errorText(res.status, text) }] };
+      const statusRes = await apiFetch(`/api/jobs/${params.job_id}`);
+      if (!statusRes.ok) {
+        const text = await statusRes.text();
+        return { content: [{ type: "text", text: errorText(statusRes.status, text) }] };
       }
-      return { content: [{ type: "text", text }] };
+      const job = await statusRes.json();
+      if (job.status === "completed" || job.status === "failed") {
+        return { content: [{ type: "text", text: JSON.stringify(job, null, 2) }] };
+      }
+      console.error(`Job ${params.job_id.slice(0, 8)} is ${job.status}, streaming events...`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: "text", text: msg }] };
+      return { content: [{ type: "text", text: `Status check failed: ${msg}` }] };
+    }
+
+    // Step 2: Connect to SSE for live events
+    try {
+      const sseRes = await apiFetch(`/api/jobs/${params.job_id}/events`, {
+        timeout: 3_900_000, // 65 minutes
+      });
+
+      if (!sseRes.ok) {
+        console.error(`SSE unavailable (${sseRes.status}), falling back to polling`);
+        return await pollUntilDone(params.job_id);
+      }
+
+      const reader = sseRes.body?.getReader();
+      if (!reader) {
+        console.error("SSE stream body unavailable, falling back to polling");
+        return await pollUntilDone(params.job_id);
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let terminalMessage: string | null = null;
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "job" && event.message) {
+              const msg = event.message.toLowerCase();
+              if (msg.includes("completed") || msg.includes("failed")) {
+                terminalMessage = event.message;
+                break;
+              }
+            }
+          } catch {
+            // Skip malformed SSE lines
+          }
+        }
+
+        if (terminalMessage) {
+          console.error(`Job ${params.job_id.slice(0, 8)}: ${terminalMessage}`);
+          try { reader.cancel(); } catch { /* best effort stream cleanup */ }
+          const finalRes = await apiFetch(`/api/jobs/${params.job_id}`);
+          const finalText = await finalRes.text();
+          return { content: [{ type: "text", text: finalText }] };
+        }
+      }
+
+      // Stream ended without terminal event — fetch current status
+      console.error("SSE stream ended, fetching final status");
+      const fallbackRes = await apiFetch(`/api/jobs/${params.job_id}`);
+      const fallbackText = await fallbackRes.text();
+      return { content: [{ type: "text", text: fallbackText }] };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`SSE error: ${msg}, fetching current status`);
+      try {
+        const fallbackRes = await apiFetch(`/api/jobs/${params.job_id}`);
+        const fallbackText = await fallbackRes.text();
+        return { content: [{ type: "text", text: fallbackText }] };
+      } catch {
+        return { content: [{ type: "text", text: `Job status unavailable: ${msg}` }] };
+      }
     }
   },
 );

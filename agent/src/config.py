@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     # Admin
     ADMIN_API_KEY: str = ""
 
+    # Webhooks
+    WEBHOOK_SECRET: str = ""  # HMAC-SHA256 secret for signing webhook payloads
+
     # Public URLs
     PUBLIC_DASHBOARD_URL: str = ""
     PUBLIC_API_URL: str = ""

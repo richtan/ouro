@@ -397,3 +397,71 @@ def test_event_bus_emit_logs(event_bus, caplog):
     with caplog.at_level(logging.INFO, logger="src.agent.event_bus"):
         event_bus.emit("job", "Job abc123 completed")
     assert any("Job abc123 completed" in record.message for record in caplog.records)
+
+
+# --- Webhook integration ---
+
+
+async def test_finalize_success_fires_webhook(make_active_job, mock_session_maker, event_bus):
+    """_finalize_success fires webhook when webhook_url is in payload."""
+    from src.agent.processor import _finalize_success
+
+    job = make_active_job(
+        payload={"cpus": 1, "time_limit_min": 1, "webhook_url": "https://example.com/hook"},
+    )
+    job_result = MagicMock()
+    deps = MagicMock()
+    deps.cpus = 1
+    deps.captured_output = "hello"
+    deps.captured_error = ""
+
+    with (
+        patch("src.agent.processor.complete_job", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock),
+        patch("src.agent.processor.deliver_webhook", new_callable=AsyncMock) as mock_deliver,
+        patch("src.agent.processor.build_webhook_payload", return_value={"job_id": "test"}) as mock_build,
+    ):
+        await _finalize_success(mock_session_maker, event_bus, job, job_result, deps, 0.0, 10.0)
+        mock_build.assert_called_once()
+        assert mock_build.call_args[1]["status"] == "completed"
+        mock_deliver.assert_called_once()
+
+
+async def test_finalize_success_no_webhook_without_url(make_active_job, mock_session_maker, event_bus):
+    """_finalize_success does not fire webhook when no webhook_url."""
+    from src.agent.processor import _finalize_success
+
+    job = make_active_job(payload={"cpus": 1, "time_limit_min": 1})
+    job_result = MagicMock()
+    deps = MagicMock()
+    deps.cpus = 1
+    deps.captured_output = ""
+    deps.captured_error = ""
+
+    with (
+        patch("src.agent.processor.complete_job", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_cost", new_callable=AsyncMock),
+        patch("src.agent.processor.deliver_webhook", new_callable=AsyncMock) as mock_deliver,
+    ):
+        await _finalize_success(mock_session_maker, event_bus, job, job_result, deps, 0.0, 10.0)
+        mock_deliver.assert_not_called()
+
+
+async def test_mark_failed_fires_webhook(make_active_job, mock_session_maker, event_bus):
+    """_mark_failed fires webhook when webhook_url is in payload."""
+    job = make_active_job(
+        payload={"cpus": 1, "time_limit_min": 1, "webhook_url": "https://example.com/hook"},
+    )
+    with (
+        patch("src.agent.processor.fail_job", new_callable=AsyncMock),
+        patch("src.agent.processor.issue_credit", new_callable=AsyncMock),
+        patch("src.agent.processor.log_audit", new_callable=AsyncMock),
+        patch("src.agent.processor.deliver_webhook", new_callable=AsyncMock) as mock_deliver,
+        patch("src.agent.processor.build_webhook_payload", return_value={"job_id": "test"}) as mock_build,
+    ):
+        await _mark_failed(mock_session_maker, event_bus, job, "test error", failure_stage=2)
+        mock_build.assert_called_once()
+        assert mock_build.call_args[1]["status"] == "failed"
+        mock_deliver.assert_called_once()

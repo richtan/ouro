@@ -91,6 +91,7 @@ class ComputeSubmitRequest(BaseModel):
     time_limit_min: int = Field(default=1, ge=1, le=60)
     submitter_address: Optional[str] = None
     builder_code: Optional[str] = None
+    webhook_url: Optional[str] = Field(None, max_length=2048)
 
     @property
     def submission_mode(self) -> str:
@@ -160,6 +161,20 @@ def _validate_image(image: str | None) -> None:
     """Validate image name against allowlist."""
     if image and image not in settings.allowed_images_set:
         raise HTTPException(422, f"Unknown image: {image}. Allowed: {', '.join(sorted(settings.allowed_images_set))}")
+
+
+def _validate_webhook_url(url: str) -> None:
+    """Validate webhook URL: require HTTPS (HTTP allowed for localhost)."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(422, f"webhook_url must use http or https scheme, got: {parsed.scheme}")
+    if not parsed.netloc:
+        raise HTTPException(422, "webhook_url must include a host")
+    hostname = parsed.hostname or ""
+    if parsed.scheme == "http" and hostname not in ("localhost", "127.0.0.1", "::1"):
+        raise HTTPException(422, "webhook_url must use HTTPS (HTTP allowed only for localhost)")
 
 
 def _job_summary(payload: dict | None) -> dict:
@@ -630,6 +645,9 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         job_payload["dockerfile_content"] = dockerfile_content
     if credit_applied > 0:
         job_payload["credit_applied"] = credit_applied
+    if body.webhook_url:
+        _validate_webhook_url(body.webhook_url)
+        job_payload["webhook_url"] = body.webhook_url
 
     job = ActiveJob(
         id=job_id,
@@ -658,6 +676,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         "price": quote.price_str,
         "paid_with_credit": paid_with_credit,
         "credit_applied": credit_applied,
+        "webhook_configured": bool(body.webhook_url),
         "profitability": {
             "guaranteed": quote.guaranteed_profitable,
             "estimated_profit_pct": round(quote.profit_pct, 1),

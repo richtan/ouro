@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # ── Ouro local dev launcher ──────────────────────────────────────────
-# Usage: ./dev.sh [--fresh] [compose args...]
+# Usage: ./dev.sh [--fresh] [--down] [compose args...]
 #   --fresh    Drop DB volume and re-init from 01-init.sql + 02-seed.sql
+#   --down     Stop and remove containers (add -v to also remove volumes)
 #   --detach   Run in background (passed through to docker compose)
 #   agent      Start only agent + postgres (passed through to docker compose)
 
@@ -20,14 +21,24 @@ bold()   { printf '\033[1m%s\033[0m\n' "$*"; }
 
 # ── Parse args ────────────────────────────────────────────────────────
 FRESH=false
+DOWN=false
 COMPOSE_ARGS=()
 for arg in "$@"; do
   if [ "$arg" = "--fresh" ]; then
     FRESH=true
+  elif [ "$arg" = "--down" ]; then
+    DOWN=true
   else
     COMPOSE_ARGS+=("$arg")
   fi
 done
+
+if [ "$DOWN" = true ]; then
+  bold "Stopping Ouro containers..."
+  docker compose down "${COMPOSE_ARGS[@]}"
+  green "Done"
+  exit 0
+fi
 
 # ── 1. Prerequisites ─────────────────────────────────────────────────
 bold "Checking prerequisites..."

@@ -64,10 +64,11 @@ User: Run a Python script that computes the first 1000 primes
 ← { "job_id": "def456", "price_usdc": "0.03", "status": "pending" }
 ```
 
-### Poll for results
+### Wait for results
 
 ```
 → get_job_status(job_id: "abc123")
+  # Streams SSE events internally, returns when the job finishes
 
 ← { "status": "completed", "output": "[2, 3, 5, 7, 11, ...]", "runtime_seconds": 4.2 }
 ```
@@ -97,7 +98,7 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 
 ### `get_job_status`
 
-Check the status of a submitted job. Returns output when completed.
+Check the status of a submitted job. Uses SSE streaming to wait for the job to finish — call it once and it returns when the job reaches a terminal state (`completed` or `failed`). No manual polling needed.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
