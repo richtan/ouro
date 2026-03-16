@@ -11,13 +11,15 @@ Ouro is an autonomous agent that sells high-performance compute on a Slurm clust
 
 ## Quick Start
 
-You need Node.js 18+ and a wallet with USDC on Base.
+### Prerequisites
 
-```bash
-npx -y ouro-mcp
-```
+- **Node.js 18+** — [nodejs.org](https://nodejs.org/)
+- **Wallet private key** — hex string starting with `0x`. Export from MetaMask (Account Details → Export Private Key) or generate with `cast wallet new`
+- **USDC on Base** — Bridge via [bridge.base.org](https://bridge.base.org) or buy on [Coinbase](https://www.coinbase.com). Jobs start at ~$0.01
 
-Add to your MCP client config (works with Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, and any MCP-compatible client):
+### Setup by client
+
+**Cursor** — add to `.cursor/mcp.json`:
 
 ```json
 {
@@ -31,7 +33,41 @@ Add to your MCP client config (works with Cursor, Claude Code, Claude Desktop, V
 }
 ```
 
-> **Claude Code CLI:** `claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp`
+**Claude Code** — run in terminal:
+
+```bash
+claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp
+```
+
+**Claude Desktop** — add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}
+```
+
+**VS Code** — add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}
+```
+
+**Other MCP clients** — use command `npx -y ouro-mcp` with env var `WALLET_PRIVATE_KEY=0x...`.
 
 ## Usage Examples
 
@@ -45,7 +81,16 @@ User: Run a Python script that computes the first 1000 primes
     image: "ouro-python"
   )
 
-← { "job_id": "abc123", "price_usdc": "0.01", "status": "pending" }
+← {
+    "job_id": "abc123",
+    "status": "pending",
+    "price": "$0.0100",
+    "paid_with_credit": false,
+    "credit_applied": 0,
+    "webhook_configured": false,
+    "mount_storage": false,
+    "profitability": { "guaranteed": true, "estimated_profit_pct": 50.0 }
+  }
 ```
 
 ### Multi-file project with custom Dockerfile
@@ -61,7 +106,16 @@ User: Run a Python script that computes the first 1000 primes
     time_limit_min: 5
   )
 
-← { "job_id": "def456", "price_usdc": "0.03", "status": "pending" }
+← {
+    "job_id": "def456",
+    "status": "pending",
+    "price": "$0.0300",
+    "paid_with_credit": false,
+    "credit_applied": 0,
+    "webhook_configured": false,
+    "mount_storage": false,
+    "profitability": { "guaranteed": true, "estimated_profit_pct": 50.0 }
+  }
 ```
 
 ### Wait for results
@@ -70,7 +124,41 @@ User: Run a Python script that computes the first 1000 primes
 → get_job_status(job_id: "abc123")
   # Streams SSE events internally, returns when the job finishes
 
-← { "status": "completed", "output": "[2, 3, 5, 7, 11, ...]", "runtime_seconds": 4.2 }
+← {
+    "id": "abc123",
+    "slurm_job_id": 42,
+    "status": "completed",
+    "price_usdc": 0.01,
+    "submitted_at": "2025-01-01T00:00:00+00:00",
+    "completed_at": "2025-01-01T00:00:04+00:00",
+    "output": "[2, 3, 5, 7, 11, ...]",
+    "error_output": "",
+    "compute_duration_s": 4.2
+  }
+```
+
+### Persistent storage (write in job 1, read in job 2)
+
+```
+→ run_job(
+    script: "echo 'trained model weights' > /storage/model.pt",
+    mount_storage: true
+  )
+
+← { "job_id": "ghi789", "status": "pending", "price": "$0.0100", "mount_storage": true, ... }
+
+→ get_job_status(job_id: "ghi789")
+← { "status": "completed", "output": "", ... }
+
+→ run_job(
+    script: "cat /storage/model.pt",
+    mount_storage: true
+  )
+
+← { "job_id": "jkl012", "status": "pending", "price": "$0.0100", "mount_storage": true, ... }
+
+→ get_job_status(job_id: "jkl012")
+← { "status": "completed", "output": "trained model weights\n", ... }
 ```
 
 ### Check pricing first
@@ -78,7 +166,21 @@ User: Run a Python script that computes the first 1000 primes
 ```
 → get_price_quote(cpus: 4, time_limit_min: 10)
 
-← { "price_usdc": "0.12", "breakdown": { "base": 0.01, "cpu_multiplier": 4, ... } }
+← {
+    "price": "$0.0100",
+    "breakdown": {
+      "gas_upper_bound": 0.0025,
+      "llm_upper_bound": 0.01,
+      "compute_cost": 0.0002,
+      "setup_cost": 0.0,
+      "cost_floor": 0.0127,
+      "margin_multiplier": 1.5,
+      "demand_multiplier": 1.0,
+      "phase": "OPTIMAL",
+      "min_profit_pct": 20.0,
+      "safety_factor": 1.25
+    }
+  }
 ```
 
 ## Tools
@@ -95,6 +197,8 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 | `cpus` | integer | No | `1` | CPU cores (1–8) |
 | `time_limit_min` | integer | No | `1` | Max runtime in minutes |
 | `builder_code` | string | No | — | Builder code for [ERC-8021](https://eips.ethereum.org/EIPS/eip-8021) attribution |
+| `webhook_url` | string | No | — | URL to receive a POST notification when the job completes or fails |
+| `mount_storage` | boolean | No | `false` | Mount persistent `/storage` volume (read-write). Files persist between jobs. |
 
 ### `get_job_status`
 
@@ -117,6 +221,27 @@ Get a price quote without submitting or paying.
 ### `get_allowed_images`
 
 List available container images. No parameters.
+
+### `list_storage`
+
+List files in your persistent storage. Shows quota usage and file listing. No parameters.
+
+### `delete_storage_file`
+
+Delete a file or directory from your persistent storage. Signs an EIP-191 message automatically to prove wallet ownership.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | string | Yes | File path relative to `/storage` (e.g. `models/checkpoint.pt`) |
+
+## Persistent Storage
+
+Each wallet gets a persistent `/storage` volume (1 GB free tier) that survives between jobs. Use it for model checkpoints, datasets, build caches, or any data you want to reuse across runs.
+
+- **Mount**: pass `mount_storage: true` to `run_job` — the volume appears at `/storage` inside the container (read-write)
+- **List files**: call `list_storage` to see quota usage and file listing
+- **Delete files**: call `delete_storage_file` with a relative path
+- **TTL**: storage is cleaned up after 90 days of inactivity (warning at 60 days)
 
 ## Container Images
 

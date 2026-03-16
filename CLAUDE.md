@@ -34,7 +34,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 |---------|------|------|----------|---------|
 | **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop, webhook delivery |
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
-| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet, SSE streaming for job status |
+| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet, SSE streaming for job status. Tools: run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, payment sessions |
 | **Slurm Cluster** | Slurm + Docker + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
 
@@ -52,7 +52,7 @@ ouro/
 ├── contracts/      # Foundry Solidity (reserved for future contracts)
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm/ (proxy, configs)
-├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job, get_job_status, etc.
+├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
 ├── docs/           # Detailed reference docs (see table below)
 └── .mcp/           # MCP Registry manifest
 ```
@@ -174,6 +174,7 @@ docker compose up --build
 - **Storage concurrent writes** — Two jobs from the same wallet with `mount_storage=true` can write to `/storage` concurrently. NFS provides POSIX semantics but file conflicts are "last writer wins". User responsibility.
 - **Storage TTL cleanup race** — `_storage_cleanup()` uses `SELECT ... FOR UPDATE` to re-check `last_accessed_at` under row lock before deletion, preventing races with concurrent `submit_compute` calls that update `last_accessed_at`.
 - **Storage DELETE requires EIP-191 signature** — `DELETE /api/storage/files` requires a signed message `"ouro-storage-delete:{wallet}:{path}:{timestamp}"` with a 5-minute timestamp window. Prevents unauthorized deletion. MCP server signs automatically; dashboard uses wagmi `useSignMessage`.
+- **MCP version must be checked against npm** — Before bumping the MCP version, run `npm view ouro-mcp version` (or check https://www.npmjs.com/package/ouro-mcp) to find the latest published version. The new version must be higher than what's on npm. All 3 version locations must match: `mcp/package.json`, `mcp/src/index.ts` (McpServer constructor), `.mcp/server.json`. See `mcp/CLAUDE.md` for the full publishing checklist.
 
 ## Workflow Preferences
 

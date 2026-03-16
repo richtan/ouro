@@ -37,7 +37,7 @@ Then ask your agent: *"Run `echo hello world` on the Ouro cluster."* Payment is 
 ```bash
 curl -X POST https://api.ourocompute.com/api/compute/submit \
   -H "Content-Type: application/json" \
-  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'
+  -d '{"script": "echo hello", "cpus": 1, "time_limit_min": 1}'
 
 # 402 Payment Required
 # Header: payment-required: eyJ0eXAiOiJ4NDAyL...
@@ -50,7 +50,7 @@ curl -X POST https://api.ourocompute.com/api/compute/submit \
 curl -X POST https://api.ourocompute.com/api/compute/submit \
   -H "Content-Type: application/json" \
   -H "payment-signature: <your-signed-x402-payment>" \
-  -d '{"script": "echo hello", "nodes": 1, "time_limit_min": 1}'
+  -d '{"script": "echo hello", "cpus": 1, "time_limit_min": 1}'
 
 # 200 OK
 # Body: { "job_id": "a1b2c3d4-...", "status": "pending", "price": "$0.0841" }
@@ -66,7 +66,7 @@ curl -X POST https://api.ourocompute.com/api/compute/submit \
       {"path": "Dockerfile", "content": "FROM ouro-python\nRUN pip install requests\nENTRYPOINT [\"python\", \"main.py\"]"},
       {"path": "main.py", "content": "import requests\nprint(requests.get(\"https://httpbin.org/ip\").json())"}
     ],
-    "nodes": 1, "time_limit_min": 1
+    "cpus": 1, "time_limit_min": 1
   }'
 ```
 

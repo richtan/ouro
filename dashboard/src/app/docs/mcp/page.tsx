@@ -14,19 +14,24 @@ const TOOLS = [
       { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "builder_code", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
+      { name: "webhook_url", type: "string", description: "URL to receive POST notification on job completion/failure (optional)" },
+      { name: "mount_storage", type: "boolean", description: "Mount persistent /storage volume for this job (default: false)" },
     ],
     response: `{
   "job_id": "a1b2c3d4-...",
   "status": "pending",
-  "submission_mode": "script",
-  "price": "$0.0841",
-  "message": "Job a1b2c3d4-... submitted successfully."
+  "price": "$0.0100",
+  "paid_with_credit": false,
+  "credit_applied": 0,
+  "webhook_configured": false,
+  "mount_storage": false,
+  "profitability": { "guaranteed": true, "estimated_profit_pct": 50.0 }
 }`,
   },
   {
     name: "get_job_status",
     description:
-      "Check the status of a job. Returns full details including output when completed.",
+      "Check the status of a job. Uses SSE streaming to wait for completion — call once and it returns when the job finishes. Returns full details including output.",
     params: [
       {
         name: "job_id",
@@ -37,10 +42,14 @@ const TOOLS = [
     ],
     response: `{
   "id": "a1b2c3d4-...",
+  "slurm_job_id": 42,
   "status": "completed",
+  "price_usdc": 0.01,
+  "submitted_at": "2025-01-01T00:00:00+00:00",
+  "completed_at": "2025-01-01T00:00:04+00:00",
   "output": "Hello world\\n",
-  "compute_duration_s": 2.4,
-  "price_usdc": 0.0841
+  "error_output": "",
+  "compute_duration_s": 2.4
 }`,
   },
   {
@@ -52,19 +61,19 @@ const TOOLS = [
       { name: "submission_mode", type: "string", description: "Submission mode: script, multi_file (default: script)" },
     ],
     response: `{
-  "price": "$0.0841",
+  "price": "$0.0100",
   "breakdown": {
     "gas_upper_bound": 0.0025,
     "llm_upper_bound": 0.01,
-    "compute_cost": 0.0006,
+    "compute_cost": 0.0002,
     "setup_cost": 0.0,
-    "cost_floor": 0.0131,
+    "cost_floor": 0.0127,
     "margin_multiplier": 1.5,
     "demand_multiplier": 1.0,
-    "submission_mode": "script",
-    "phase": "OPTIMAL"
-  },
-  "guaranteed_profitable": true
+    "phase": "OPTIMAL",
+    "min_profit_pct": 20.0,
+    "safety_factor": 1.25
+  }
 }`,
   },
   {
@@ -73,12 +82,48 @@ const TOOLS = [
       "Returns the list of available container images for compute jobs. Each image is pre-built with common tools for its ecosystem.",
     params: [],
     response: `{
-  "images": [
-    { "id": "ouro-ubuntu", "description": "Ubuntu 22.04 base image" },
-    { "id": "ouro-python", "description": "Python 3.12 with pip" },
-    { "id": "ouro-nodejs", "description": "Node.js 20 LTS" }
-  ],
-  "default": "ouro-ubuntu"
+  "payment_protocol": "x402",
+  "prebuilt_images": {
+    "ouro-ubuntu": "Ubuntu 22.04 base image",
+    "ouro-python": "Python 3.12 with pip",
+    "ouro-nodejs": "Node.js 20 LTS"
+  },
+  "custom_images": "Any Docker Hub image via Dockerfile",
+  "max_cpus": 8,
+  "max_time_limit_min": 60,
+  ...
+}`,
+  },
+  {
+    name: "list_storage",
+    description:
+      "List files in your persistent storage volume. Shows quota usage and file listing. No parameters — uses the wallet from your WALLET_PRIVATE_KEY.",
+    params: [],
+    response: `{
+  "wallet": "0x1234...abcd",
+  "tier": "free",
+  "quota_bytes": 1073741824,
+  "used_bytes": 524288,
+  "files": [
+    { "path": "model.pt", "size": 524288, "modified": "2025-01-01T00:00:00Z" }
+  ]
+}`,
+  },
+  {
+    name: "delete_storage_file",
+    description:
+      "Delete a file or directory from your persistent storage. Automatically signs an EIP-191 message to prove wallet ownership.",
+    params: [
+      {
+        name: "path",
+        type: "string",
+        description: "File path relative to /storage (e.g. 'models/checkpoint.pt')",
+        required: true,
+      },
+    ],
+    response: `{
+  "deleted": "models/checkpoint.pt",
+  "wallet": "0x1234...abcd"
 }`,
   },
 ];

@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 interface EndpointCardProps {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   path: string;
   auth?: string;
   description: string;
@@ -13,6 +13,7 @@ interface EndpointCardProps {
 const METHOD_STYLES = {
   GET: "bg-o-green/10 text-o-green",
   POST: "bg-o-blue/10 text-o-blueText",
+  DELETE: "bg-o-red/10 text-o-red",
 };
 
 export default function EndpointCard({

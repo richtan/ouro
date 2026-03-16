@@ -454,6 +454,16 @@ export default function MyComponent() {
 </div>
 ```
 
+### Storage page (`/storage`)
+
+Wallet-gated page for managing persistent per-wallet storage.
+
+- **Quota bar**: horizontal progress bar showing used/total bytes (e.g. "524 KB / 1 GB"). Uses `o-blue` fill, `o-surface` background. Percentage label right-aligned.
+- **File list table**: columns — File Path (mono font), Size (human-readable), Last Modified (relative time). Rows use `o-bg` background with `o-border` dividers.
+- **Delete action**: each row has a trash icon button. On click, prompts wallet signature (EIP-191 signed message `ouro-storage-delete:{wallet}:{path}:{timestamp}`). Uses wagmi `useSignMessage`. Shows loading spinner during signature + API call.
+- **Empty state**: "No files in storage" with suggestion to use `mount_storage: true` in a job.
+- **Layout**: standard docs-style layout matching `/submit` page.
+
 ### New page
 
 ```tsx

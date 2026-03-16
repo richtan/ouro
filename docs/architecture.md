@@ -86,7 +86,7 @@ ouro/
 ├── mcp/
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── src/index.ts            # Local MCP server (npx ouro-mcp): run_job, get_job_status, get_price_quote, get_allowed_images
+│   └── src/index.ts            # Local MCP server (npx ouro-mcp): run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
 ├── .mcp/
 │   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
@@ -115,7 +115,7 @@ ouro/
 
 The API accepts either format, but internally all submissions are normalized to a unified workspace model via `to_workspace_files()`. A single `script` string becomes `[{path: "job.sh", content: script}]` with `entrypoint="job.sh"`. This means there is ONE code path through the entire pipeline — every job gets a workspace on NFS with an entrypoint.
 
-All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`.
+All modes support `cpus`, `time_limit_min`, `submitter_address`, `builder_code`, `webhook_url`, `mount_storage`.
 
 **Dockerfile-based environments:** Include a file named `Dockerfile` in `files` to configure the compute environment:
 - `FROM` selects the base image (prebuilt alias or Docker Hub image)
@@ -137,7 +137,8 @@ All modes support `nodes`, `time_limit_min`, `submitter_address`, `builder_code`
 3. Dashboard sends POST to `/api/proxy/submit` with x402 payment signature
 4. Proxy forwards to agent's `POST /api/compute/submit`
 5. Agent verifies x402 payment via CDP facilitator
-6. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
+6. If `mount_storage: true`, check/create storage quota and init NFS directory
+7. Agent calls `to_workspace_files()` to normalize input (script becomes `[{path: "job.sh", content: script}]`)
 7. Validate external Docker image exists (Docker Hub tag API check)
 8. Agent calls `slurm_client.create_workspace()` → proxy writes files to NFS workspace
 9. Job created in `active_jobs` table with status `pending` (payload always contains `workspace_path` + `entrypoint`)
@@ -163,6 +164,7 @@ See `db/01-init.sql` for full schema. Key tables:
 - **attribution_log** — ERC-8021 builder code records per transaction
 - **credits** — USDC credits issued to wallets when jobs fail after payment (auto-redeemable)
 - **audit_log** — Structured audit trail for all financial events (payment_received, job_completed, credit_issued, errors)
+- **storage_quotas** — Per-wallet persistent storage quotas (tier, quota bytes, cached usage, last access time)
 
 Job status lifecycle: `pending` → `processing` → `running` → `completed` (moved to historical) or `failed`.
 

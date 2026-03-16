@@ -127,7 +127,9 @@ claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro
 See `mcp/README.md` for setup instructions (works with any MCP-compatible client).
 
 MCP tools:
-- `run_job(script?, files?, image?, cpus?, time_limit_min?, builder_code?)` → Submit + auto-pay in one step. Returns job_id.
-- `get_job_status(job_id)` → Returns job details and output
+- `run_job(script?, files?, image?, cpus?, time_limit_min?, builder_code?, webhook_url?, mount_storage?)` → Submit + auto-pay in one step. Returns job_id.
+- `get_job_status(job_id)` → Returns job details and output (SSE streaming, waits for completion)
 - `get_price_quote(cpus?, time_limit_min?, submission_mode?)` → Returns price without submitting
 - `get_allowed_images()` → Returns available container images (ouro-ubuntu, ouro-python, ouro-nodejs)
+- `list_storage()` → Returns persistent storage quota usage and file listing
+- `delete_storage_file(path)` → Deletes a file from persistent storage (EIP-191 signed)

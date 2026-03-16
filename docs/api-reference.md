@@ -4,9 +4,9 @@
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, nodes, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], nodes, time_limit_min}` (multi-file mode). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. Optional body param: `webhook_url` (see Webhooks section below). |
+| `POST` | `/api/compute/submit` | x402 payment | Submit compute job. No `payment-signature` header → 402 with price. Valid payment → job created. Body: `{script, cpus, time_limit_min, submitter_address}` (script mode) or `{files: [{path, content}], cpus, time_limit_min}` (multi-file mode). Optional body params: `webhook_url` (see Webhooks section), `mount_storage` (boolean, mounts persistent `/storage` volume). `files` can include a `Dockerfile` — when present, `entrypoint` is optional (extracted from Dockerfile ENTRYPOINT/CMD) and `image` is ignored (FROM line used). Supported Dockerfile instructions: FROM, RUN, ENV, WORKDIR, ENTRYPOINT, CMD, COPY, ADD, ARG, LABEL, EXPOSE, SHELL. Rejected with 422: USER, VOLUME, HEALTHCHECK, STOPSIGNAL, ONBUILD. COPY/ADD accept local workspace paths only (no globs, no URLs for ADD). Agent validates Dockerfile syntax (422 on invalid). Returns 422 if an external (non-prebuilt) Docker image doesn't exist on Docker Hub — check the image name and tag. Optional header: `X-BUILDER-CODE`. |
 | `GET` | `/api/jobs/{job_id}/stream` | None | SSE stream of job status events. Emits `job_update` events until the job reaches a terminal state (`completed` or `failed`). UUID serves as capability token. |
-| `GET` | `/api/price` | None | Price quote without submitting. Query params: `nodes`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
+| `GET` | `/api/price` | None | Price quote without submitting. Query params: `cpus`, `time_limit_min`, `submission_mode` (script/multi_file/archive/git). |
 | `GET` | `/api/stream` | Admin key | SSE event stream (live terminal feed). Returns `text/event-stream`. |
 | `GET` | `/api/stats` | None | Aggregate P&L, job counts, sustainability ratio, pricing phase, demand multiplier. |
 | `GET` | `/api/wallet` | None | Current ETH/USDC balances + up to 100 recent snapshots. |
@@ -20,6 +20,8 @@
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
 | `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
+| `GET` | `/api/storage` | None | Persistent storage quota usage and file listing. Query param: `wallet=0x...`. |
+| `DELETE` | `/api/storage/files` | EIP-191 sig | Delete file from persistent storage. Query params: `wallet`, `path`, `signature`, `timestamp`. Signature message: `ouro-storage-delete:{wallet}:{path}:{timestamp}` with 5-min window. |
 | `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
 
@@ -56,7 +58,7 @@ Ouro delivers webhooks with 3 attempts using exponential backoff. Each delivery 
   "status": "completed",
   "output": "Hello, world!\n",
   "exit_code": 0,
-  "runtime_seconds": 4.2,
+  "compute_duration_s": 4.2,
   "price_usdc": "0.01",
   "submitted_at": "2026-03-16T12:00:00Z",
   "completed_at": "2026-03-16T12:00:04Z"
@@ -98,6 +100,12 @@ assert hmac.compare_digest(f"sha256={expected}", signature)
 | `GET` | `/slurm/v0.0.38/nodes` | `X-SLURM-USER-TOKEN` header | Cluster node status via sinfo. Returns node name, state, CPUs, memory. |
 | `GET` | `/health` | None | Cluster health check (calls sinfo). |
 
+| `POST` | `/slurm/v0.0.38/storage/init` | `X-SLURM-USER-TOKEN` header | Initialize per-wallet NFS storage directory. Body: `{wallet}`. |
+| `GET` | `/slurm/v0.0.38/storage/{wallet}/usage` | `X-SLURM-USER-TOKEN` header | Get storage usage in bytes for a wallet. |
+| `GET` | `/slurm/v0.0.38/storage/{wallet}/files` | `X-SLURM-USER-TOKEN` header | List files in a wallet's storage directory. |
+| `DELETE` | `/slurm/v0.0.38/storage/{wallet}/files/{path}` | `X-SLURM-USER-TOKEN` header | Delete a file from a wallet's storage directory. |
+| `DELETE` | `/slurm/v0.0.38/storage/{wallet}` | `X-SLURM-USER-TOKEN` header | Delete entire storage directory for a wallet (TTL cleanup). |
+
 Also supports v0.0.37 paths for backward compatibility.
 
 ## Dashboard proxy routes (in `dashboard/src/app/api/`)
@@ -116,3 +124,5 @@ These Next.js API routes proxy client requests to the agent via `AGENT_URL` (Rai
 | `POST /api/proxy/submit` | `AGENT_URL/api/compute/submit` | None | Forwards `payment-signature` and `X-BUILDER-CODE` |
 | `GET /api/proxy/jobs?address=` | `AGENT_URL/api/jobs/user?address=` | None | Forwards `X-Admin-Key` (data is wallet-scoped) |
 | `GET /api/proxy/credits?address=` | `AGENT_URL/api/credits/user?address=` | None | Forwards `X-Admin-Key` (credit balance is wallet-scoped) |
+| `GET /api/storage` | `AGENT_URL/api/storage` | None | Forwards `wallet` query param (public, wallet-scoped) |
+| `DELETE /api/storage/files` | `AGENT_URL/api/storage/files` | None | Forwards `wallet`, `path`, `signature`, `timestamp` query params |

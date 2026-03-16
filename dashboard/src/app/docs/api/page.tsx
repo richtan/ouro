@@ -214,6 +214,28 @@ export default function ApiPage() {
 
           <EndpointCard
             method="GET"
+            path="/api/storage?wallet=0x..."
+            description="Persistent storage quota usage and file listing"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Returns quota (bytes), usage (bytes), tier, and a list of files with paths, sizes, and modification times.
+              Public endpoint — wallet address is the only required query parameter.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="DELETE"
+            path="/api/storage/files?wallet=...&path=...&signature=...&timestamp=..."
+            description="Delete a file from persistent storage"
+          >
+            <p className="text-xs text-o-textSecondary">
+              Requires an EIP-191 signed message: <code className="text-o-blueText">ouro-storage-delete:{'{wallet}'}:{'{path}'}:{'{timestamp}'}</code>.
+              Timestamp must be within 5 minutes. The MCP server signs this automatically.
+            </p>
+          </EndpointCard>
+
+          <EndpointCard
+            method="GET"
             path="/health"
             description="Liveness probe"
           />

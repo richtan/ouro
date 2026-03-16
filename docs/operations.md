@@ -76,7 +76,7 @@ railway logs --build --latest -s agent -n 100
 This script:
 1. Creates worker VMs (e2-medium) if they don't exist
 2. Distributes /etc/hosts, munge keys, JWT keys
-3. Sets up NFS shared filesystem at /ouro-jobs
+3. Sets up NFS shared filesystems at `/ouro-jobs` (workspaces) and `/ouro-storage` (per-wallet persistent storage)
 4. Installs Slurm + Docker on all nodes (Docker configured with `userns-remap: "default"` and iptables blocking metadata server)
 5. Deploys slurm_proxy.py on the controller
 6. Clears stale Slurm state and undrains nodes
@@ -155,7 +155,7 @@ No automated test suite. Manual verification:
 ## Companion Documentation
 
 - **`README.md`** — Project overview: live URLs, architecture summary, environment variable tables for all services, deployment instructions, MCP config snippet, Slurm cluster overview, and smart contract deployment.
-- **`mcp/README.md`** — MCP setup for all 7 clients (Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, OpenClaw, OpenAI Agents SDK), tool reference (run_job, get_job_status, get_price_quote, get_allowed_images).
+- **`mcp/README.md`** — MCP setup for all clients (Cursor, Claude Code, Claude Desktop, VS Code), tool reference (run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file).
 - **`.env.example`** — All environment variables with comments explaining each group. Copy to `.env` for local dev.
 - **`db/01-init.sql`** — Full PostgreSQL schema: all CREATE TABLE statements, indexes, and the monthly partition generator for historical_data.
 - **`db/02-seed.sql`** — Sample seed data: 7 historical jobs, 10 cost entries (gas + LLM), 7 wallet snapshots, and 7 attribution log entries with realistic values.
