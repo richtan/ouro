@@ -153,7 +153,6 @@ server.tool(
     image: z.string().default("ouro-ubuntu").describe("Container image (default: ouro-ubuntu)"),
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
-    builder_code: z.string().optional().describe("Builder code for ERC-8021 attribution"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
     mount_storage: z.boolean().default(false).describe("Mount persistent /storage volume (read-write) for this job. Files written to /storage persist between jobs."),
   },
@@ -176,7 +175,6 @@ server.tool(
     if (params.files) body.files = params.files;
 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (params.builder_code) headers["X-BUILDER-CODE"] = params.builder_code;
     if (params.webhook_url) body.webhook_url = params.webhook_url;
     if (params.mount_storage) body.mount_storage = true;
 

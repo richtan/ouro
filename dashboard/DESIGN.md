@@ -205,7 +205,7 @@ The submit page uses a file-based workspace model with Dockerfiles for environme
 
 **StickySubmitBar**: Bottom bar showing FROM image + entrypoint parsed from Dockerfile (via `dashboard/src/lib/dockerfile.ts`), node count, time limit, and live price estimate. `canSubmit` requires: wallet connected + valid Dockerfile (must have FROM + ENTRYPOINT/CMD). Submit triggers x402 payment flow.
 
-**Configuration card**: Nodes slider (1-16), time limit slider (1-60 min), optional builder code input. No image dropdown — the environment is configured entirely via the Dockerfile's FROM line.
+**Configuration card**: CPUs stepper (1-8), time limit stepper (1-60 min), persistent storage toggle. No image dropdown — the environment is configured entirely via the Dockerfile's FROM line.
 
 ### Empty States
 

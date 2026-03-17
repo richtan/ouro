@@ -115,7 +115,7 @@ ouro/
 
 The API accepts either format, but internally all submissions are normalized to a unified workspace model via `to_workspace_files()`. A single `script` string becomes `[{path: "job.sh", content: script}]` with `entrypoint="job.sh"`. This means there is ONE code path through the entire pipeline — every job gets a workspace on NFS with an entrypoint.
 
-All modes support `cpus`, `time_limit_min`, `submitter_address`, `builder_code`, `webhook_url`, `mount_storage`.
+All modes support `cpus`, `time_limit_min`, `submitter_address`, `webhook_url`, `mount_storage`.
 
 **Dockerfile-based environments:** Include a file named `Dockerfile` in `files` to configure the compute environment:
 - `FROM` selects the base image (prebuilt alias or Docker Hub image)

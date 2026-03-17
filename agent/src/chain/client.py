@@ -11,10 +11,7 @@ from eth_account import Account
 from web3 import AsyncWeb3, AsyncHTTPProvider
 
 from src.chain import erc8021
-from src.chain.abi import (
-    CODE_REGISTRY_ABI,
-    ERC20_BALANCE_OF_ABI,
-)
+from src.chain.abi import ERC20_BALANCE_OF_ABI
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -53,12 +50,9 @@ class BaseChainClient:
         to: str,
         data: bytes | str,
         value: int = 0,
-        extra_codes: list[str] | None = None,
     ) -> TxResult:
         async with self._tx_lock:
             codes = [settings.BUILDER_CODE]
-            if extra_codes:
-                codes.extend(extra_codes)
 
             data_bytes = self._to_bytes(data)
             data_with_suffix = erc8021.append_builder_codes(data_bytes, codes)
@@ -146,17 +140,3 @@ class BaseChainClient:
         except Exception:
             return _eth_price_cache["price"] or 3000.0
 
-    async def verify_builder_code(self, code: str) -> dict:
-        if not settings.CODE_REGISTRY_ADDRESS:
-            return {"code": code, "registered": False, "payout_address": None}
-        registry = self.w3.eth.contract(
-            address=self.w3.to_checksum_address(settings.CODE_REGISTRY_ADDRESS),
-            abi=CODE_REGISTRY_ABI,
-        )
-        is_registered = await registry.functions.isRegistered(code).call()
-        payout = (
-            await registry.functions.payoutAddress(code).call()
-            if is_registered
-            else None
-        )
-        return {"code": code, "registered": is_registered, "payout_address": payout}

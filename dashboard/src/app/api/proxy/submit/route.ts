@@ -17,8 +17,6 @@ export async function POST(request: NextRequest) {
     };
     const paymentSig = request.headers.get("payment-signature");
     if (paymentSig) headers["payment-signature"] = paymentSig;
-    const builderCode = request.headers.get("X-BUILDER-CODE");
-    if (builderCode) headers["X-BUILDER-CODE"] = builderCode;
 
     const upstream = await fetchWithTimeout(`${agentUrl}/api/compute/submit`, {
       method: "POST",

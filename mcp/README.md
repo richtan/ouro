@@ -196,7 +196,6 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 | `image` | string | No | `ouro-ubuntu` | Container image to use |
 | `cpus` | integer | No | `1` | CPU cores (1–8) |
 | `time_limit_min` | integer | No | `1` | Max runtime in minutes |
-| `builder_code` | string | No | — | Builder code for [ERC-8021](https://eips.ethereum.org/EIPS/eip-8021) attribution |
 | `webhook_url` | string | No | — | URL to receive a POST notification when the job completes or fails |
 | `mount_storage` | boolean | No | `false` | Mount persistent `/storage` volume (read-write). Files persist between jobs. |
 

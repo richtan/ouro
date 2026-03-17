@@ -100,12 +100,10 @@ export default function SubmitPage() {
   const [files, setFiles] = useState<WorkspaceFile[]>(DEFAULT_FILES);
   const [cpus, setCpus] = useState(1);
   const [timeLimit, setTimeLimit] = useState(1);
-  const [builderCode, setBuilderCode] = useState("");
   const [status, setStatus] = useState<JobStatus>("idle");
   const [error, setError] = useState("");
   const [priceEstimate, setPriceEstimate] = useState<string | null>(null);
   const [priceLoading, setPriceLoading] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [mountStorage, setMountStorage] = useState(false);
   const [creditBalance, setCreditBalance] = useState(0);
 
@@ -171,9 +169,6 @@ export default function SubmitPage() {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-      if (builderCode.trim()) {
-        headers["X-BUILDER-CODE"] = builderCode.trim();
-      }
 
       const body = {
         files: files.map((f) => ({ path: f.path, content: f.content })),
@@ -281,68 +276,28 @@ export default function SubmitPage() {
                 <span className="text-sm text-o-textSecondary">Time Limit (min)</span>
                 <StepperPill value={timeLimit} onChange={setTimeLimit} min={1} max={60} />
               </div>
-            </div>
-
-            {/* Advanced toggle */}
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-1.5 mt-3 pt-3 border-t border-o-border text-xs text-o-textSecondary hover:text-o-text transition-colors w-full"
-            >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`}
-              >
-                <path
-                  d="M3 1.5L7 5L3 8.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Advanced
-            </button>
-            {showAdvanced && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-o-textSecondary whitespace-nowrap">Builder Code</span>
-                  <input
-                    type="text"
-                    value={builderCode}
-                    onChange={(e) => setBuilderCode(e.target.value)}
-                    placeholder="your-builder-code"
-                    className="w-full sm:w-64 bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text placeholder-o-muted focus:outline-none focus:border-o-blueText"
-                  />
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <span className="text-sm text-o-textSecondary">Persistent Storage</span>
+                  <p className="text-xs text-o-muted mt-0.5">
+                    Mount a read-write /storage volume that persists between jobs
+                  </p>
                 </div>
-                <p className="text-xs text-o-muted mt-1 text-right">
-                  ERC-8021 builder code for dual attribution
-                </p>
-                <div className="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-o-border/50">
-                  <div>
-                    <span className="text-sm text-o-textSecondary">Persistent Storage</span>
-                    <p className="text-xs text-o-muted mt-0.5">
-                      Mount a read-write /storage volume that persists between jobs
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setMountStorage(!mountStorage)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      mountStorage ? "bg-o-blue" : "bg-o-border"
+                <button
+                  type="button"
+                  onClick={() => setMountStorage(!mountStorage)}
+                  className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                    mountStorage ? "bg-o-blue" : "bg-o-border"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      mountStorage ? "translate-x-5" : ""
                     }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                        mountStorage ? "translate-x-5" : ""
-                      }`}
-                    />
-                  </button>
-                </div>
+                  />
+                </button>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Environment Picker */}

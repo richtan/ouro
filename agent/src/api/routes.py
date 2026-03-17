@@ -91,7 +91,6 @@ class ComputeSubmitRequest(BaseModel):
     cpus: int = Field(default=1, ge=1, le=8)
     time_limit_min: int = Field(default=1, ge=1, le=60)
     submitter_address: Optional[str] = None
-    builder_code: Optional[str] = None
     webhook_url: Optional[str] = Field(None, max_length=2048)
     mount_storage: bool = Field(default=False, description="Mount persistent /storage volume (read-write)")
 
@@ -141,7 +140,6 @@ _slurm_client = None
 MAX_SCRIPT_SIZE = 65_536
 MAX_ACTIVE_JOBS_PER_WALLET = 20
 _ETH_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
-_BUILDER_CODE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 _WORKSPACE_PATH_RE = re.compile(r"^[a-zA-Z0-9._/ -]+$")
 
 
@@ -379,7 +377,6 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
 
     payment_header = request.headers.get("payment-signature")
     raw_body = await request.json()
-    client_code = request.headers.get("X-BUILDER-CODE")
 
     try:
         body = ComputeSubmitRequest(**raw_body)
@@ -398,8 +395,6 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(422, "Invalid submitter_address format (expected 0x + 40 hex chars)")
     if payment_header and not submitter_address:
         raise HTTPException(422, "submitter_address is required for job submission")
-    if client_code and not _BUILDER_CODE_RE.match(client_code):
-        raise HTTPException(422, "Invalid builder code format (alphanumeric, 1-32 chars)")
 
     dockerfile_content = _extract_dockerfile(body.files)
 

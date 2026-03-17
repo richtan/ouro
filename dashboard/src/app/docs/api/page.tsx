@@ -148,7 +148,6 @@ export default function ApiPage() {
             <ParamTable
               params={[
                 { name: "payment-signature", type: "string", description: "Signed x402 payment (omit for price quote)" },
-                { name: "X-BUILDER-CODE", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
               ]}
             />
           </EndpointCard>

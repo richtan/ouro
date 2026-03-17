@@ -13,7 +13,6 @@ const TOOLS = [
       { name: "image", type: "string", description: "Container image (default: ouro-ubuntu)" },
       { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
-      { name: "builder_code", type: "string", description: "Builder code for ERC-8021 attribution (optional)" },
       { name: "webhook_url", type: "string", description: "URL to receive POST notification on job completion/failure (optional)" },
       { name: "mount_storage", type: "boolean", description: "Mount persistent /storage volume for this job (default: false)" },
     ],

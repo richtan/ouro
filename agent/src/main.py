@@ -197,7 +197,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "payment-signature", "X-BUILDER-CODE", "X-Admin-Key"],
+    allow_headers=["Content-Type", "payment-signature", "X-Admin-Key"],
 )
 app.add_middleware(
     RequestBodyLimitMiddleware,
