@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJobs } from "@/lib/api";
+import { formatDuration } from "@/lib/format";
 
 interface JobsData {
   active: {
@@ -59,7 +60,7 @@ export default function ClusterStatus() {
           <div className="stat-label">Completed</div>
         </div>
         <div className="text-center">
-          <div className="stat-value text-ouro-accent">{avgDuration.toFixed(1)}s</div>
+          <div className="stat-value text-ouro-accent">{formatDuration(avgDuration)}</div>
           <div className="stat-label">Avg Time</div>
         </div>
       </div>

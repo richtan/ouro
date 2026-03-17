@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchJobs } from "@/lib/api";
+import { formatDuration } from "@/lib/format";
 import OutputDisplay from "@/components/OutputDisplay";
 
 interface Job {
@@ -76,7 +77,7 @@ function JobRow({ job }: { job: Job }) {
         </span>
         <span className="font-mono text-xs text-o-green text-right">${(job.price_usdc ?? 0).toFixed(4)}</span>
         <span className="font-mono text-xs text-o-textSecondary text-right">
-          {job.compute_duration_s != null ? `${job.compute_duration_s.toFixed(1)}s` : "—"}
+          {job.compute_duration_s != null ? formatDuration(job.compute_duration_s) : "—"}
         </span>
         <span className="text-xs text-o-muted text-right">{ts}</span>
         <svg
@@ -122,7 +123,7 @@ function JobRow({ job }: { job: Job }) {
         <div className="flex items-center gap-3 mt-1.5 flex-wrap">
           <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
           {job.compute_duration_s != null && (
-            <span className="font-mono text-xs text-o-textSecondary">{job.compute_duration_s.toFixed(1)}s</span>
+            <span className="font-mono text-xs text-o-textSecondary">{formatDuration(job.compute_duration_s)}</span>
           )}
           <span className="text-xs text-o-muted">{ts}</span>
           {job.image && job.image !== "base" && (

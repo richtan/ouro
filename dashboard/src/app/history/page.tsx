@@ -11,6 +11,7 @@ import OutputDisplay from "@/components/OutputDisplay";
 import JobTimeline from "@/components/JobTimeline";
 import JobEventFeed from "@/components/JobEventFeed";
 import FileBrowser from "@/components/FileBrowser";
+import { formatDuration } from "@/lib/format";
 import type { WorkspaceFile } from "@/lib/types";
 
 interface ActiveJob {
@@ -161,7 +162,7 @@ function JobCard({ job, expandId, onComplete }: { job: AnyJob; expandId: string 
             <span className="font-mono text-xs text-o-green">${(job.price_usdc ?? 0).toFixed(4)}</span>
           )}
           {hist?.compute_duration_s != null && (
-            <span className="font-mono text-xs text-o-textSecondary">{hist.compute_duration_s.toFixed(1)}s</span>
+            <span className="font-mono text-xs text-o-textSecondary">{formatDuration(hist.compute_duration_s)}</span>
           )}
           <span className="text-xs text-o-muted">{ts}</span>
           {job.image && job.image !== "base" && (
