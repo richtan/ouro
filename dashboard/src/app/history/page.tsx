@@ -436,7 +436,7 @@ export default function HistoryPage() {
               </div>
               <div className="text-right shrink-0">
                 <div className="text-xs text-o-textSecondary uppercase tracking-wider">Total Spent</div>
-                <div className="font-mono text-lg font-semibold text-o-green mt-0.5">${jobs.reduce((s, j) => s + (j.price_usdc ?? 0), 0).toFixed(4)}</div>
+                <div className="font-mono text-lg font-semibold text-o-green mt-0.5">${jobs.reduce((s, j) => s + Math.max(0, (j.price_usdc ?? 0) - (j.credit_applied ?? 0)), 0).toFixed(4)}</div>
                 {creditBalance > 0 && (
                   <div className="font-mono text-xs text-o-amber mt-1">${creditBalance.toFixed(4)} credit available</div>
                 )}
