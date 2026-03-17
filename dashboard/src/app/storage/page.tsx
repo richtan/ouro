@@ -95,7 +95,7 @@ export default function StoragePage() {
     <main className="min-h-screen px-4 py-6 md:px-8 lg:px-12 max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-o-text">
-          Storage
+          My Files
         </h1>
         <p className="font-body text-sm text-o-textSecondary mt-1">
           Persistent volume mounted at /scratch in your containers
