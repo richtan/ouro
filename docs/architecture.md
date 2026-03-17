@@ -230,7 +230,7 @@ The x402 facilitator rejects payments below $0.001 USDC. When partial credit red
 
 ## Persistent Storage
 
-Per-wallet persistent storage mounted at `/storage` inside containers. NFS-backed on `/ouro-storage` on the Slurm controller, exported to all workers.
+Per-wallet persistent storage mounted at `/scratch` inside containers. NFS-backed on `/ouro-storage` on the Slurm controller, exported to all workers.
 
 ### Configuration
 
@@ -244,22 +244,22 @@ Per-wallet persistent storage mounted at `/storage` inside containers. NFS-backe
 |----------|-------------|
 | `GET /api/storage?wallet=0x...&signature=...&timestamp=...` | Quota usage + file listing (EIP-191 signed) |
 | `DELETE /api/storage/files?wallet=...&path=...&signature=...&timestamp=...` | EIP-191 signed delete |
-| `POST /api/compute/submit` with `mount_storage: true` | Creates quota on first use, validates quota, mounts `/storage` |
+| `POST /api/compute/submit` with `mount_storage: true` | Creates quota on first use, validates quota, mounts `/scratch` |
 
 MCP tools: `list_storage`, `delete_storage_file`, `mount_storage` param on `run_job`.
-Dashboard: `/storage` page (quota bar, file list, signed delete), toggle in submit Advanced section.
+Dashboard: `/storage` page (quota bar, file list, signed delete), toggle in submit config.
 
 ### Security
 
 - Path traversal: `os.path.realpath()` + prefix check, symlinks skipped, `followlinks=False`
 - File deletion: EIP-191 signature required (`ouro-storage-delete:{wallet}:{path}:{timestamp}`, 5-min window)
 - Storage paths: `shlex.quote()` + regex validation
-- Docker mount: `-v /ouro-storage/0x...:/storage`, protected by `--cap-drop ALL` + `--no-new-privileges`
+- Docker mount: `-v /ouro-storage/0x...:/scratch`, protected by `--cap-drop ALL` + `--no-new-privileges`
 
 ### Known Limitations
 
 - **No kernel quotas on NFS bind mounts** — containers can write beyond 1GB during a job. Post-job sync catches overages and blocks new `mount_storage=true` jobs until under quota.
-- **Concurrent writes** — two jobs from the same wallet with `mount_storage=true` both write to `/storage`. NFS provides POSIX semantics but file conflicts are last-writer-wins.
+- **Concurrent writes** — two jobs from the same wallet with `mount_storage=true` both write to `/scratch`. NFS provides POSIX semantics but file conflicts are last-writer-wins.
 - **TTL cleanup race** — `_storage_cleanup()` uses `SELECT ... FOR UPDATE` to re-check `last_accessed_at` under row lock, preventing races with concurrent `submit_compute` calls.
 
 ### Infrastructure

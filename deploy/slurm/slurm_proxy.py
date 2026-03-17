@@ -165,7 +165,7 @@ def wrap_in_docker(
         # Validate path format to prevent injection
         if not re.match(r"^/ouro-storage/0x[0-9a-f]{40}$", storage_path):
             raise HTTPException(400, "Invalid storage path format")
-        storage_mount = f"-v {shlex.quote(storage_path)}:/storage \\\n    "
+        storage_mount = f"-v {shlex.quote(storage_path)}:/scratch \\\n    "
 
     if dockerfile_content:
         # Complex Dockerfile: docker build on worker, then run

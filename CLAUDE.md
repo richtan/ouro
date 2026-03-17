@@ -96,7 +96,7 @@ Fault classification and credit system details: `docs/architecture.md` § Credit
 
 ## Persistent Storage
 
-Per-wallet NFS storage mounted at `/storage` inside containers. 1GB free tier, 90-day TTL with 60-day warning. Enable with `mount_storage: true` in submit. MCP tools: `list_storage`, `delete_storage_file`.
+Per-wallet NFS storage mounted at `/scratch` inside containers. 1GB free tier, 90-day TTL with 60-day warning. Enable with `mount_storage: true` in submit. MCP tools: `list_storage`, `delete_storage_file`.
 
 Full details (API, security, limitations, infrastructure): `docs/architecture.md` § Persistent Storage.
 

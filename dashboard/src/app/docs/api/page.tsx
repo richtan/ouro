@@ -141,7 +141,7 @@ export default function ApiPage() {
                 { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1, max 60)" },
                 { name: "submitter_address", type: "string", description: "Your wallet address for tracking" },
                 { name: "webhook_url", type: "string", description: "HTTPS URL for POST notification on completion/failure (optional)" },
-                { name: "mount_storage", type: "boolean", description: "Mount persistent /storage volume (default: false)" },
+                { name: "mount_storage", type: "boolean", description: "Mount persistent /scratch volume (default: false)" },
               ]}
             />
             <h4 className="text-xs text-o-muted uppercase tracking-wider mt-4 mb-3">Headers</h4>

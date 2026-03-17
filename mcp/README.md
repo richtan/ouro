@@ -141,7 +141,7 @@ User: Run a Python script that computes the first 1000 primes
 
 ```
 → run_job(
-    script: "echo 'trained model weights' > /storage/model.pt",
+    script: "echo 'trained model weights' > /scratch/model.pt",
     mount_storage: true
   )
 
@@ -151,7 +151,7 @@ User: Run a Python script that computes the first 1000 primes
 ← { "status": "completed", "output": "", ... }
 
 → run_job(
-    script: "cat /storage/model.pt",
+    script: "cat /scratch/model.pt",
     mount_storage: true
   )
 
@@ -197,7 +197,7 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 | `cpus` | integer | No | `1` | CPU cores (1–8) |
 | `time_limit_min` | integer | No | `1` | Max runtime in minutes |
 | `webhook_url` | string | No | — | URL to receive a POST notification when the job completes or fails |
-| `mount_storage` | boolean | No | `false` | Mount persistent `/storage` volume (read-write). Files persist between jobs. |
+| `mount_storage` | boolean | No | `false` | Mount persistent `/scratch` volume (read-write). Files persist between jobs. |
 
 ### `get_job_status`
 
@@ -231,13 +231,13 @@ Delete a file or directory from your persistent storage. Signs an EIP-191 messag
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | string | Yes | File path relative to `/storage` (e.g. `models/checkpoint.pt`) |
+| `path` | string | Yes | File path relative to `/scratch` (e.g. `models/checkpoint.pt`) |
 
 ## Persistent Storage
 
-Each wallet gets a persistent `/storage` volume (1 GB free tier) that survives between jobs. Use it for model checkpoints, datasets, build caches, or any data you want to reuse across runs.
+Each wallet gets a persistent `/scratch` volume (1 GB free tier) that survives between jobs. Use it for model checkpoints, datasets, build caches, or any data you want to reuse across runs.
 
-- **Mount**: pass `mount_storage: true` to `run_job` — the volume appears at `/storage` inside the container (read-write)
+- **Mount**: pass `mount_storage: true` to `run_job` — the volume appears at `/scratch` inside the container (read-write)
 - **List files**: call `list_storage` to see quota usage and file listing
 - **Delete files**: call `delete_storage_file` with a relative path
 - **TTL**: storage is cleaned up after 90 days of inactivity (warning at 60 days)

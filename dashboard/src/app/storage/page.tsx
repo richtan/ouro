@@ -98,7 +98,7 @@ export default function StoragePage() {
           Storage
         </h1>
         <p className="font-body text-sm text-o-textSecondary mt-1">
-          Persistent volume mounted at /storage in your containers
+          Persistent volume mounted at /scratch in your containers
         </p>
       </div>
 
@@ -167,7 +167,7 @@ export default function StoragePage() {
                   No files yet. Run a job with storage enabled to get started.
                 </p>
                 <p className="text-xs text-o-muted mt-1">
-                  Write files to /storage/ inside your container to persist them.
+                  Write files to /scratch/ inside your container to persist them.
                 </p>
               </div>
             ) : (

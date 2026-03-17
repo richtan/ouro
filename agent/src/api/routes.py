@@ -92,7 +92,7 @@ class ComputeSubmitRequest(BaseModel):
     time_limit_min: int = Field(default=1, ge=1, le=60)
     submitter_address: Optional[str] = None
     webhook_url: Optional[str] = Field(None, max_length=2048)
-    mount_storage: bool = Field(default=False, description="Mount persistent /storage volume (read-write)")
+    mount_storage: bool = Field(default=False, description="Mount persistent /scratch volume (read-write)")
 
     @property
     def submission_mode(self) -> str:
@@ -661,7 +661,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
                 422,
                 f"Storage quota exceeded ({current_bytes / 1_073_741_824:.2f}GB / "
                 f"{int(quota.quota_bytes) / 1_073_741_824:.2f}GB). "
-                f"Delete files at /storage to free space.",
+                f"Delete files at /scratch to free space.",
             )
 
         # Init storage directory on NFS (idempotent)
@@ -1481,7 +1481,7 @@ async def get_capabilities():
         },
         "storage": {
             "enabled": True,
-            "mount_point": "/storage",
+            "mount_point": "/scratch",
             "free_tier_bytes": settings.STORAGE_FREE_TIER_BYTES,
             "ttl_days": settings.STORAGE_TTL_DAYS,
             "access": "read-write",

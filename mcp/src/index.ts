@@ -132,8 +132,8 @@ Use get_allowed_images to see available container images.
 Prebuilt images (instant): ouro-ubuntu, ouro-python, ouro-nodejs.
 Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).
 
-Use list_storage to view files in your persistent /storage volume.
-Use mount_storage=true in run_job to mount persistent storage into the container at /storage (read-write).`,
+Use list_storage to view files in your persistent /scratch volume.
+Use mount_storage=true in run_job to mount persistent storage into the container at /scratch (read-write).`,
   },
 );
 
@@ -154,7 +154,7 @@ server.tool(
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
-    mount_storage: z.boolean().default(false).describe("Mount persistent /storage volume (read-write) for this job. Files written to /storage persist between jobs."),
+    mount_storage: z.boolean().default(false).describe("Mount persistent /scratch volume (read-write) for this job. Files written to /scratch persist between jobs."),
   },
   async (params) => {
     // Validate: exactly one of script or files

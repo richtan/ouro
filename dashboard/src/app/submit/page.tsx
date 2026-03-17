@@ -280,7 +280,7 @@ export default function SubmitPage() {
                 <div>
                   <span className="text-sm text-o-textSecondary">Persistent Storage</span>
                   <p className="text-xs text-o-muted mt-0.5">
-                    Mount a read-write /storage volume that persists between jobs
+                    Mount a read-write /scratch volume that persists between jobs
                   </p>
                 </div>
                 <button
