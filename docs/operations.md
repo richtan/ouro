@@ -121,8 +121,27 @@ The proxy is stateless — restarts are instant with no job interruption. The sy
 # service restart, node undrain, and verification
 ```
 
+### Starting / stopping the Slurm cluster
+```bash
+./deploy/slurm.sh start     # Start instances, wait for SSH, restart services, update SLURMREST_URL
+./deploy/slurm.sh stop      # Drain nodes, wait for jobs, stop services, stop instances
+./deploy/slurm.sh restart   # stop + start
+./deploy/slurm.sh status    # Show instance status, Slurm node state, proxy health
+./deploy/slurm.sh ssh       # SSH into controller
+```
+
+`start` handles the full boot sequence: GCP instance start → SSH wait → controller services (NFS, munge, slurmctld, slurmd, slurm-proxy) → sync `slurm.conf` + munge key from controller to workers via NFS → worker services (NFS mount, munge, slurmd) → undrain nodes → update `SLURMREST_URL` in Railway (if `railway` CLI installed) → health check + test job.
+
+`stop` drains nodes first, waits up to 60s for running jobs to finish, then stops services and instances. Any jobs still running are recovered as failed with credit by the agent's `recover_stuck_jobs()` on next startup.
+
+Override defaults via env vars: `GCP_PROJECT`, `GCP_ZONE`, `SLURM_CONTROLLER`.
+
+**Config sync**: The start sequence always syncs `slurm.conf` and the munge key from the controller to all workers. This prevents two failure modes discovered in production: (1) stale `slurm.conf` on a node causing workers to be invisible to the scheduler, and (2) munge key mismatch causing "Invalid credential" / "Zero Bytes were transmitted or received" errors where workers can't register. The controller is the source of truth — edit its config, and `slurm.sh start` distributes it.
+
 ### Checking Slurm cluster health
 ```bash
+./deploy/slurm.sh status
+# Or manually:
 gcloud compute ssh ouro-slurm --project=ouro-hpc-2026 --zone=us-central1-a \
   --command="sinfo && scontrol show nodes"
 ```
@@ -170,6 +189,8 @@ No automated test suite. Manual verification:
 - **Nodes drain on config mismatch** — If `slurm.conf` specifies more CPUs/memory than actual hardware, nodes enter `drain` state. The setup script's Phase 12 handles undraining, but `slurm.conf` must match the instance specs (e2-medium = 2 CPUs, ~4GB RAM).
 - **NFS exports block spot instances** — `/etc/exports` on `ouro-slurm` must use subnet-based export `/ouro-jobs 10.128.0.0/20(rw,sync,no_subtree_check,root_squash)` covering the full GCP us-central1 VPC subnet. IP-based lists block spot instances with dynamic IPs. `deploy/setup-elastic-infra.sh:92-94` has the fix; ensure `setup-slurm-cluster.sh` doesn't overwrite it.
 
+- **Munge key + slurm.conf must be identical across all nodes** — If the controller's munge key or `slurm.conf` diverges from the workers (e.g., after manual edits or a partial setup), workers fail to register with "Invalid credential" / "Zero Bytes were transmitted or received" errors, showing as `unknown*` in `sinfo`. The munge daemon caches its key in memory, so even after replacing the key file on disk you must `systemctl restart munge` (on all affected nodes, including the controller). `deploy/slurm.sh start` handles this automatically by syncing both files from controller → workers via NFS on every start.
+
 ### Spot Instances
 
 - **Boot too slow** — `node-startup.sh` previously blocked on `docker pull` (3 images) before registering IDLE with Slurm, causing multi-CPU jobs to timeout. Fix: (1) bake base images into the golden image (`build-golden-image.sh`), (2) reorder `node-startup.sh` to register IDLE first and run iptables/pulls in background, (3) oracle polling timeout set to 120s (`oracle.py:_ensure_capacity`, `range(12)`), (4) `ResumeTimeout=180` in `slurm.conf`.
@@ -187,3 +208,10 @@ No automated test suite. Manual verification:
 ### Agent
 
 - **Poll timeout scaled to time_limit** — `poll_slurm_status_impl` scales poll count to `max(60, time_limit_min * 60 / 5 + 12)` instead of a fixed 60 polls. Jobs longer than 5 min no longer hit false poll timeouts. On poll timeout, the Slurm job is cancelled to prevent free compute.
+
+### Storage Quotas
+
+- **ext4 project quotas** — Per-wallet inode + byte limits enforced at the kernel level on `/ouro-storage`. Setup: `setup-slurm-cluster.sh` enables project quotas; `slurm_proxy.py:_setup_project_quota()` assigns per-wallet project IDs on `init_storage`. Inspect with `repquota -Ps /`. Modify with `setquota -P <proj_id> 0 <block_hard> 0 <inode_hard> /`.
+- **Quota prerequisites** — ext4 project quotas require: (1) `linux-modules-extra-$(uname -r)` installed on controller and workers (provides `quota_tree.ko`), (2) `project` + `quota` features enabled on the root filesystem via `tune2fs -O project,quota /dev/sda1` (**requires unmounted fs** — on GCP this means stop instance, detach boot disk, attach to another VM, run `e2fsck -f` then `tune2fs`, reattach), (3) `prjquota` in `/etc/fstab` mount options, (4) `/etc/projects` and `/etc/projid` files exist. Verify with: `mount | grep prjquota` and `repquota -Ps /`. If the kernel module is missing, mounting with `prjquota` fails and the root fs stays read-only — **always install `linux-modules-extra` before enabling the fstab option**.
+- **10,000 file limit** — Each wallet is limited to 10,000 files (inodes). Containers see `Disk quota exceeded` (EDQUOT) when the limit is hit. The pre-run check in the job script provides a user-friendly error before the container starts.
+- **Workspace quotas** — Ephemeral per-job quotas (500 MB, 10K files). Created in `_setup_workspace_quota()`, removed in `_remove_workspace_quota()`. Inspect with `repquota -Ps / | grep ws_`. Orphaned entries cleaned hourly by cron (`/opt/ouro-workspace-cleanup.sh`). If a workspace quota fails to set up, the workspace creation fails (HTTP 500).

@@ -51,7 +51,7 @@ ouro/
 ├── dashboard/      # Next.js 15 App Router (src/: app/, components/, lib/)
 ├── contracts/      # Foundry Solidity (reserved for future contracts)
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
-├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm/ (proxy, configs)
+├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm.sh (cluster start/stop), slurm/ (proxy, configs)
 ├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
 ├── docs/           # Detailed reference docs (see table below)
 └── .mcp/           # MCP Registry manifest
@@ -124,7 +124,8 @@ docker compose up --build
 
 Active gotchas that affect day-to-day code changes. For operational gotchas (Slurm, spot instances, Docker), see `docs/operations.md` § Operational Gotchas. For architectural decisions (credits, storage, Docker security), see `docs/architecture.md`.
 
-- **SLURMREST_URL must be the external IP** of the GCP controller. It changes when instances restart. `deploy/deploy.sh` handles this automatically.
+- **SLURMREST_URL must be the external IP** of the GCP controller. It changes when instances restart. `deploy/deploy.sh` and `deploy/slurm.sh start` handle this automatically.
+- **Munge key + slurm.conf must match across all nodes** — Divergence causes workers to show as `unknown*` with "Invalid credential" errors. The munge daemon caches its key in memory, so file replacement alone isn't enough — munge must be restarted. `deploy/slurm.sh start` syncs both from controller → workers on every start. See `docs/operations.md` § Operational Gotchas for details.
 - **Failed jobs must be archived** — `_mark_failed()` and `recover_stuck_jobs()` must call `fail_job()` (which inserts into `historical_data` and deletes from `active_jobs`), not just update status to `"failed"`. Leaving failed rows in `active_jobs` causes the `MAX_ACTIVE_JOBS_PER_WALLET` check in `routes.py` to block new submissions with 429.
 - **Concurrent submission race** — `MAX_ACTIVE_JOBS_PER_WALLET` check uses `pg_advisory_xact_lock` (per-wallet advisory lock) to serialize count-check + insert. `FOR UPDATE` cannot be used with aggregate functions like `count()`.
 - **Credit redemption deferred** — `redeem_credits()` runs after x402 payment verification, not before, to prevent credit loss on the 402 round-trip. Does not commit — caller commits atomically with job creation.
@@ -134,6 +135,9 @@ Active gotchas that affect day-to-day code changes. For operational gotchas (Slu
 - **MCP version must be checked against npm** — Before bumping the MCP version, run `npm view ouro-mcp version` to find the latest published version. The new version must be higher than what's on npm. All 3 version locations must match: `mcp/package.json`, `mcp/src/index.ts` (McpServer constructor), `.mcp/server.json`. See `mcp/CLAUDE.md` for the full publishing checklist.
 - **Storage + job endpoints require wallet auth** — `GET /api/storage` and `DELETE /api/storage/files` require either EIP-191 sig or admin key. `GET /api/jobs/{job_id}` and `GET /api/jobs/{job_id}/events` require either EIP-191 sig (with submitter wallet match) or admin key; when admin key is used with a `wallet` query param, the agent enforces submitter ownership using that wallet. Dashboard proxy routes use session cookies (`ouro-session` JWT) instead of per-request EIP-191 signatures — user signs once on first authenticated page visit, cookie lasts 24h. Direct API callers (MCP, custom clients) still use EIP-191 per-request signatures unchanged.
 - **`submitter_address` is required on submit** — enforced after payment verification. Needed for job-level access control. Legacy jobs with NULL submitter return 403 on wallet-auth (still accessible via admin key).
+- **Storage 10K inode limit** — Each wallet is limited to 10,000 files via ext4 project quotas on the NFS controller. Enforced in `deploy/slurm/slurm_proxy.py:_setup_project_quota()` (kernel quotas) and `wrap_in_docker()` (pre-run shell check). `MAX_STORAGE_FILES` constant must be in sync between `agent/src/api/routes.py` and `deploy/slurm/slurm_proxy.py`.
+- **Workspace quotas are ephemeral** — Unlike storage quotas (persistent per-wallet), workspace quotas are created/destroyed per-job. `_setup_workspace_quota()` registers in `/etc/projects`/`/etc/projid` on create; `_remove_workspace_quota()` removes entries on delete. Orphaned entries cleaned hourly by `/opt/ouro-workspace-cleanup.sh`. Workspace project IDs use range 1B+1–2B (storage uses 1–1B) to avoid collisions. If quota setup fails, workspace creation fails (no unquoted writable workspaces).
+- **ext4 project quotas need `linux-modules-extra`** — The `quota_tree.ko` kernel module is required for ext4 project quotas. Without it, mounting with `prjquota` fails and the root fs stays **read-only** (bricking the instance). Always install `linux-modules-extra-$(uname -r)` on controller and workers before adding `prjquota` to `/etc/fstab`. The `project` + `quota` filesystem features require offline `tune2fs` (unmounted fs) — see `docs/operations.md` § Storage Quotas for the GCP disk-detach procedure.
 
 ## Workflow Preferences
 
