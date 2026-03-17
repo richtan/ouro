@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWalletClient, usePublicClient } from "wagmi";
 import { useWalletReady } from "@/hooks/useWalletReady";
+import { useAuth } from "@/contexts/AuthContext";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import SignInButton from "@/components/SignInButton";
 import { x402Client } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { wrapFetchWithPayment } from "@x402/fetch";
@@ -91,6 +93,7 @@ type JobStatus = "idle" | "submitting" | "paying" | "error";
 export default function SubmitPage() {
   const router = useRouter();
   const { address, isConnected, isReady } = useWalletReady();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
 
@@ -256,6 +259,15 @@ export default function SubmitPage() {
           </p>
           <ConnectButton />
         </div>
+      ) : authLoading ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      ) : !isAuthenticated ? (
+        <div className="card flex flex-col items-center justify-center py-16 gap-4">
+          <p className="text-o-textSecondary text-sm">
+            Sign in to verify wallet ownership
+          </p>
+          <SignInButton />
+        </div>
       ) : (
         <div className="space-y-6">
           {/* Configuration */}
@@ -350,7 +362,7 @@ export default function SubmitPage() {
       )}
 
       {/* Sticky submit bar */}
-      {isReady && isConnected && (
+      {isReady && isConnected && !authLoading && isAuthenticated && (
         <StickySubmitBar
           fromImage={dockerfileInfo?.fromImage ?? null}
           entrypointDisplay={dockerfileInfo?.entrypoint ?? null}

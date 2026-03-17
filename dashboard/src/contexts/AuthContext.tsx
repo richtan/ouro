@@ -13,12 +13,14 @@ import { useAccount } from "wagmi";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
+  isLoading: boolean;
   walletAddress: string | null;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   isAuthenticated: false,
+  isLoading: true,
   walletAddress: null,
   signOut: async () => {},
 });
@@ -31,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { address, isConnected } = useAccount();
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
   const prevAddressRef = useRef<string | undefined>(undefined);
 
   // Check existing session on mount / address change
@@ -38,12 +41,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isConnected || !address) {
       setAuthenticated(false);
       setWalletAddress(null);
+      // Don't set loading = false here — pages check !isConnected before authLoading
       return;
     }
+
+    let cancelled = false;
+    setLoading(true);
 
     const checkSession = async () => {
       try {
         const res = await fetch("/api/auth/check");
+        if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
           if (data.address?.toLowerCase() === address.toLowerCase()) {
@@ -55,11 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // Session check failed
       }
-      setAuthenticated(false);
-      setWalletAddress(null);
+      if (!cancelled) {
+        setAuthenticated(false);
+        setWalletAddress(null);
+      }
     };
 
-    checkSession();
+    checkSession().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
   }, [isConnected, address]);
 
   // Watch for wallet switch → logout old session
@@ -74,10 +88,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [address]);
 
-  // Watch for disconnect
+  // Watch for disconnect — abortable logout prevents race with rapid reconnect
+  const wasConnectedRef = useRef(false);
+  const logoutAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    if (!isConnected) {
-      fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    if (isConnected) {
+      wasConnectedRef.current = true;
+      // Cancel any in-flight logout from a previous disconnect
+      logoutAbortRef.current?.abort();
+      logoutAbortRef.current = null;
+    } else if (wasConnectedRef.current) {
+      // Was connected, now disconnected — actual disconnect
+      wasConnectedRef.current = false;
+      const controller = new AbortController();
+      logoutAbortRef.current = controller;
+      fetch("/api/auth/logout", { method: "POST", signal: controller.signal }).catch(() => {});
       setAuthenticated(false);
       setWalletAddress(null);
     }
@@ -87,13 +113,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onAuthChange = () => {
       if (isConnected && address) {
-        // Session cookie was just set — re-check
+        // Optimistic — event only fires after successful login POST
+        setAuthenticated(true);
+        setWalletAddress(address);
+        setLoading(false);
+        // Background confirmation
         fetch("/api/auth/check")
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
-            if (data?.address?.toLowerCase() === address.toLowerCase()) {
-              setAuthenticated(true);
-              setWalletAddress(data.address);
+            if (!data || data.address?.toLowerCase() !== address.toLowerCase()) {
+              setAuthenticated(false);
+              setWalletAddress(null);
             }
           })
           .catch(() => {});
@@ -101,6 +131,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("ouro-auth-change", onAuthChange);
     return () => window.removeEventListener("ouro-auth-change", onAuthChange);
+  }, [isConnected, address]);
+
+  // Re-check session on window focus (catches expired sessions, cross-tab sign-ins)
+  useEffect(() => {
+    let controller: AbortController | null = null;
+    const onFocus = () => {
+      if (isConnected && address) {
+        controller?.abort();
+        controller = new AbortController();
+        const signal = controller.signal;
+        fetch("/api/auth/check", { signal })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (signal.aborted) return;
+            if (data?.address?.toLowerCase() === address.toLowerCase()) {
+              setAuthenticated(true);
+              setWalletAddress(data.address);
+            } else {
+              setAuthenticated(false);
+              setWalletAddress(null);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      controller?.abort();
+    };
   }, [isConnected, address]);
 
   const signOut = useCallback(async () => {
@@ -117,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         isAuthenticated: authenticated,
+        isLoading: loading,
         walletAddress,
         signOut,
       }}

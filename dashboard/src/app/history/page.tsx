@@ -6,6 +6,7 @@ import { useWalletReady } from "@/hooks/useWalletReady";
 import { useAuth } from "@/contexts/AuthContext";
 import { useJobEvents, type JobEvent } from "@/hooks/useJobEvents";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import SignInButton from "@/components/SignInButton";
 import OutputDisplay from "@/components/OutputDisplay";
 import JobTimeline from "@/components/JobTimeline";
 import JobEventFeed from "@/components/JobEventFeed";
@@ -286,7 +287,7 @@ export default function HistoryPage() {
   const searchParams = useSearchParams();
   const expandId = searchParams.get("expand");
   const { address, isConnected, isReady } = useWalletReady();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [jobs, setJobs] = useState<AnyJob[]>([]);
   const [loading, setLoading] = useState(false);
   const loadRef = useRef<(() => void) | undefined>(undefined);
@@ -373,10 +374,17 @@ export default function HistoryPage() {
 
       {!isReady ? (
         <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
-      ) : !isConnected || !isAuthenticated ? (
+      ) : !isConnected ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to view your job history</p>
           <ConnectButton />
+        </div>
+      ) : authLoading ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      ) : !isAuthenticated ? (
+        <div className="card flex flex-col items-center justify-center py-16 gap-4">
+          <p className="text-o-textSecondary text-sm">Sign in to verify wallet ownership</p>
+          <SignInButton />
         </div>
       ) : loading && jobs.length === 0 ? (
         <div className="card animate-pulse">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useWalletReady } from "@/hooks/useWalletReady";
 import { useAuth } from "@/contexts/AuthContext";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import SignInButton from "@/components/SignInButton";
 
 
 interface StorageFile {
@@ -40,7 +41,7 @@ function formatDate(timestamp: number): string {
 
 export default function StoragePage() {
   const { address, isConnected, isReady } = useWalletReady();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -103,10 +104,17 @@ export default function StoragePage() {
 
       {!isReady ? (
         <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
-      ) : !isConnected || !isAuthenticated ? (
+      ) : !isConnected ? (
         <div className="card flex flex-col items-center justify-center py-16 gap-4">
           <p className="text-o-textSecondary text-sm">Connect your wallet to manage storage</p>
           <ConnectButton />
+        </div>
+      ) : authLoading ? (
+        <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>
+      ) : !isAuthenticated ? (
+        <div className="card flex flex-col items-center justify-center py-16 gap-4">
+          <p className="text-o-textSecondary text-sm">Sign in to verify wallet ownership</p>
+          <SignInButton />
         </div>
       ) : loading && !info ? (
         <div className="card animate-pulse"><div className="h-32 bg-o-border/30 rounded" /></div>

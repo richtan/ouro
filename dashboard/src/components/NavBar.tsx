@@ -88,23 +88,25 @@ export default function NavBar() {
               openAccountModal,
               openChainModal,
               openConnectModal,
+              authenticationStatus,
             }) => {
               return (
                 <div>
                   {(() => {
-                    if (!account || !chain) {
-                      if (!isReady || isConnected) {
+                    if (!account || !chain || authenticationStatus !== "authenticated") {
+                      if (!isReady || authenticationStatus === "loading") {
                         return (
                           <div className="w-[82px] h-[34px] rounded-lg bg-o-surface animate-pulse" />
                         );
                       }
+                      const needsVerify = !!account && authenticationStatus === "unauthenticated";
                       return (
                         <button
                           onClick={openConnectModal}
                           type="button"
                           className="px-4 py-1.5 rounded-lg bg-o-blue hover:bg-o-blueHover text-white text-xs font-semibold tracking-wide transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-o-blueText/30"
                         >
-                          Connect
+                          {needsVerify ? "Sign In" : "Connect"}
                         </button>
                       );
                     }

@@ -30,31 +30,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Parse SIWE message
-  const parsed = parseSiweMessage(message);
-  if (!parsed.address || !parsed.nonce) {
-    return NextResponse.json(
-      { error: "Invalid SIWE message" },
-      { status: 400 },
-    );
-  }
-
-  // Verify nonce matches cookie
+  // Read nonce from cookie
   const nonceCookie = request.cookies.get(NONCE_COOKIE)?.value;
-  if (!nonceCookie || nonceCookie !== parsed.nonce) {
+  if (!nonceCookie) {
     return NextResponse.json(
       { error: "Invalid or expired nonce" },
       { status: 400 },
     );
   }
 
-  // Verify signature
+  // Extract domain from request Host header
+  const host = request.headers.get("host") ?? "";
+
+  // Verify SIWE message: validates domain, nonce, expiration, notBefore, and signature
   let valid: boolean;
   try {
-    valid = await publicClient.verifyMessage({
-      address: parsed.address,
+    valid = await publicClient.verifySiweMessage({
       message,
       signature: signature as `0x${string}`,
+      domain: host,
+      nonce: nonceCookie,
     });
   } catch {
     return NextResponse.json(
@@ -67,6 +62,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid signature" },
       { status: 403 },
+    );
+  }
+
+  // Parse to extract address for JWT
+  const parsed = parseSiweMessage(message);
+  if (!parsed.address) {
+    return NextResponse.json(
+      { error: "Invalid SIWE message" },
+      { status: 400 },
     );
   }
 

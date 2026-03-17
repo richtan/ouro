@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider, http, cookieStorage, createStorage, type State } from "wagmi";
+import { WagmiProvider, http, cookieStorage, createStorage, useAccount, type State } from "wagmi";
 import { base } from "wagmi/chains";
 import {
   RainbowKitProvider,
@@ -102,48 +102,82 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function Web3Provider({
-  children,
-  initialState,
-}: {
-  children: React.ReactNode;
-  initialState?: State;
-}) {
+function AuthLayer({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthenticationStatus>("loading");
-  const fetchingRef = useRef(false);
+  const { isConnected, address } = useAccount();
+  const abortRef = useRef<AbortController | null>(null);
   const verifyingRef = useRef(false);
+  const wasConnectedRef = useRef(false);
+  const prevAddressRef = useRef<string | undefined>(undefined);
+  const addressRef = useRef(address);
+  addressRef.current = address;
 
-  const checkAuth = useCallback(async () => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
+  // Address-aware auth check with AbortController — latest check always wins
+  const checkAuth = useCallback(async (currentAddress?: string) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch("/api/auth/check");
+      const res = await fetch("/api/auth/check", { signal: controller.signal });
+      if (controller.signal.aborted) return;
       if (res.ok) {
         const data = await res.json();
+        if (controller.signal.aborted) return;
         if (data.address) {
+          // If we know the connected wallet, verify session matches
+          if (currentAddress && data.address.toLowerCase() !== currentAddress.toLowerCase()) {
+            setStatus("unauthenticated");
+            return;
+          }
           setStatus("authenticated");
           return;
         }
       }
       setStatus("unauthenticated");
     } catch {
+      if (controller.signal.aborted) return;
       setStatus("unauthenticated");
-    } finally {
-      fetchingRef.current = false;
     }
   }, []);
 
-  // Check auth on mount
+  // Check auth on mount (no address yet — just check if any session exists)
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  // Re-check on window focus (catches expired sessions in other tabs)
+  // Re-check on window focus with current address
   useEffect(() => {
-    const onFocus = () => checkAuth();
+    const onFocus = () => checkAuth(addressRef.current);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [checkAuth]);
+
+  // Re-verify session when wallet connects/changes
+  useEffect(() => {
+    if (address) {
+      checkAuth(address);
+    }
+  }, [address, checkAuth]);
+
+  // Sync status on disconnect + cancel in-flight check
+  useEffect(() => {
+    if (isConnected) {
+      wasConnectedRef.current = true;
+    } else if (wasConnectedRef.current) {
+      wasConnectedRef.current = false;
+      abortRef.current?.abort();
+      setStatus("unauthenticated");
+    }
+  }, [isConnected]);
+
+  // Sync status on wallet switch (immediate, before async re-check)
+  useEffect(() => {
+    const prev = prevAddressRef.current;
+    prevAddressRef.current = address;
+    if (prev && address && prev.toLowerCase() !== address.toLowerCase()) {
+      setStatus("unauthenticated");
+    }
+  }, [address]);
 
   const adapter = useMemo(
     () =>
@@ -194,13 +228,25 @@ export default function Web3Provider({
   );
 
   return (
+    <RainbowKitAuthenticationProvider adapter={adapter} status={status}>
+      <RainbowKitProvider theme={ouroTheme}>
+        <AuthProvider>{children}</AuthProvider>
+      </RainbowKitProvider>
+    </RainbowKitAuthenticationProvider>
+  );
+}
+
+export default function Web3Provider({
+  children,
+  initialState,
+}: {
+  children: React.ReactNode;
+  initialState?: State;
+}) {
+  return (
     <WagmiProvider config={config} initialState={initialState}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitAuthenticationProvider adapter={adapter} status={status}>
-          <RainbowKitProvider theme={ouroTheme}>
-            <AuthProvider>{children}</AuthProvider>
-          </RainbowKitProvider>
-        </RainbowKitAuthenticationProvider>
+        <AuthLayer>{children}</AuthLayer>
       </QueryClientProvider>
     </WagmiProvider>
   );
