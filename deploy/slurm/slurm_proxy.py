@@ -868,6 +868,10 @@ async def get_storage_usage(
 
     file_count = await asyncio.to_thread(_count_files, storage_path, 5, MAX_STORAGE_FILES)
 
+    # Don't count directory overhead when there are no user files
+    if file_count == 0:
+        used_bytes = 0
+
     return {"used_bytes": used_bytes, "file_count": file_count}
 
 
