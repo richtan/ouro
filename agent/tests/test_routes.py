@@ -146,3 +146,65 @@ def test_job_summary_includes_single_script_file():
     result = _job_summary(payload)
     assert len(result["files"]) == 1
     assert result["files"][0]["path"] == "job.sh"
+
+
+# --- script + files combined mode ---
+
+
+def test_combined_script_and_files():
+    """script + files produces workspace with generated entrypoint."""
+    req = ComputeSubmitRequest(
+        script="python3 main.py",
+        files=[
+            {"path": "main.py", "content": "print('hi')"},
+            {"path": "data.txt", "content": "some data"},
+        ],
+        cpus=1,
+        time_limit_min=1,
+    )
+    assert req.submission_mode == "multi_file"
+    assert req.entrypoint is not None
+    assert req.entrypoint.startswith("_entrypoint_")
+    assert req.entrypoint.endswith(".sh")
+
+    files, entrypoint = req.to_workspace_files()
+    assert entrypoint == req.entrypoint
+    assert len(files) == 3  # 2 user files + 1 generated
+    entrypoint_file = next(f for f in files if f["path"] == entrypoint)
+    assert entrypoint_file["content"] == "python3 main.py"
+
+
+def test_combined_mode_rejects_explicit_entrypoint():
+    """script + files + entrypoint → error."""
+    with pytest.raises(ValueError, match="Do not set entrypoint"):
+        ComputeSubmitRequest(
+            script="python3 main.py",
+            files=[{"path": "main.py", "content": "print('hi')"}],
+            entrypoint="main.py",
+            cpus=1,
+            time_limit_min=1,
+        )
+
+
+def test_combined_mode_unique_entrypoint():
+    """Generated entrypoint doesn't collide with user files."""
+    req = ComputeSubmitRequest(
+        script="echo hello",
+        files=[{"path": "_entrypoint_00000000.sh", "content": "x"}],
+        cpus=1,
+        time_limit_min=1,
+    )
+    assert req.entrypoint != "_entrypoint_00000000.sh"
+    assert req.entrypoint.startswith("_entrypoint_")
+
+
+def test_combined_mode_counts_entrypoint_in_limits():
+    """File count and size limits include the generated entrypoint."""
+    files = [{"path": f"file{i}.txt", "content": "x"} for i in range(100)]
+    with pytest.raises(ValueError, match="Max 100 files"):
+        ComputeSubmitRequest(
+            script="echo hello",
+            files=files,
+            cpus=1,
+            time_limit_min=1,
+        )

@@ -113,31 +113,56 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.4.1" },
+  { name: "ouro", version: "1.5.0" },
   {
     instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
 
-Typical flow:
-  1. run_job(script="echo hello") → { job_id, price }
-  2. get_job_status(job_id) → waits for completion and returns result
+## How to submit jobs
 
-Submission modes:
-  - script: single shell script (simplest)
-  - files: list of {path, content} objects (multi-file workspace, can include a Dockerfile)
+Call run_job, then get_job_status to wait for results.
 
-Use get_price_quote to check pricing before committing.
-Use get_allowed_images to see available container images.
+### Option 1: Script only (simplest)
+Run a shell command directly.
+  run_job(script="echo hello world")
 
-Prebuilt images (instant): ouro-ubuntu, ouro-python, ouro-nodejs.
-Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).
+### Option 2: Script + files (create files and run a command)
+Create files in the workspace, then run a shell command that uses them.
+The script runs as bash inside the container, so use the right interpreter.
+  run_job(
+    script="python3 main.py",
+    files=[{path: "main.py", content: "print('hello')"}],
+    image="ouro-python"
+  )
 
-Use list_storage to view files in your persistent /scratch volume.
-Use mount_storage=true in run_job to mount persistent storage into the container at /scratch (read-write).
+### Option 3: Files with Dockerfile (custom environment)
+Include a Dockerfile for custom dependencies. ENTRYPOINT or CMD required.
+  run_job(
+    files=[
+      {path: "main.py", content: "import numpy; print(numpy.random.rand(3))"},
+      {path: "Dockerfile", content: "FROM python:3.12-slim\\nRUN pip install numpy\\nENTRYPOINT [\\"python\\", \\"main.py\\"]"}
+    ],
+    image="python:3.12-slim"
+  )
 
-Storage limits: 1 GB total, max 10,000 files. Exceeding the file limit returns "Disk quota exceeded" errors inside the container.
-Use list_storage to check current usage before running storage-heavy jobs.
-Use delete_storage_file to free space or reduce file count.`,
+## Images
+Prebuilt (instant start, no build step):
+  - ouro-ubuntu: Ubuntu 22.04 — bash, coreutils, curl, git
+  - ouro-python: Python 3.12 with pip — for Python scripts
+  - ouro-nodejs: Node.js 20 LTS — for JavaScript/TypeScript
+Custom: any Docker Hub image via Dockerfile (requires build step, slower start).
+
+Script execution: the script runs via bash by default. For Python/JS, either
+use the matching image (ouro-python/ouro-nodejs) and call the interpreter in
+your script (e.g., "python3 main.py"), or use script-only mode where .py/.js
+files auto-detect the interpreter.
+
+## Storage
+Use mount_storage=true to mount persistent /scratch volume (1 GB, max 10,000 files).
+Use list_storage to check usage, delete_storage_file to free space.
+
+## Pricing
+Use get_price_quote to check price before submitting.`,
   },
 );
 
@@ -147,26 +172,27 @@ Use delete_storage_file to free space or reduce file count.`,
 
 server.tool(
   "run_job",
-  "Submit a compute job and pay automatically. Returns job_id when accepted.",
+  "Submit a compute job. Provide script, files, or both. Returns job_id.",
   {
-    script: z.string().optional().describe("Shell script to execute (use this OR files)"),
+    script: z.string().optional().describe(
+      "Shell command(s) to execute. Use alone for simple jobs, or combine with files."
+    ),
     files: z
       .array(z.object({ path: z.string(), content: z.string() }))
       .optional()
-      .describe("Array of {path, content} file objects (can include a Dockerfile)"),
-    image: z.string().default("ouro-ubuntu").describe("Container image (default: ouro-ubuntu)"),
+      .describe(
+        "Files to create in the workspace. Use with script to run a command, " +
+        "or include a Dockerfile (with ENTRYPOINT/CMD) for custom environments."
+      ),
+    image: z.string().default("ouro-ubuntu").describe("Container image (default: ouro-ubuntu). Prebuilt: ouro-ubuntu, ouro-python, ouro-nodejs"),
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
     mount_storage: z.boolean().default(false).describe("Mount persistent /scratch volume (read-write). Files persist between jobs. Limits: 1 GB, max 10,000 files."),
   },
   async (params) => {
-    // Validate: exactly one of script or files
-    if (params.script && params.files) {
-      return { content: [{ type: "text", text: "Provide either script or files, not both." }] };
-    }
     if (!params.script && !params.files) {
-      return { content: [{ type: "text", text: "Provide either script or files." }] };
+      return { content: [{ type: "text", text: "Provide script, files, or both." }] };
     }
 
     const body: Record<string, unknown> = {

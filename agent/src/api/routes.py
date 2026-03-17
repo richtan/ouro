@@ -104,28 +104,57 @@ class ComputeSubmitRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_mode(self):
-        modes = sum([bool(self.script), bool(self.files)])
-        if modes == 0:
+        has_script = bool(self.script)
+        has_files = bool(self.files)
+
+        if not has_script and not has_files:
             raise ValueError("Provide one of: script, files")
-        if modes > 1:
-            raise ValueError("Only one submission mode allowed")
+
+        # Combined mode: script + files → script becomes the entrypoint
+        if has_script and has_files:
+            if self.entrypoint:
+                raise ValueError(
+                    "Do not set entrypoint when using script + files "
+                    "(the script is the entrypoint)"
+                )
+            import secrets
+            existing_paths = {f.path for f in self.files}
+            for _ in range(10):
+                name = f"_entrypoint_{secrets.token_hex(4)}.sh"
+                if name not in existing_paths:
+                    break
+            else:
+                raise ValueError(
+                    "Could not generate unique entrypoint filename — "
+                    "rename any file starting with '_entrypoint_'"
+                )
+            self.entrypoint = name
 
         has_dockerfile = _extract_dockerfile(self.files) is not None
 
-        # entrypoint required for multi-file ONLY if no Dockerfile
+        # entrypoint required for multi-file ONLY if no Dockerfile and no script
         if self.files and not self.entrypoint and not has_dockerfile:
             raise ValueError("entrypoint required for multi-file mode (or include a Dockerfile)")
 
         if self.files:
-            if len(self.files) > 100:
+            # +1 for generated entrypoint when script+files combined
+            effective_count = len(self.files) + (1 if has_script else 0)
+            if effective_count > 100:
                 raise ValueError("Max 100 files per workspace")
             total = sum(len(f.content.encode()) for f in self.files)
+            if has_script:
+                total += len(self.script.encode())
             if total > 10 * 1024 * 1024:
                 raise ValueError("Total workspace size exceeds 10MB")
         return self
 
     def to_workspace_files(self) -> tuple[list[dict[str, str]], str]:
         """Normalize any submission mode into (files, entrypoint) for workspace creation."""
+        if self.files and self.script:
+            # Combined mode: user files + generated entrypoint script
+            files = [{"path": f.path, "content": f.content} for f in self.files]
+            files.append({"path": self.entrypoint, "content": self.script})
+            return files, self.entrypoint
         if self.files:
             return [{"path": f.path, "content": f.content} for f in self.files], self.entrypoint or ""
         # Script mode → single-file workspace

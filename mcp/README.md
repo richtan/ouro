@@ -118,6 +118,29 @@ User: Run a Python script that computes the first 1000 primes
   }
 ```
 
+### Create files and run a command
+
+```
+→ run_job(
+    script: "python3 analyze.py",
+    files: [
+      { "path": "analyze.py", "content": "import json\ndata = {'result': 42}\nprint(json.dumps(data))" }
+    ],
+    image: "ouro-python"
+  )
+
+← {
+    "job_id": "xyz789",
+    "status": "pending",
+    "price": "$0.0100",
+    "paid_with_credit": false,
+    "credit_applied": 0,
+    "webhook_configured": false,
+    "mount_storage": false,
+    "profitability": { "guaranteed": true, "estimated_profit_pct": 50.0 }
+  }
+```
+
 ### Wait for results
 
 ```
@@ -191,8 +214,8 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `script` | string | One of `script` or `files` | — | Shell script to execute |
-| `files` | array | One of `script` or `files` | — | Array of `{path, content}` objects (can include a Dockerfile) |
+| `script` | string | At least one of `script`, `files`, or both | — | Shell command(s) to execute. Use alone for simple jobs, or combine with files |
+| `files` | array | At least one of `script`, `files`, or both | — | Array of `{path, content}` objects. Combine with script to create files + run a command, or include a Dockerfile |
 | `image` | string | No | `ouro-ubuntu` | Container image to use |
 | `cpus` | integer | No | `1` | CPU cores (1–8) |
 | `time_limit_min` | integer | No | `1` | Max runtime in minutes |

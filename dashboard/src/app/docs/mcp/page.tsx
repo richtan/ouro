@@ -101,8 +101,8 @@ const TOOLS = [
     description:
       "Submit a compute job and pay automatically. Signs USDC payment via x402 from your wallet. Returns job_id when accepted.",
     params: [
-      { name: "script", type: "string", description: "Shell script to execute (use this OR files)" },
-      { name: "files", type: "array", description: "Array of {path, content} file objects (can include a Dockerfile)" },
+      { name: "script", type: "string", description: "Shell script to execute (can combine with files)" },
+      { name: "files", type: "array", description: "Array of {path, content} file objects. Combine with script to create files + run a command" },
       { name: "image", type: "string", description: "Container image (default: ouro-ubuntu)" },
       { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
