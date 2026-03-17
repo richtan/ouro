@@ -1,103 +1,11 @@
 import Link from "next/link";
 import CodeBlock from "@/components/docs/CodeBlock";
 
-const CLIENT_CONFIGS = [
-  {
-    name: "Cursor",
-    file: ".cursor/mcp.json",
-    language: "json" as const,
-    code: `{
-  "mcpServers": {
-    "ouro": {
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
-  },
-  {
-    name: "Claude Code",
-    file: "Terminal",
-    language: "bash" as const,
-    code: `claude mcp add ouro --transport stdio -e WALLET_PRIVATE_KEY=0x... -- npx -y ouro-mcp`,
-  },
-  {
-    name: "Claude Desktop",
-    file: "claude_desktop_config.json",
-    language: "json" as const,
-    code: `{
-  "mcpServers": {
-    "ouro": {
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
-  },
-  {
-    name: "VS Code",
-    file: ".vscode/mcp.json",
-    language: "json" as const,
-    code: `{
-  "servers": {
-    "ouro": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
-  },
-  {
-    name: "Windsurf",
-    file: "~/.codeium/windsurf/mcp_config.json",
-    language: "json" as const,
-    code: `{
-  "mcpServers": {
-    "ouro": {
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
-  },
-  {
-    name: "OpenClaw",
-    file: "~/.openclaw/openclaw.json",
-    language: "json" as const,
-    code: `{
-  "mcpServers": {
-    "ouro": {
-      "command": "npx",
-      "args": ["-y", "ouro-mcp"],
-      "env": { "WALLET_PRIVATE_KEY": "0x..." }
-    }
-  }
-}`,
-  },
-  {
-    name: "OpenAI Agents SDK",
-    file: "agent.py",
-    language: "python" as const,
-    code: `from agents.mcp import MCPServerStdio
-
-server = MCPServerStdio(
-    command="npx",
-    args=["-y", "ouro-mcp"],
-    env={"WALLET_PRIVATE_KEY": "0x..."},
-)`,
-  },
-];
-
 const PATH_CARDS = [
   {
     href: "/docs/mcp",
     title: "MCP Setup",
-    desc: "Set up MCP for Cursor, Claude Code, Claude Desktop, VS Code, Windsurf, and more",
+    desc: "Install the MCP server and explore available tools",
   },
   {
     href: "/docs/agent",
@@ -115,6 +23,16 @@ const PATH_CARDS = [
     desc: "Submit jobs and pay from your browser — no code needed",
   },
 ];
+
+const CURSOR_CONFIG = `{
+  "mcpServers": {
+    "ouro": {
+      "command": "npx",
+      "args": ["-y", "ouro-mcp"],
+      "env": { "WALLET_PRIVATE_KEY": "0x..." }
+    }
+  }
+}`;
 
 export default function DocsGetStarted() {
   return (
@@ -195,8 +113,8 @@ export default function DocsGetStarted() {
           {" "}to your wallet&apos;s hex private key (starts with{" "}
           <span className="font-mono text-xs text-o-text">0x</span>):
         </p>
-        <CodeBlock filename=".cursor/mcp.json" language="json" copyText={CLIENT_CONFIGS[0].code}>
-          {CLIENT_CONFIGS[0].code}
+        <CodeBlock filename=".cursor/mcp.json" language="json" copyText={CURSOR_CONFIG}>
+          {CURSOR_CONFIG}
         </CodeBlock>
         <p className="text-sm text-o-textSecondary mt-4">
           Then just say: &quot;Run <span className="text-o-blueText">echo hello world</span> on Ouro&quot;
@@ -216,7 +134,7 @@ export default function DocsGetStarted() {
           href="/docs/mcp"
           className="text-sm text-o-blueText hover:underline flex items-center gap-1"
         >
-          MCP Tools <span aria-hidden="true">→</span>
+          MCP <span aria-hidden="true">&rarr;</span>
         </Link>
       </div>
     </>

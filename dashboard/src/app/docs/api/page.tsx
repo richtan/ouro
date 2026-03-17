@@ -273,8 +273,14 @@ export default function ApiPage() {
         </div>
       </section>
 
-      {/* Next page */}
-      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+      {/* Bottom nav */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-between">
+        <Link
+          href="/docs/mcp"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          <span aria-hidden="true">&larr;</span> MCP
+        </Link>
         <Link
           href="/docs/agent"
           className="text-sm text-o-blueText hover:underline flex items-center gap-1"

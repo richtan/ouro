@@ -162,13 +162,19 @@ export default function AgentPage() {
         </CodeBlock>
       </section>
 
-      {/* Next page */}
-      <div className="border-t border-o-border mt-12 pt-6 flex justify-end">
+      {/* Bottom nav */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-between">
+        <Link
+          href="/docs/api"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          <span aria-hidden="true">&larr;</span> REST API
+        </Link>
         <Link
           href="/docs/pricing"
           className="text-sm text-o-blueText hover:underline flex items-center gap-1"
         >
-          Pricing <span aria-hidden="true">→</span>
+          Pricing <span aria-hidden="true">&rarr;</span>
         </Link>
       </div>
     </>

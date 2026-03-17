@@ -205,6 +205,16 @@ export default function PricingPage() {
           The final price is always at least 20% above this floor.
         </p>
       </section>
+
+      {/* Bottom nav */}
+      <div className="border-t border-o-border mt-12 pt-6 flex justify-start">
+        <Link
+          href="/docs/agent"
+          className="text-sm text-o-blueText hover:underline flex items-center gap-1"
+        >
+          <span aria-hidden="true">&larr;</span> Build an Agent
+        </Link>
+      </div>
     </>
   );
 }
