@@ -18,7 +18,7 @@ npm start              # node dist/index.js
 | `get_job_status` | `GET` | `/api/jobs/{id}` + `/api/jobs/{id}/events` (SSE) | Checks status, then streams SSE if still running |
 | `get_price_quote` | `GET` | `/api/price?cpus=&time_limit_min=&submission_mode=` | Public, no auth |
 | `get_allowed_images` | `GET` | `/api/capabilities` | Public, no auth |
-| `list_storage` | `GET` | `/api/storage?wallet=` | Public, wallet-scoped |
+| `list_storage` | `GET` | `/api/storage?wallet=&signature=&timestamp=` | EIP-191 signed |
 | `delete_storage_file` | `DELETE` | `/api/storage/files?wallet=&path=&signature=&timestamp=` | EIP-191 signed |
 
 ## Version Locations

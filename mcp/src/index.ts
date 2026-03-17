@@ -113,7 +113,7 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.3.0" },
+  { name: "ouro", version: "1.4.0" },
   {
     instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
@@ -426,7 +426,7 @@ server.tool(
   "delete_storage_file",
   "Delete a file or directory from your persistent storage.",
   {
-    path: z.string().describe("File path relative to /storage (e.g. 'models/checkpoint.pt')"),
+    path: z.string().describe("File path relative to /scratch (e.g. 'models/checkpoint.pt')"),
   },
   async (params) => {
     try {
