@@ -196,6 +196,10 @@ ssh_cmd "$CONTROLLER" "
     sudo mkdir -p /ouro-storage
     sudo chown nobody:nogroup /ouro-storage
     sudo chmod 755 /ouro-storage
+    # --- ext4 project quotas: install packages (features enabled in Phase 5a) ---
+    sudo apt-get install -y -qq quota
+    sudo touch /etc/projects /etc/projid
+
     sudo sed -i '\|^/ouro-storage|d' /etc/exports 2>/dev/null || true
     echo '$STORAGE_EXPORTS' | sudo tee -a /etc/exports
 
@@ -219,6 +223,191 @@ for w in "${WORKERS[@]}"; do
     "
     echo "  $w NFS mounted"
 done
+
+# ------------------------------------------------------------------
+# Phase 5a: Enable ext4 project quotas (requires offline tune2fs)
+# ------------------------------------------------------------------
+echo ""
+echo "[Phase 5a] Enabling ext4 project quotas on controller..."
+
+# Check if features are already enabled (idempotent — skip offline dance if re-running)
+_QUOTA_RAW=$(ssh_cmd "$CONTROLLER" "sudo tune2fs -l \$(findmnt -n -o SOURCE /) 2>/dev/null | grep -c 'project'" 2>/dev/null || true)
+QUOTA_OK=$(echo "$_QUOTA_RAW" | grep -oE '^[0-9]+$' | tail -1 || true)
+QUOTA_OK="${QUOTA_OK:-0}"
+
+if [ "$QUOTA_OK" -gt 0 ]; then
+    echo "  project+quota features already enabled"
+else
+    echo "  project+quota features not enabled — running offline tune2fs..."
+    FIRST_WORKER="${WORKERS[0]}"
+
+    # Discover the boot disk name (don't assume it matches instance name)
+    BOOT_DISK=$(gcloud compute instances describe "$CONTROLLER" \
+        --project="$PROJECT" --zone="$ZONE" \
+        --format="get(disks[0].source)" | awk -F/ '{print $NF}')
+    if [ -z "$BOOT_DISK" ]; then
+        echo "  ERROR: Could not determine boot disk for $CONTROLLER"
+        exit 1
+    fi
+    echo "  Boot disk: $BOOT_DISK"
+
+    # Stop controller
+    echo "  Stopping controller for offline tune2fs..."
+    gcloud compute instances stop "$CONTROLLER" --project="$PROJECT" --zone="$ZONE" --quiet
+    echo "  Controller stopped"
+
+    # Set up cleanup trap — reattach disk + restart controller on failure
+    _quota_cleanup() {
+        echo "  ERROR in Phase 5a — attempting to restore controller..."
+        gcloud compute instances detach-disk "$FIRST_WORKER" --disk="$BOOT_DISK" \
+            --project="$PROJECT" --zone="$ZONE" 2>/dev/null || true
+        gcloud compute instances attach-disk "$CONTROLLER" --disk="$BOOT_DISK" --boot \
+            --project="$PROJECT" --zone="$ZONE" 2>/dev/null || true
+        gcloud compute instances start "$CONTROLLER" --project="$PROJECT" --zone="$ZONE" 2>/dev/null || true
+        echo "  Attempted controller restore. Check instance status manually."
+    }
+    trap _quota_cleanup ERR
+
+    # Detach boot disk from controller
+    gcloud compute instances detach-disk "$CONTROLLER" --disk="$BOOT_DISK" \
+        --project="$PROJECT" --zone="$ZONE"
+    echo "  Boot disk detached"
+
+    # Attach to first worker with known device name
+    gcloud compute instances attach-disk "$FIRST_WORKER" --disk="$BOOT_DISK" \
+        --project="$PROJECT" --zone="$ZONE" --device-name=ctrl-boot
+    echo "  Disk attached to $FIRST_WORKER"
+
+    # Run tune2fs + e2fsck on the worker (unmounted — no kernel module needed)
+    ssh_cmd "$FIRST_WORKER" "
+        set -e
+        PART=/dev/disk/by-id/google-ctrl-boot-part1
+        # Wait for device to appear (GCP hotplug can take a moment)
+        for i in \$(seq 1 10); do [ -e \"\$PART\" ] && break; sleep 1; done
+        if [ ! -e \"\$PART\" ]; then echo 'ERROR: Device not found'; exit 1; fi
+
+        # Enable features then clear needs_recovery with e2fsck
+        sudo tune2fs -O project,quota \"\$PART\"
+        sudo tune2fs -Q prjquota \"\$PART\"
+        sudo e2fsck -f -y \"\$PART\" 2>&1 | tail -3 || true
+        echo '  Features enabled:'
+        sudo tune2fs -l \"\$PART\" 2>/dev/null | grep -E 'features|quota' || true
+
+        # Mount WITHOUT prjquota (plain mount — no kernel module needed) to edit config files
+        sudo mkdir -p /mnt/ctrl-root
+        sudo mount \"\$PART\" /mnt/ctrl-root
+
+        # Ensure modules autoload on controller boot
+        printf 'quota_tree\nquota_v2\n' | sudo tee /mnt/ctrl-root/etc/modules-load.d/quota.conf >/dev/null
+
+        # Ensure project/projid files exist
+        sudo touch /mnt/ctrl-root/etc/projects /mnt/ctrl-root/etc/projid
+
+        # Do NOT add prjquota to fstab here — that happens after boot when module is confirmed
+
+        sudo umount /mnt/ctrl-root
+    "
+    echo "  tune2fs + config files updated"
+
+    # Detach from worker, reattach as boot disk to controller
+    gcloud compute instances detach-disk "$FIRST_WORKER" --disk="$BOOT_DISK" \
+        --project="$PROJECT" --zone="$ZONE"
+    gcloud compute instances attach-disk "$CONTROLLER" --disk="$BOOT_DISK" --boot \
+        --project="$PROJECT" --zone="$ZONE"
+    echo "  Disk reattached to controller"
+
+    # Start controller and wait for SSH
+    gcloud compute instances start "$CONTROLLER" --project="$PROJECT" --zone="$ZONE"
+    echo "  Controller starting, waiting for SSH..."
+    wait_for_ssh "$CONTROLLER" 30
+
+    # Clear the error trap
+    trap - ERR
+fi
+
+# --- Post-boot quota activation (runs whether features were just enabled or already present) ---
+# Safety: prjquota is ONLY added to fstab AFTER confirming the module works for the running kernel
+ssh_cmd "$CONTROLLER" "
+    # Install modules-extra for the ACTUAL running kernel (may differ from pre-reboot)
+    sudo apt-get install -y -qq linux-modules-extra-\$(uname -r)
+    sudo modprobe quota_tree
+    sudo modprobe quota_v2
+
+    # Only add prjquota to fstab if module is loaded (prevents bricking on reboot)
+    if lsmod | grep -q quota_tree; then
+        if ! awk '\$2 == \"/\"' /etc/fstab | grep -q prjquota; then
+            sudo sed -i '/[[:space:]]\/[[:space:]]/ s|errors=remount-ro|errors=remount-ro,prjquota|' /etc/fstab
+            # Fallback if sed didn't match (fstab uses 'defaults' instead)
+            if ! awk '\$2 == \"/\"' /etc/fstab | grep -q prjquota; then
+                sudo sed -i '/[[:space:]]\/[[:space:]]/ s|defaults|defaults,prjquota|' /etc/fstab
+            fi
+        fi
+        if ! mount | grep -q prjquota; then
+            sudo mount -o remount,prjquota /
+        fi
+    fi
+
+    # Verify
+    if mount | grep -q prjquota && sudo repquota -Ps / >/dev/null 2>&1; then
+        echo '  ext4 project quotas verified and active'
+    else
+        echo '  FATAL: ext4 project quotas could not be enabled.'
+        echo '  Ensure linux-modules-extra-\$(uname -r) is installed and quota_tree module loads.'
+        exit 1
+    fi
+"
+
+# If controller was restarted, warn about IP change and remount NFS on workers
+if [ "$QUOTA_OK" -eq 0 ]; then
+    NEW_CONTROLLER_IP=$(gcloud compute instances describe "$CONTROLLER" \
+        --project="$PROJECT" --zone="$ZONE" \
+        --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
+    echo "  Controller external IP: $NEW_CONTROLLER_IP"
+    echo "  NOTE: If external IP changed, update SLURMREST_URL in Railway/Doppler"
+    echo "        New URL: http://${NEW_CONTROLLER_IP}:6820"
+
+    echo "  Remounting NFS on workers after controller restart..."
+    for w in "${WORKERS[@]}"; do
+        ssh_cmd "$w" "
+            sudo umount -l /ouro-jobs 2>/dev/null || true
+            sudo umount -l /ouro-storage 2>/dev/null || true
+            sudo mount -a 2>/dev/null || true
+        "
+    done
+fi
+
+# ------------------------------------------------------------------
+# Phase 5b: Orphaned workspace cleanup cron
+# ------------------------------------------------------------------
+echo ""
+echo "[Phase 5b] Installing workspace cleanup cron on controller..."
+
+ssh_cmd "$CONTROLLER" "
+    cat > /tmp/ouro-workspace-cleanup.sh << 'WSCLEANUP'
+#!/bin/bash
+# Clean up orphaned workspaces and their project quotas
+for dir in /ouro-jobs/workspaces/*/; do
+  [ -d \"\$dir\" ] || continue
+  ws_id=\$(basename \"\$dir\")
+  age_min=\$(( ( \$(date +%s) - \$(stat -c %Y \"\$dir\") ) / 60 ))
+  if [ \"\$age_min\" -gt 120 ]; then
+    rm -rf \"\$dir\"
+    # Compute proj_id and clean quota entries (best-effort)
+    proj_id=\$(python3 -c \"import hashlib; print(int(hashlib.sha256('\$ws_id'.encode()).hexdigest()[:8], 16) % 1000000000 + 1000000001)\" 2>/dev/null)
+    if [ -n \"\$proj_id\" ]; then
+      setquota -P \"\$proj_id\" 0 0 0 0 / 2>/dev/null
+      sed -i \"/^\$proj_id:/d\" /etc/projects 2>/dev/null
+      sed -i \"/^\$proj_id:/d\" /etc/projid 2>/dev/null
+    fi
+    echo \"Cleaned orphaned workspace: \$ws_id (age: \${age_min}m)\"
+  fi
+done
+WSCLEANUP
+    sudo cp /tmp/ouro-workspace-cleanup.sh /opt/ouro-workspace-cleanup.sh
+    sudo chmod +x /opt/ouro-workspace-cleanup.sh
+    (sudo crontab -l 2>/dev/null | grep -v ouro-workspace-cleanup; echo '30 * * * * /opt/ouro-workspace-cleanup.sh 2>/dev/null') | sudo crontab -
+    echo '  workspace cleanup cron installed'
+"
 
 # ------------------------------------------------------------------
 # Phase 6: Distribute munge key

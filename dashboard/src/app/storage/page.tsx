@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useWalletReady } from "@/hooks/useWalletReady";
 import { useAuth } from "@/contexts/AuthContext";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import SignInButton from "@/components/SignInButton";
+import {
+  type TreeNode,
+  buildTree,
+  collectFolderPaths,
+  FileIcon,
+  FolderIcon,
+  ChevronIcon,
+} from "@/components/FileTreeIcons";
 
 
 interface StorageFile {
@@ -19,6 +27,7 @@ interface StorageInfo {
   quota_bytes: number;
   used_bytes: number;
   file_count: number;
+  max_files?: number;
   files: StorageFile[];
 }
 
@@ -39,6 +48,91 @@ function formatDate(timestamp: number): string {
   });
 }
 
+function StorageTreeItem({
+  node,
+  depth,
+  files,
+  expandedFolders,
+  onToggleFolder,
+  deleting,
+  onDelete,
+}: {
+  node: TreeNode;
+  depth: number;
+  files: StorageFile[];
+  expandedFolders: Set<string>;
+  onToggleFolder: (path: string) => void;
+  deleting: string | null;
+  onDelete: (path: string) => void;
+}) {
+  const isOpen = expandedFolders.has(node.path);
+
+  if (node.isFolder) {
+    return (
+      <>
+        <button
+          onClick={() => onToggleFolder(node.path)}
+          className="w-full flex items-center gap-1 py-2.5 sm:py-1.5 px-3 text-xs font-mono text-o-textSecondary hover:bg-o-surfaceHover transition-colors"
+          style={{ paddingLeft: depth * 16 + 12 }}
+        >
+          <ChevronIcon open={isOpen} />
+          <FolderIcon open={isOpen} />
+          <span className="truncate">{node.name}</span>
+        </button>
+        {isOpen &&
+          node.children.map((child) => (
+            <StorageTreeItem
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              files={files}
+              expandedFolders={expandedFolders}
+              onToggleFolder={onToggleFolder}
+              deleting={deleting}
+              onDelete={onDelete}
+            />
+          ))}
+      </>
+    );
+  }
+
+  const file = node.fileIndex != null ? files[node.fileIndex] : null;
+
+  return (
+    <div
+      className="flex items-center gap-1.5 py-2.5 sm:py-1.5 px-3 text-xs font-mono hover:bg-o-surfaceHover transition-colors group"
+      style={{ paddingLeft: depth * 16 + 12 }}
+    >
+      <FileIcon name={node.name} />
+      <span className="truncate text-o-text flex-1 min-w-0">{node.name}</span>
+      {file && (
+        <>
+          <span className="text-o-muted flex-shrink-0 hidden sm:inline">
+            {formatBytes(file.size)}
+          </span>
+          <span className="text-o-muted flex-shrink-0 hidden md:inline ml-3">
+            {formatDate(file.modified)}
+          </span>
+        </>
+      )}
+      <button
+        onClick={() => onDelete(node.path)}
+        disabled={deleting === node.path}
+        className="text-o-red/70 sm:text-o-red/0 sm:group-hover:text-o-red/70 hover:!text-o-red transition-colors disabled:opacity-40 flex-shrink-0 ml-2"
+        title="Delete"
+      >
+        {deleting === node.path ? (
+          <span className="text-o-muted">...</span>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 4h12M5.5 4V2.5h5V4M6 7v5M10 7v5M3.5 4l.5 10h8l.5-10" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function StoragePage() {
   const { address, isConnected, isReady } = useWalletReady();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -46,6 +140,8 @@ export default function StoragePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const initializedRef = useRef(false);
 
   const fetchStorage = async () => {
     if (!address) return;
@@ -61,7 +157,11 @@ export default function StoragePage() {
       }
       setInfo(await res.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      if (err instanceof Error && err.message.includes("429")) {
+        setError("Too many requests — please wait a minute and try again");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load");
+      }
     } finally {
       setLoading(false);
     }
@@ -83,10 +183,35 @@ export default function StoragePage() {
       }
       await fetchStorage();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
+      if (err instanceof Error && err.message.includes("429")) {
+        setError("Too many requests — please wait a minute and try again");
+      } else {
+        setError(err instanceof Error ? err.message : "Delete failed");
+      }
     } finally {
       setDeleting(null);
     }
+  };
+
+  const tree = useMemo(() => {
+    if (!info) return [];
+    return buildTree(info.files);
+  }, [info]);
+
+  useEffect(() => {
+    if (tree.length > 0 && !initializedRef.current) {
+      initializedRef.current = true;
+      setExpandedFolders(collectFolderPaths(tree));
+    }
+  }, [tree]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   };
 
   const usedPct = info ? Math.min(100, (info.used_bytes / info.quota_bytes) * 100) : 0;
@@ -141,8 +266,8 @@ export default function StoragePage() {
               />
             </div>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-o-muted">
-                {info.file_count} file{info.file_count !== 1 ? "s" : ""}
+              <span className={`text-xs ${info.max_files && info.file_count / info.max_files > 0.9 ? "text-o-amber" : "text-o-muted"}`}>
+                {info.file_count.toLocaleString()} / {(info.max_files ?? 10000).toLocaleString()} files
               </span>
               <span className="text-xs text-o-muted uppercase tracking-wider">
                 {info.tier} tier
@@ -156,9 +281,23 @@ export default function StoragePage() {
               <span className="text-sm font-medium text-o-text">Files</span>
               <button
                 onClick={fetchStorage}
-                className="text-xs text-o-blueText hover:text-o-blue transition-colors"
+                className="text-o-muted hover:text-o-text transition-colors p-1"
+                title="Refresh"
               >
-                Refresh
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={loading ? "animate-spin" : ""}
+                >
+                  <path d="M1.5 8a6.5 6.5 0 0 1 11.25-4.5M14.5 8a6.5 6.5 0 0 1-11.25 4.5" />
+                  <path d="M13.5 2v3.5H10M2.5 14v-3.5H6" />
+                </svg>
               </button>
             </div>
             {info.files.length === 0 ? (
@@ -171,42 +310,20 @@ export default function StoragePage() {
                 </p>
               </div>
             ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="text-xs text-o-muted uppercase tracking-wider">
-                    <th className="text-left px-4 py-2 font-medium">Name</th>
-                    <th className="text-right px-4 py-2 font-medium hidden sm:table-cell">Size</th>
-                    <th className="text-right px-4 py-2 font-medium hidden md:table-cell">Modified</th>
-                    <th className="text-right px-4 py-2 font-medium w-16" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {info.files.map((f) => (
-                    <tr key={f.path} className="border-t border-o-border/50 hover:bg-o-surfaceHover transition-colors">
-                      <td className="px-4 py-2.5">
-                        <span className="font-mono text-xs text-o-text truncate block max-w-[300px]">
-                          {f.path}
-                        </span>
-                      </td>
-                      <td className="text-right px-4 py-2.5 hidden sm:table-cell">
-                        <span className="font-mono text-xs text-o-muted">{formatBytes(f.size)}</span>
-                      </td>
-                      <td className="text-right px-4 py-2.5 hidden md:table-cell">
-                        <span className="text-xs text-o-muted">{formatDate(f.modified)}</span>
-                      </td>
-                      <td className="text-right px-4 py-2.5">
-                        <button
-                          onClick={() => handleDelete(f.path)}
-                          disabled={deleting === f.path}
-                          className="text-xs text-o-red/70 hover:text-o-red transition-colors disabled:opacity-40"
-                        >
-                          {deleting === f.path ? "..." : "Delete"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="py-1">
+                {tree.map((node) => (
+                  <StorageTreeItem
+                    key={node.path}
+                    node={node}
+                    depth={0}
+                    files={info.files}
+                    expandedFolders={expandedFolders}
+                    onToggleFolder={toggleFolder}
+                    deleting={deleting}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>

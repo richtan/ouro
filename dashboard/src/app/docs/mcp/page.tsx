@@ -107,7 +107,7 @@ const TOOLS = [
       { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "webhook_url", type: "string", description: "URL to receive POST notification on job completion/failure (optional)" },
-      { name: "mount_storage", type: "boolean", description: "Mount persistent /scratch volume for this job (default: false)" },
+      { name: "mount_storage", type: "boolean", description: "Mount persistent /scratch volume for this job (default: false). Limits: 1 GB, max 10,000 files." },
     ],
     response: `{
   "job_id": "a1b2c3d4-...",
@@ -189,13 +189,15 @@ const TOOLS = [
   {
     name: "list_storage",
     description:
-      "List files in your persistent storage volume. Shows quota usage and file listing. No parameters — uses the wallet from your WALLET_PRIVATE_KEY.",
+      "List files in your persistent storage volume. Shows quota usage, file count, and max file limit. No parameters — uses the wallet from your WALLET_PRIVATE_KEY.",
     params: [],
     response: `{
   "wallet": "0x1234...abcd",
   "tier": "free",
   "quota_bytes": 1073741824,
   "used_bytes": 524288,
+  "file_count": 3,
+  "max_files": 10000,
   "files": [
     { "path": "model.pt", "size": 524288, "modified": "2025-01-01T00:00:00Z" }
   ]
@@ -284,6 +286,28 @@ export default function McpPage() {
             </CodeBlock>
           </div>
         ))}
+      </section>
+
+      {/* Storage limits */}
+      <section className="border-t border-o-border mt-10 pt-10">
+        <h2 className="font-display text-lg font-bold text-o-text mb-4">
+          Storage Limits
+        </h2>
+        <div className="text-sm text-o-textSecondary leading-relaxed space-y-2">
+          <p>
+            Each wallet gets <span className="text-o-text font-mono text-xs">1 GB</span> of persistent storage
+            with a maximum of <span className="text-o-text font-mono text-xs">10,000 files</span>.
+          </p>
+          <p>
+            Exceeding the file limit causes{" "}
+            <span className="font-mono text-xs bg-o-bg px-1.5 py-0.5 rounded border border-o-border text-o-text">
+              Disk quota exceeded
+            </span>{" "}
+            errors inside the container. Use{" "}
+            <span className="font-mono text-xs text-o-text">list_storage</span> to check usage and{" "}
+            <span className="font-mono text-xs text-o-text">delete_storage_file</span> to free space.
+          </p>
+        </div>
       </section>
 
       {/* Payment flow */}

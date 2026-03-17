@@ -240,6 +240,9 @@ Each wallet gets a persistent `/scratch` volume (1 GB free tier) that survives b
 - **Mount**: pass `mount_storage: true` to `run_job` — the volume appears at `/scratch` inside the container (read-write)
 - **List files**: call `list_storage` to see quota usage and file listing
 - **Delete files**: call `delete_storage_file` with a relative path
+- **File count limit**: max 10,000 files per wallet (enforced by filesystem quotas)
+- Jobs that exceed the file limit see `Disk quota exceeded` errors
+- Use `list_storage` to check current file count; use `delete_storage_file` to free up space
 - **TTL**: storage is cleaned up after 90 days of inactivity (warning at 60 days)
 
 ## Container Images

@@ -459,8 +459,9 @@ export default function MyComponent() {
 Wallet-gated page for managing persistent per-wallet storage.
 
 - **Quota bar**: horizontal progress bar showing used/total bytes (e.g. "524 KB / 1 GB"). Uses `o-blue` fill, `o-surface` background. Percentage label right-aligned.
-- **File list table**: columns — File Path (mono font), Size (human-readable), Last Modified (relative time). Rows use `o-bg` background with `o-border` dividers.
-- **Delete action**: each row has a trash icon button. On click, prompts wallet signature (EIP-191 signed message `ouro-storage-delete:{wallet}:{path}:{timestamp}`). Uses wagmi `useSignMessage`. Shows loading spinner during signature + API call.
+- **File tree view**: expandable folder tree (shared `FileTreeIcons` components) with depth-based indentation. Folders sorted before files, alphabetical within each group. All folders auto-expanded on first load; expand/collapse persists across refreshes. Files show size (hidden on mobile) and modified date (hidden on small screens) inline on the right.
+- **Refresh icon**: SVG refresh icon replaces text "Refresh" button. Spins (`animate-spin`) while loading.
+- **Delete action**: each file row has a trash SVG icon. Visible by default on mobile, hover-gated on desktop (`group-hover`). On click, prompts `confirm()` then calls DELETE API. Touch targets use `py-2.5` on mobile, `py-1.5` on desktop.
 - **Empty state**: "No files in storage" with suggestion to use `mount_storage: true` in a job.
 - **Layout**: standard docs-style layout matching `/submit` page.
 

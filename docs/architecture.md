@@ -258,6 +258,8 @@ Dashboard: `/storage` page (quota bar, file list, signed delete), toggle in subm
 
 ### Known Limitations
 
+- **File count limit**: 10,000 files per wallet, enforced by ext4 project quotas on the NFS server. The kernel returns EDQUOT when the limit is hit. The pre-run check in the job script provides a user-friendly error message if the limit is already exceeded before the container starts.
+- **Workspace quota**: 500 MB and 10,000 files per job workspace, enforced by ephemeral ext4 project quotas. Quotas are set on workspace creation and removed on deletion. Orphaned workspaces + quotas cleaned hourly by cron.
 - **No kernel quotas on NFS bind mounts** — containers can write beyond 1GB during a job. Post-job sync catches overages and blocks new `mount_storage=true` jobs until under quota.
 - **Concurrent writes** — two jobs from the same wallet with `mount_storage=true` both write to `/scratch`. NFS provides POSIX semantics but file conflicts are last-writer-wins.
 - **TTL cleanup race** — `_storage_cleanup()` uses `SELECT ... FOR UPDATE` to re-check `last_accessed_at` under row lock, preventing races with concurrent `submit_compute` calls.
@@ -277,6 +279,11 @@ Every container runs with:
 --read-only --network none --cap-drop ALL --no-new-privileges
 --user 65534:65534 --memory {limit} --pids-limit {limit} --tmpfs /tmp
 ```
+
+Mounts:
+- `/workspace` — job files (writable, quota-limited to 500 MB / 10K files, deleted after job)
+- `/scratch` — persistent storage (writable, quota-limited to 1 GB / 10K files, optional via `mount_storage`)
+- `/tmp` — tmpfs (100 MB, ephemeral, noexec)
 
 ### Worker-Level Hardening
 

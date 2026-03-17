@@ -297,6 +297,11 @@ export default function SubmitPage() {
                   />
                 </button>
               </div>
+              {mountStorage && (
+                <p className="text-xs text-o-muted mt-1">
+                  Limits: 1 GB total, max 10,000 files in /scratch
+                </p>
+              )}
             </div>
           </div>
 

@@ -5,6 +5,7 @@ so the agent's SlurmClient needs zero changes.
 """
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -13,6 +14,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import fcntl
 import tempfile
 import uuid
 
@@ -39,6 +41,13 @@ WORKSPACE_BASE_DIR = "/ouro-jobs/workspaces"
 STORAGE_BASE_DIR = "/ouro-storage"
 _STORAGE_WALLET_RE = re.compile(r"^0x[0-9a-f]{40}$")
 
+MAX_STORAGE_FILES = 10_000  # NOTE: must match agent/src/api/routes.py MAX_STORAGE_FILES
+STORAGE_QUOTA_BYTES = 1_073_741_824  # 1GB — matches DB default in config.py
+
+MAX_WORKSPACE_BYTES = 500 * 1024 * 1024  # 500MB per workspace
+MAX_WORKSPACE_FILES = 10_000
+_WORKSPACE_PROJ_ID_OFFSET = 1_000_000_001  # Workspace proj IDs start here (storage uses 1–1B)
+
 
 def _validate_storage_wallet(wallet: str) -> str:
     """Validate wallet address and return its storage directory path.
@@ -50,6 +59,148 @@ def _validate_storage_wallet(wallet: str) -> str:
     if not real.startswith(os.path.realpath(STORAGE_BASE_DIR) + os.sep):
         raise HTTPException(400, "Path traversal detected")
     return real
+
+
+def _append_if_missing(fpath: str, line: str) -> None:
+    """Append a line to a file if not already present, with file locking."""
+    try:
+        with open(fpath, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read()
+            if line not in content:
+                f.write(line + "\n")
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError as e:
+        logger.warning("Failed to update %s: %s", fpath, e)
+
+
+def _setup_project_quota(storage_path: str, wallet: str) -> None:
+    """Assign ext4 project quota to a wallet's storage directory.
+
+    Uses ext4 project quotas for kernel-level inode + byte limits.
+    Idempotent — safe to call on every init_storage request.
+    Failures are non-fatal (logged as warnings) so the proxy works
+    without quotas in degraded mode.
+    """
+    proj_id = int(wallet[:10], 16) % 2_000_000_000 + 1
+
+    try:
+        with open("/etc/projects", "r") as f:
+            for existing_line in f:
+                existing_line = existing_line.strip()
+                if not existing_line or ":" not in existing_line:
+                    continue
+                existing_id, existing_path = existing_line.split(":", 1)
+                if int(existing_id) == proj_id and existing_path != storage_path:
+                    proj_id = (proj_id + 1) % 2_000_000_000 + 1
+                    logger.warning(
+                        "Project ID collision for %s, using %d instead", wallet, proj_id
+                    )
+                    break
+    except OSError:
+        pass
+
+    _append_if_missing("/etc/projects", f"{proj_id}:{storage_path}")
+    _append_if_missing("/etc/projid", f"{proj_id}:ouro_{wallet[:10]}")
+
+    try:
+        subprocess.run(
+            ["chattr", "+P", "-p", str(proj_id), storage_path],
+            capture_output=True, timeout=5, check=False,
+        )
+
+        for dirpath, _, filenames in os.walk(storage_path, followlinks=False):
+            for fname in filenames:
+                fpath = os.path.join(dirpath, fname)
+                if not os.path.islink(fpath):
+                    subprocess.run(
+                        ["chattr", "-p", str(proj_id), fpath],
+                        capture_output=True, timeout=5, check=False,
+                    )
+
+        block_limit = STORAGE_QUOTA_BYTES // 1024
+        subprocess.run(
+            [
+                "setquota", "-P", str(proj_id),
+                "0", str(block_limit),
+                "0", str(MAX_STORAGE_FILES),
+                "/",
+            ],
+            capture_output=True, timeout=5, check=False,
+        )
+        logger.info(
+            "Project quota set for %s: proj_id=%d, blocks=%d, inodes=%d",
+            wallet, proj_id, block_limit, MAX_STORAGE_FILES,
+        )
+    except Exception as e:
+        logger.warning("Failed to set project quota for %s: %s", wallet, e)
+
+
+def _workspace_proj_id(workspace_id: str) -> int:
+    """Deterministic project ID for a workspace UUID. Range: 1B+1 to 2B."""
+    h = int(hashlib.sha256(workspace_id.encode()).hexdigest()[:8], 16)
+    return h % 1_000_000_000 + _WORKSPACE_PROJ_ID_OFFSET
+
+
+def _setup_workspace_quota(workspace_path: str, workspace_id: str) -> int | None:
+    """Set up ephemeral ext4 project quota for a workspace. Returns proj_id on success."""
+    proj_id = _workspace_proj_id(workspace_id)
+    try:
+        _append_if_missing("/etc/projects", f"{proj_id}:{workspace_path}")
+        _append_if_missing("/etc/projid", f"{proj_id}:ws_{workspace_id[:8]}")
+
+        subprocess.run(
+            ["chattr", "+P", "-p", str(proj_id), workspace_path],
+            capture_output=True, timeout=5, check=False,
+        )
+        block_limit = MAX_WORKSPACE_BYTES // 1024
+        subprocess.run(
+            [
+                "setquota", "-P", str(proj_id),
+                "0", str(block_limit),
+                "0", str(MAX_WORKSPACE_FILES),
+                "/",
+            ],
+            capture_output=True, timeout=5, check=False,
+        )
+        logger.info("Workspace quota set: %s proj_id=%d", workspace_id[:8], proj_id)
+        return proj_id
+    except Exception as e:
+        logger.warning("Failed to set workspace quota for %s: %s", workspace_id[:8], e)
+        return None
+
+
+def _remove_line_from_file(fpath: str, prefix: str) -> None:
+    """Remove lines starting with prefix from a file, with file locking."""
+    try:
+        with open(fpath, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            lines = f.readlines()
+            f.seek(0)
+            f.truncate()
+            for line in lines:
+                if not line.startswith(prefix):
+                    f.write(line)
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError as e:
+        logger.warning("Failed to update %s: %s", fpath, e)
+
+
+def _remove_workspace_quota(workspace_id: str) -> None:
+    """Remove ephemeral project quota for a deleted workspace."""
+    proj_id = _workspace_proj_id(workspace_id)
+    try:
+        # Zero out quota first
+        subprocess.run(
+            ["setquota", "-P", str(proj_id), "0", "0", "0", "0", "/"],
+            capture_output=True, timeout=5, check=False,
+        )
+        # Remove entries from /etc/projects and /etc/projid
+        _remove_line_from_file("/etc/projects", f"{proj_id}:")
+        _remove_line_from_file("/etc/projid", f"{proj_id}:")
+        logger.info("Workspace quota removed: %s proj_id=%d", workspace_id[:8], proj_id)
+    except Exception as e:
+        logger.warning("Failed to remove workspace quota for %s: %s", workspace_id[:8], e)
 
 
 DOCKER_IMAGES = {
@@ -126,6 +277,22 @@ def _validate_and_write_file(workspace_path: str, rel_path: str, content: str) -
     os.chmod(abs_path, 0o644)
 
 
+def _storage_check_block(storage_path: str | None) -> str:
+    """Generate a pre-run file count check block for the job script."""
+    if not storage_path:
+        return ""
+    sp = shlex.quote(storage_path)
+    return f"""# Pre-run storage file count check (UX hint — kernel quotas enforce the real limit)
+if [ -d {sp} ]; then
+  _FC=$(find {sp} -type f -maxdepth 5 ! -type l 2>/dev/null | head -10001 | wc -l)
+  if [ "$_FC" -gt {MAX_STORAGE_FILES} ]; then
+    echo "ERROR: Storage file limit exceeded ($_FC files, max {MAX_STORAGE_FILES}). Delete files at /scratch before running new jobs." >&2
+    exit 78
+  fi
+fi
+"""
+
+
 def wrap_in_docker(
     workspace_path: str,
     entrypoint: str,
@@ -184,10 +351,10 @@ def wrap_in_docker(
 set -euo pipefail
 DOCKER_TAG={tag}
 cd {shlex.quote(workspace_path)}
-DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >/dev/null 2>&1
+{_storage_check_block(storage_path)}DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >/dev/null 2>&1
 docker run \\
     {sec_flags} \\
-    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace:ro \\
+    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace \\
     -w /workspace \\
     "$DOCKER_TAG" \\
     {cmd_str}
@@ -212,10 +379,10 @@ exit $EXIT_CODE
 
     return f"""#!/bin/bash
 set -euo pipefail
-docker pull -q {shlex.quote(image_ref)} >/dev/null 2>&1 || true
+{_storage_check_block(storage_path)}docker pull -q {shlex.quote(image_ref)} >/dev/null 2>&1 || true
 docker run \\
     {sec_flags} \\
-    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace:ro \\
+    {storage_mount}-v {shlex.quote(workspace_path)}:/workspace \\
     -w /workspace \\
     {shlex.quote(image_ref)} \\
     {cmd_str}
@@ -267,6 +434,12 @@ async def submit_job(
         with open(script_path, "w") as sf:
             sf.write(script)
         os.chmod(script_path, 0o644)
+        os.chown(workspace_path, 65534, 65534)
+        os.chown(script_path, 65534, 65534)
+        proj_id = _setup_workspace_quota(workspace_path, ws_id)
+        if proj_id is None:
+            shutil.rmtree(workspace_path, ignore_errors=True)
+            raise HTTPException(500, "Failed to set up workspace quota")
         entrypoint = "job.sh"
 
     docker_image = body.get("docker_image")
@@ -285,6 +458,7 @@ async def submit_job(
         df_path = os.path.join(workspace_path, "Dockerfile")
         with open(df_path, "w") as f:
             f.write(dockerfile_content)
+        os.chown(df_path, 65534, 65534)
         # Remove any case-variant duplicates
         for variant in ("dockerfile", "DOCKERFILE"):
             variant_path = os.path.join(workspace_path, variant)
@@ -551,6 +725,18 @@ async def create_workspace(
         logger.error("Workspace creation failed: %s", e)
         raise HTTPException(500, "Workspace creation failed")
 
+    # Chown workspace to container user (nobody:65534) so jobs can write
+    for dirpath, dirnames, filenames in os.walk(workspace_path):
+        os.chown(dirpath, 65534, 65534)
+        for fname in filenames:
+            os.chown(os.path.join(dirpath, fname), 65534, 65534)
+
+    # Set up ephemeral workspace quota (fatal if fails — no unquoted writable workspaces)
+    proj_id = _setup_workspace_quota(workspace_path, workspace_id)
+    if proj_id is None:
+        shutil.rmtree(workspace_path, ignore_errors=True)
+        raise HTTPException(500, "Failed to set up workspace quota")
+
     logger.info("Workspace created: %s (%d files)", workspace_id, len(body.get("files", [])))
     return {"workspace_path": workspace_path, "reused": False}
 
@@ -570,6 +756,7 @@ async def delete_workspace(
     if not os.path.exists(path):
         return {"deleted": False}
     shutil.rmtree(path, ignore_errors=True)
+    _remove_workspace_quota(workspace_id)
     logger.info("Workspace deleted: %s", workspace_id)
     return {"deleted": True}
 
@@ -605,7 +792,57 @@ async def init_storage(
         created = True
         logger.info("Storage initialized for wallet %s", wallet)
 
+    # Set up ext4 project quota (idempotent, non-fatal on failure)
+    _setup_project_quota(storage_path, wallet)
+
     return {"storage_path": storage_path, "created": created}
+
+
+def _count_files(storage_path: str, max_depth: int, max_count: int) -> int:
+    """Count files in storage directory (bounded by depth and count)."""
+    file_count = 0
+    base_depth = storage_path.rstrip("/").count("/")
+    for dirpath, dirnames, filenames in os.walk(storage_path, followlinks=False):
+        current_depth = dirpath.rstrip("/").count("/") - base_depth
+        if current_depth >= max_depth:
+            dirnames.clear()
+            continue
+        for fname in filenames:
+            if not os.path.islink(os.path.join(dirpath, fname)):
+                file_count += 1
+        if file_count > max_count:
+            break
+    return file_count
+
+
+def _list_files(storage_path: str, max_entries: int, max_depth: int) -> list[dict]:
+    """List files in storage directory (bounded, non-blocking when called via to_thread)."""
+    files = []
+    base_depth = storage_path.rstrip("/").count("/")
+    for dirpath, dirnames, filenames in os.walk(storage_path, followlinks=False):
+        current_depth = dirpath.rstrip("/").count("/") - base_depth
+        if current_depth >= max_depth:
+            dirnames.clear()
+            continue
+        for fname in filenames:
+            if len(files) >= max_entries:
+                break
+            full = os.path.join(dirpath, fname)
+            if os.path.islink(full):
+                continue
+            rel = os.path.relpath(full, storage_path)
+            try:
+                stat = os.lstat(full)
+                files.append({
+                    "path": rel,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                })
+            except OSError:
+                continue
+        if len(files) >= max_entries:
+            break
+    return files
 
 
 @app.get("/slurm/v0.0.38/storage/{wallet}/usage")
@@ -629,11 +866,7 @@ async def get_storage_usage(
         logger.warning("du failed for %s: %s", wallet, e)
         used_bytes = 0
 
-    file_count = 0
-    for dirpath, _, filenames in os.walk(storage_path, followlinks=False):
-        for fname in filenames:
-            if not os.path.islink(os.path.join(dirpath, fname)):
-                file_count += 1
+    file_count = await asyncio.to_thread(_count_files, storage_path, 5, MAX_STORAGE_FILES)
 
     return {"used_bytes": used_bytes, "file_count": file_count}
 
@@ -649,37 +882,7 @@ async def list_storage_files(
     if not os.path.exists(storage_path):
         return {"files": []}
 
-    files = []
-    max_entries = 1000
-    max_depth = 5
-    base_depth = storage_path.rstrip("/").count("/")
-
-    # followlinks=False prevents symlink-based info leaks (container could
-    # create symlinks pointing outside storage; we must not follow them)
-    for dirpath, dirnames, filenames in os.walk(storage_path, followlinks=False):
-        current_depth = dirpath.rstrip("/").count("/") - base_depth
-        if current_depth >= max_depth:
-            dirnames.clear()
-            continue
-        for fname in filenames:
-            if len(files) >= max_entries:
-                break
-            full = os.path.join(dirpath, fname)
-            # Skip symlinks — containers could create symlinks to sensitive paths
-            if os.path.islink(full):
-                continue
-            rel = os.path.relpath(full, storage_path)
-            try:
-                stat = os.lstat(full)  # lstat to avoid following symlinks
-                files.append({
-                    "path": rel,
-                    "size": stat.st_size,
-                    "modified": stat.st_mtime,
-                })
-            except OSError:
-                continue
-        if len(files) >= max_entries:
-            break
+    files = await asyncio.to_thread(_list_files, storage_path, 1000, 5)
 
     return {"files": files}
 
@@ -715,10 +918,17 @@ async def delete_storage_file(
     if not os.path.exists(abs_path):
         raise HTTPException(404, "File not found")
 
+    # Symlink safety: never follow symlinks — a container could create a
+    # symlink pointing to another wallet's storage directory
+    if os.path.islink(abs_path):
+        await asyncio.to_thread(os.unlink, abs_path)
+        logger.info("Removed symlink %s for %s", file_path, wallet)
+        return {"deleted": True}
+
     if os.path.isdir(abs_path):
-        shutil.rmtree(abs_path, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, abs_path, True)
     else:
-        os.remove(abs_path)
+        await asyncio.to_thread(os.remove, abs_path)
 
     logger.info("Deleted storage file %s for %s", file_path, wallet)
     return {"deleted": True}

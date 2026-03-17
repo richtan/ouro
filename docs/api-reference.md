@@ -18,10 +18,10 @@
 | `GET` | `/api/attribution/decode?tx_hash=0x...` | None | Decode ERC-8021 builder code suffix from any on-chain transaction. |
 | `GET` | `/health` | None | Liveness probe. Returns `{"status": "ok"}`. |
 | `GET` | `/health/ready` | None | Readiness probe. Checks DB, wallet balance. Returns 503 if degraded. |
-| `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits). |
+| `GET` | `/api/capabilities` | None | Machine-readable service description (payment protocol, compute limits, trust metrics, rate limits, storage `max_files`). |
 | `GET` | `/api/audit` | Admin key | Structured audit log. Query params: `limit` (default 50), `event_type` (optional filter). |
-| `GET` | `/api/storage` | EIP-191 sig | Persistent storage quota usage and file listing. Query params: `wallet`, `signature`, `timestamp`. Signature message: `ouro-storage-list:{wallet}:{timestamp}`. |
-| `DELETE` | `/api/storage/files` | EIP-191 sig | Delete file from persistent storage. Query params: `wallet`, `path`, `signature`, `timestamp`. Signature message: `ouro-storage-delete:{wallet}:{path}:{timestamp}` with 5-min window. |
+| `GET` | `/api/storage` | EIP-191 sig | Persistent storage quota usage and file listing. Returns `max_files` limit. Rate limited: 30/wallet/min, 200 global/min. Returns 429 with `Retry-After: 60` when exceeded. Query params: `wallet`, `signature`, `timestamp`. Signature message: `ouro-storage-list:{wallet}:{timestamp}`. |
+| `DELETE` | `/api/storage/files` | EIP-191 sig | Delete file from persistent storage. Rate limited: 30/wallet/min, 200 global/min. Returns 429 with `Retry-After: 60` when exceeded. Query params: `wallet`, `path`, `signature`, `timestamp`. Signature message: `ouro-storage-delete:{wallet}:{path}:{timestamp}` with 5-min window. |
 | `GET` | `/.well-known/agent-card.json` | None | A2A Agent Card for agent-to-agent discovery. Returns name, skills, auth schemes. |
 Admin key endpoints require `X-Admin-Key` header matching `ADMIN_API_KEY` env var. Uses `hmac.compare_digest` for constant-time comparison. If `ADMIN_API_KEY` is empty, auth is skipped (dev mode).
 
@@ -100,8 +100,8 @@ assert hmac.compare_digest(f"sha256={expected}", signature)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/slurm/v0.0.38/job/submit` | `X-SLURM-USER-TOKEN` header | Submit job via sbatch, wrapped in Docker container. Always requires `workspace_path` + `entrypoint`. Accepts optional `docker_image` (Docker Hub reference), `entrypoint_cmd` (exec-form command), and `dockerfile_content` (for docker build on worker). Has a transition fallback for legacy `script` payloads (converts to workspace internally). |
-| `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. |
-| `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS after job completion. UUID-validated. |
+| `POST` | `/slurm/v0.0.38/workspace` | `X-SLURM-USER-TOKEN` header | Create workspace on NFS from files. Sets ext4 project quota (500 MB, 10K files). Chowns to container user (65534). Body: `{workspace_id, mode: "multi_file", files: [{path, content}]}`. Returns `{workspace_path}`. Returns 500 if quota setup fails. |
+| `DELETE` | `/slurm/v0.0.38/workspace/{workspace_id}` | `X-SLURM-USER-TOKEN` header | Delete workspace from NFS and remove ephemeral project quota. UUID-validated. |
 | `GET` | `/slurm/v0.0.38/allowed-images` | `X-SLURM-USER-TOKEN` header | Return available Docker image aliases and their Docker Hub references. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}` | `X-SLURM-USER-TOKEN` header | Get job state via scontrol. Returns state, exit_code, timestamps. |
 | `GET` | `/slurm/v0.0.38/job/{job_id}/output` | `X-SLURM-USER-TOKEN` header | Get stdout, stderr, and SHA-256 output hash. |
@@ -109,7 +109,7 @@ assert hmac.compare_digest(f"sha256={expected}", signature)
 | `GET` | `/health` | None | Cluster health check (calls sinfo). |
 
 | `POST` | `/slurm/v0.0.38/storage/init` | `X-SLURM-USER-TOKEN` header | Initialize per-wallet NFS storage directory. Body: `{wallet}`. |
-| `GET` | `/slurm/v0.0.38/storage/{wallet}/usage` | `X-SLURM-USER-TOKEN` header | Get storage usage in bytes for a wallet. |
+| `GET` | `/slurm/v0.0.38/storage/{wallet}/usage` | `X-SLURM-USER-TOKEN` header | Get storage usage in bytes and file count for a wallet. File count is bounded (max depth 5, capped at 10,000). |
 | `GET` | `/slurm/v0.0.38/storage/{wallet}/files` | `X-SLURM-USER-TOKEN` header | List files in a wallet's storage directory. |
 | `DELETE` | `/slurm/v0.0.38/storage/{wallet}/files/{path}` | `X-SLURM-USER-TOKEN` header | Delete a file from a wallet's storage directory. |
 | `DELETE` | `/slurm/v0.0.38/storage/{wallet}` | `X-SLURM-USER-TOKEN` header | Delete entire storage directory for a wallet (TTL cleanup). |

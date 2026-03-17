@@ -113,7 +113,7 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.4.0" },
+  { name: "ouro", version: "1.4.1" },
   {
     instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
@@ -133,7 +133,11 @@ Prebuilt images (instant): ouro-ubuntu, ouro-python, ouro-nodejs.
 Any Docker Hub image works via Dockerfile (e.g., FROM python:3.12-slim).
 
 Use list_storage to view files in your persistent /scratch volume.
-Use mount_storage=true in run_job to mount persistent storage into the container at /scratch (read-write).`,
+Use mount_storage=true in run_job to mount persistent storage into the container at /scratch (read-write).
+
+Storage limits: 1 GB total, max 10,000 files. Exceeding the file limit returns "Disk quota exceeded" errors inside the container.
+Use list_storage to check current usage before running storage-heavy jobs.
+Use delete_storage_file to free space or reduce file count.`,
   },
 );
 
@@ -154,7 +158,7 @@ server.tool(
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
     time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
-    mount_storage: z.boolean().default(false).describe("Mount persistent /scratch volume (read-write) for this job. Files written to /scratch persist between jobs."),
+    mount_storage: z.boolean().default(false).describe("Mount persistent /scratch volume (read-write). Files persist between jobs. Limits: 1 GB, max 10,000 files."),
   },
   async (params) => {
     // Validate: exactly one of script or files
@@ -400,7 +404,7 @@ server.tool(
 
 server.tool(
   "list_storage",
-  "List files in your persistent storage. Shows quota usage and file listing.",
+  "List files in your persistent storage. Shows quota usage, file count, and file listing. Includes max_files limit.",
   {},
   async () => {
     try {

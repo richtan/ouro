@@ -311,6 +311,11 @@ class _RateLimiter:
 
 _rate_limiter = _RateLimiter()
 
+# Storage rate limiter: 30 per-wallet per 60s, 200 global per 60s
+# NOTE: MAX_STORAGE_FILES must match the same constant in deploy/slurm/slurm_proxy.py
+_storage_rate_limiter = _RateLimiter(per_key_limit=30, global_limit=200, window_s=60.0)
+MAX_STORAGE_FILES = 10_000
+
 
 async def require_admin_key(request: Request):
     if not settings.ADMIN_API_KEY:
@@ -770,6 +775,17 @@ async def get_storage(
         lambda w: f"ouro-storage-list:{w}:{timestamp}",
     )
 
+    # Rate limit (skip for admin key — internal/operational)
+    if not (settings.ADMIN_API_KEY and hmac.compare_digest(
+        request.headers.get("x-admin-key", ""), settings.ADMIN_API_KEY
+    )):
+        if not _storage_rate_limiter.check(f"storage:{wallet_lower}"):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many storage requests — try again shortly"},
+                headers={"Retry-After": "60"},
+            )
+
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
 
@@ -789,6 +805,7 @@ async def get_storage(
                 "quota_bytes": settings.STORAGE_FREE_TIER_BYTES,
                 "used_bytes": 0,
                 "file_count": 0,
+                "max_files": MAX_STORAGE_FILES,
                 "files": [],
                 "last_accessed_at": None,
                 "created_at": None,
@@ -810,6 +827,7 @@ async def get_storage(
         "quota_bytes": int(quota.quota_bytes) if quota else settings.STORAGE_FREE_TIER_BYTES,
         "used_bytes": usage["used_bytes"],
         "file_count": usage["file_count"],
+        "max_files": MAX_STORAGE_FILES,
         "files": files,
         "last_accessed_at": quota.last_accessed_at.isoformat() if quota and quota.last_accessed_at else None,
         "created_at": quota.created_at.isoformat() if quota and quota.created_at else None,
@@ -889,6 +907,17 @@ async def delete_storage_file_route(
         request, wallet, signature, timestamp,
         lambda w: f"ouro-storage-delete:{w}:{path}:{timestamp}",
     )
+
+    # Rate limit (skip for admin key — internal/operational)
+    if not (settings.ADMIN_API_KEY and hmac.compare_digest(
+        request.headers.get("x-admin-key", ""), settings.ADMIN_API_KEY
+    )):
+        if not _storage_rate_limiter.check(f"storage:{wallet_lower}"):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many storage requests — try again shortly"},
+                headers={"Retry-After": "60"},
+            )
 
     if not _slurm_client:
         raise HTTPException(503, "Storage service unavailable")
@@ -1481,6 +1510,7 @@ async def get_capabilities():
             "enabled": True,
             "mount_point": "/scratch",
             "free_tier_bytes": settings.STORAGE_FREE_TIER_BYTES,
+            "max_files": MAX_STORAGE_FILES,
             "ttl_days": settings.STORAGE_TTL_DAYS,
             "access": "read-write",
         },
