@@ -110,7 +110,7 @@ def _validate_workspace_file_path(workspace_path: str, rel_path: str) -> str:
     if normalized.count(os.sep) > 5:
         raise HTTPException(400, f"File path too deep: {rel_path}")
     abs_path = os.path.realpath(os.path.join(workspace_path, normalized))
-    if not abs_path.startswith(os.path.realpath(workspace_path)):
+    if not abs_path.startswith(os.path.realpath(workspace_path) + os.sep):
         raise HTTPException(400, f"Path traversal detected: {rel_path}")
     return abs_path
 
@@ -696,14 +696,20 @@ async def delete_storage_file(
         raise HTTPException(404, "Storage not found")
 
     # Reuse workspace path validation pattern for traversal prevention
+    if not file_path or file_path.isspace():
+        raise HTTPException(400, "File path is required")
     if "\x00" in file_path:
         raise HTTPException(400, "Null bytes in path")
     normalized = os.path.normpath(file_path)
+    if normalized == ".":
+        raise HTTPException(400, "Cannot delete storage root")
     if normalized.startswith("..") or normalized.startswith("/"):
         raise HTTPException(400, f"Invalid path: {file_path}")
+    if normalized.count(os.sep) > 5:
+        raise HTTPException(400, f"File path too deep: {file_path}")
 
     abs_path = os.path.realpath(os.path.join(storage_path, normalized))
-    if not abs_path.startswith(os.path.realpath(storage_path) + "/"):
+    if not abs_path.startswith(os.path.realpath(storage_path) + os.sep):
         raise HTTPException(400, "Path traversal detected")
 
     if not os.path.exists(abs_path):

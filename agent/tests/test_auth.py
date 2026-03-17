@@ -181,16 +181,17 @@ class TestCheckAdminOrWalletSig:
         )
         assert result == TEST_WALLET
 
-    def test_no_admin_key_configured(self, monkeypatch):
-        """If ADMIN_API_KEY is not set, admin auth passes (no restriction)."""
+    def test_no_admin_key_configured_requires_wallet_sig(self, monkeypatch):
+        """If ADMIN_API_KEY is not set, wallet signature is still required (no bypass)."""
         from src.api.routes import _check_admin_or_wallet_sig
         from src.config import settings
 
         monkeypatch.setattr(settings, "ADMIN_API_KEY", "")
         request = self._make_request()
 
-        result = _check_admin_or_wallet_sig(
-            request, TEST_WALLET, None, None,
-            lambda w: f"ouro-storage-list:{w}:12345",
-        )
-        assert result is None
+        with pytest.raises(HTTPException) as exc_info:
+            _check_admin_or_wallet_sig(
+                request, TEST_WALLET, None, None,
+                lambda w: f"ouro-storage-list:{w}:12345",
+            )
+        assert exc_info.value.status_code == 401

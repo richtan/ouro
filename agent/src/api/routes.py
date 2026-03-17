@@ -856,8 +856,6 @@ def _check_admin_or_wallet_sig(
     admin_key = request.headers.get("x-admin-key", "")
     if settings.ADMIN_API_KEY and hmac.compare_digest(admin_key, settings.ADMIN_API_KEY):
         return None
-    if not settings.ADMIN_API_KEY:
-        return None
 
     if not wallet or not signature or not timestamp:
         raise HTTPException(401, "Authentication required (wallet signature or admin key)")
