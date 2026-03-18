@@ -306,7 +306,12 @@ def wrap_in_docker(
     storage_path: str | None = None,
 ) -> str:
     """Generate a wrapper script for Docker execution on the worker."""
-    image_ref = docker_image or resolve_docker_image(image_name)
+    # For dockerfile builds, image_ref is unused (we docker build a custom tag).
+    # Skip resolve_docker_image to avoid rejecting raw Docker Hub names like "ubuntu:22.04".
+    if dockerfile_content:
+        image_ref = docker_image or image_name or "unused"
+    else:
+        image_ref = docker_image or resolve_docker_image(image_name)
 
     sec_flags = " \\\n    ".join([
         "--read-only",

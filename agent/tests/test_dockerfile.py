@@ -669,6 +669,39 @@ class TestSecurityValidation:
 # ---------------------------------------------------------------------------
 
 
+class TestExternalImageWithBuildInstructions:
+    """External Docker images with RUN/COPY/ENV set needs_docker_build=True and extract entrypoint."""
+
+    def test_external_image_with_run_needs_docker_build(self):
+        parsed = parse_dockerfile("FROM ubuntu:22.04\nRUN apt-get update\nENTRYPOINT [\"bash\", \"job.sh\"]")
+        assert parsed.from_image == "ubuntu:22.04"
+        assert parsed.is_external_image
+        assert parsed.needs_build
+        assert parsed.needs_docker_build
+        assert parsed.entrypoint_cmd == ["bash", "job.sh"]
+
+    def test_external_image_with_run_and_copy(self):
+        parsed = parse_dockerfile(
+            "FROM python:3.12-slim\n"
+            "COPY requirements.txt /app/requirements.txt\n"
+            "RUN pip install -r /app/requirements.txt\n"
+            "COPY main.py /app/main.py\n"
+            'ENTRYPOINT ["python", "/app/main.py"]'
+        )
+        assert parsed.from_image == "python:3.12-slim"
+        assert parsed.is_external_image
+        assert parsed.needs_docker_build
+        assert parsed.entrypoint_cmd == ["python", "/app/main.py"]
+        assert len(parsed.copy_instructions) == 2
+
+    def test_external_image_without_build_instructions(self):
+        """External image with only ENTRYPOINT — needs_build but not needs_docker_build."""
+        parsed = parse_dockerfile('FROM ruby:latest\nENTRYPOINT ["ruby", "hello.rb"]')
+        assert parsed.is_external_image
+        assert parsed.needs_build
+        assert not parsed.needs_docker_build
+
+
 class TestCombinedFeatures:
     def test_full_dockerfile(self):
         """A realistic Dockerfile using many supported instructions."""

@@ -300,6 +300,8 @@ Mounts:
 - COPY/ADD: local workspace paths only (no globs, no URLs for ADD)
 - Build time is included in the Slurm job's `time_limit_min`
 
+**Image resolution on the proxy:** `wrap_in_docker()` resolves which Docker image to use. For Dockerfile builds (`dockerfile_content` present), the image is built on-worker via `docker build` — the `image` field is ignored and `resolve_docker_image()` is skipped. For non-Dockerfile jobs, `resolve_docker_image()` maps prebuilt aliases to Docker Hub references; unknown aliases return 400.
+
 ### Image Validation
 
 External (non-prebuilt) Docker images are validated against Docker Hub's tag API at submission time (`validate_docker_image()` in `dockerfile.py`):
