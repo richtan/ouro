@@ -31,6 +31,7 @@ export default async function RootLayout({
       <head>
         <meta name="base:app_id" content="6997ee68820ae5633e55081a" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <script defer src="https://cloud.umami.is/script.js" data-website-id="826fdfb6-e1bd-4add-a26e-b6c65131e14d"></script>
       </head>
       <body className="min-h-screen antialiased font-sans flex flex-col">
         <Web3Provider initialState={initialState}>
