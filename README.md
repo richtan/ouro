@@ -8,7 +8,7 @@ Submit code via HTTP, pay with USDC on Base, and your job runs in an isolated co
 
 ## Demo
 
-[![Watch the demo](https://img.youtube.com/vi/xctlAEJoJdU/maxresdefault.jpg)](https://www.youtube.com/watch?v=xctlAEJoJdU)
+https://github.com/user-attachments/assets/efed590b-4664-47fb-9cba-f6338b3ced93
 
 ## Quick Start
 
