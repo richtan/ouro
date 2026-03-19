@@ -194,7 +194,7 @@ export default function LandingPage() {
             </h2>
             <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-o-border bg-o-surface">
               <iframe
-                src="https://www.youtube.com/embed/xctlAEJoJdU"
+                src="https://www.youtube.com/embed/xctlAEJoJdU?rel=0"
                 title="Ouro Demo"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
