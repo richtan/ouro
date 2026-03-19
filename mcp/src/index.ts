@@ -180,6 +180,7 @@ Any Docker Hub image works with setup_commands or Dockerfile.
 - curl/wget in script → FAILS (no network). Use setup_commands instead.
 - Writing to /usr, /opt, etc. → FAILS (read-only). Write to /workspace or /tmp.
 - Forgetting time_limit_min with setup_commands → may timeout. Use 3+ minutes.
+- Passing files or setup_commands as a JSON string → FAILS. Pass as a native JSON array, not a stringified one.
 
 ## Storage
 Use mount_storage=true to mount persistent /scratch volume (1 GB, max 10,000 files).
@@ -193,6 +194,14 @@ Use get_price_quote to check price before submitting.`,
 // ---------------------------------------------------------------------------
 // setup_commands → Dockerfile generation
 // ---------------------------------------------------------------------------
+
+/** Try to parse a JSON string into its value; return the original if it fails. */
+function tryParseJson(v: unknown): unknown {
+  if (typeof v === "string") {
+    try { return JSON.parse(v); } catch { return v; }
+  }
+  return v;
+}
 
 const BASE_IMAGES: Record<string, string> = {
   "ouro-python": "python:3.12-slim",
@@ -211,24 +220,30 @@ server.tool(
     script: z.string().optional().describe(
       "Shell command(s) to execute. Use alone for simple jobs, or combine with files."
     ),
-    files: z
-      .array(z.object({ path: z.string(), content: z.string() }))
-      .optional()
-      .describe(
-        "Files to create in the workspace. Use with script to run a command, " +
-        "or include a Dockerfile (with ENTRYPOINT/CMD) for custom environments."
-      ),
-    setup_commands: z
-      .array(z.string())
-      .optional()
-      .describe(
-        "Shell commands to run during container build (WITH network access). " +
-        "Use for: pip/npm/apt install, git clone, downloading data, compiling code. " +
-        'Example: ["pip install numpy pandas"] or ["apt-get update && apt-get install -y git", ' +
-        '"git clone https://github.com/user/repo /opt/repo"]. ' +
-        "Cannot be combined with a Dockerfile in files. " +
-        "Build adds ~30s-2min — set time_limit_min to 3+ when using this."
-      ),
+    files: z.preprocess(
+      tryParseJson,
+      z.array(z.object({ path: z.string(), content: z.string() }))
+        .optional()
+        .describe(
+          "Files to create in the workspace as a JSON array of {path, content} objects. " +
+          "MUST be a native array, NOT a JSON string. " +
+          "Use with script to run a command, or include a Dockerfile (with ENTRYPOINT/CMD) for custom environments."
+        ),
+    ),
+    setup_commands: z.preprocess(
+      tryParseJson,
+      z.array(z.string())
+        .optional()
+        .describe(
+          "Shell commands to run during container build (WITH network access) as a JSON array of strings. " +
+          "MUST be a native array, NOT a JSON string. " +
+          "Use for: pip/npm/apt install, git clone, downloading data, compiling code. " +
+          'Example: ["pip install numpy pandas"] or ["apt-get update && apt-get install -y git", ' +
+          '"git clone https://github.com/user/repo /opt/repo"]. ' +
+          "Cannot be combined with a Dockerfile in files. " +
+          "Build adds ~30s-2min — set time_limit_min to 3+ when using this."
+        ),
+    ),
     image: z.string().default("ouro-ubuntu").describe(
       "Container image. Prebuilt (stdlib only, NO third-party packages): ouro-ubuntu, ouro-python, ouro-nodejs. " +
       "Any Docker Hub image works with setup_commands or Dockerfile."
