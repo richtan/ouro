@@ -22,9 +22,11 @@ import { createSiweMessage } from "viem/siwe";
 import { AuthProvider } from "@/contexts/AuthContext";
 import "@rainbow-me/rainbowkit/styles.css";
 
+const wcProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+
 export const config = getDefaultConfig({
   appName: "Ouro",
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "NO_WALLETCONNECT",
+  projectId: wcProjectId ?? "disabled",
   chains: [base],
   transports: {
     [base.id]: http(),
@@ -34,7 +36,9 @@ export const config = getDefaultConfig({
   wallets: [
     {
       groupName: "Recommended",
-      wallets: [metaMaskWallet, coinbaseWallet, walletConnectWallet],
+      wallets: wcProjectId
+        ? [metaMaskWallet, coinbaseWallet, walletConnectWallet]
+        : [coinbaseWallet],
     },
   ],
 });
