@@ -34,7 +34,7 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 |---------|------|------|----------|---------|
 | **Agent** | Python/FastAPI + PydanticAI | 8000 | Railway | Core backend: x402 payments, job processing, Slurm orchestration, autonomous pricing loop, webhook delivery |
 | **Dashboard** | Next.js 15 App Router + RainbowKit + wagmi | 3000 | Railway | Public UI: wallet balance, P&L, job list, terminal feed, submit page, payment page |
-| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet, SSE streaming for job status. Tools: run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file |
+| **MCP Server** | Node.js / @modelcontextprotocol/sdk | stdio | Local (npx) | Local MCP server for AI agents — signs x402 payments from user's wallet, SSE streaming for job status, setup_commands→Dockerfile generation. Tools: run_job (with setup_commands), get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file |
 | **Database** | PostgreSQL 16 | 5432 | Railway | Active jobs, historical data (monthly partitioned), cost ledger, wallet snapshots, attribution log, audit trail |
 | **Slurm Cluster** | Slurm + Docker + NFS | 6820 | GCP (us-central1-a) | HPC job execution with container isolation |
 
@@ -52,7 +52,7 @@ ouro/
 ├── contracts/      # Foundry Solidity (reserved for future contracts)
 ├── db/             # SQL schema (01-init.sql) + seed data (02-seed.sql)
 ├── deploy/         # deploy.sh, setup-slurm-cluster.sh, slurm.sh (cluster start/stop), slurm/ (proxy, configs)
-├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
+├── mcp/            # Local Node.js MCP server (npx ouro-mcp) — run_job (with setup_commands), get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
 ├── docs/           # Detailed reference docs (see table below)
 └── .mcp/           # MCP Registry manifest
 ```

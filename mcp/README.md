@@ -9,6 +9,14 @@ Run HPC compute jobs from any AI agent — paid in USDC on Base via [x402](https
 
 Ouro is a pay-per-use compute service on Base. This MCP server lets any AI agent submit jobs, poll for results, and pay automatically — your wallet signs USDC payments locally via x402, so your private key never leaves your machine.
 
+## Container Constraints
+
+Jobs run in Docker containers with these restrictions:
+
+- **No network at runtime** — containers use `--network none`. You cannot `pip install`, `npm install`, `curl`, or `git clone` in your script. Use `setup_commands` to install dependencies at build time (which has network access).
+- **Mostly read-only filesystem** — writable paths: `/workspace` (current directory, ephemeral), `/tmp` (100 MB, ephemeral), `/scratch` (1 GB, persisted with `mount_storage: true`). All other paths are read-only.
+- **Memory: 1.6 GB per CPU** — jobs exceeding this are killed.
+
 ## Quick Start
 
 ### Prerequisites
@@ -141,6 +149,27 @@ User: Run a Python script that computes the first 1000 primes
   }
 ```
 
+### Install packages with setup_commands
+
+```
+→ run_job(
+    script: "python3 main.py",
+    files: [
+      { "path": "main.py", "content": "import numpy as np\nprint(np.random.rand(3, 3))" }
+    ],
+    image: "ouro-python",
+    setup_commands: ["pip install numpy"],
+    time_limit_min: 3
+  )
+
+← {
+    "job_id": "sc1234",
+    "status": "pending",
+    "price": "$0.0200",
+    ...
+  }
+```
+
 ### Wait for results
 
 ```
@@ -220,6 +249,7 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 | `cpus` | integer | No | `1` | CPU cores (1–8) |
 | `time_limit_min` | integer | No | `1` | Max runtime in minutes |
 | `webhook_url` | string | No | — | URL to receive a POST notification when the job completes or fails |
+| `setup_commands` | string[] | No | — | Shell commands to run during container build (with network). Auto-generates a Dockerfile. Cannot combine with a Dockerfile in files. Build adds ~30s-2min. |
 | `mount_storage` | boolean | No | `false` | Mount persistent `/scratch` volume (read-write). Files persist between jobs. |
 
 ### `get_job_status`
@@ -270,12 +300,17 @@ Each wallet gets a persistent `/scratch` volume (1 GB free tier) that survives b
 
 ## Container Images
 
-**Prebuilt (instant start):**
-- `ouro-ubuntu` — Ubuntu 22.04
-- `ouro-python` — Python 3.12 with pip
-- `ouro-nodejs` — Node.js 20 LTS
+**Prebuilt (instant start, stdlib only — no third-party packages):**
+- `ouro-ubuntu` — Ubuntu 22.04: bash, coreutils
+- `ouro-python` — Python 3.12: stdlib only, use `setup_commands` for pip packages
+- `ouro-nodejs` — Node.js 20: core runtime only, use `setup_commands` for npm packages
 
-**Custom:** Include a `Dockerfile` in your `files` array to use any Docker Hub image:
+**With dependencies:** Use `setup_commands` to install packages at build time:
+```
+run_job(script: "python3 main.py", image: "ouro-python", setup_commands: ["pip install numpy pandas"])
+```
+
+**Custom:** Include a `Dockerfile` in your `files` array for full control:
 ```dockerfile
 FROM python:3.12-slim
 RUN pip install numpy pandas

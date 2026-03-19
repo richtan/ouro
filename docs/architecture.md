@@ -86,7 +86,7 @@ ouro/
 ├── mcp/
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── src/index.ts            # Local MCP server (npx ouro-mcp): run_job, get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
+│   └── src/index.ts            # Local MCP server (npx ouro-mcp): run_job (setup_commands→Dockerfile), get_job_status, get_price_quote, get_allowed_images, list_storage, delete_storage_file
 ├── .mcp/
 │   └── server.json         # MCP Registry manifest for official registry publication
 ├── docker-compose.yml      # Local dev: postgres + agent + dashboard
@@ -146,12 +146,13 @@ All modes support `cpus`, `time_limit_min`, `submitter_address`, `webhook_url`, 
 11. On completion, job moved to `historical_data`
 
 ### Job Submission (via MCP)
-1. AI agent calls `run_job` MCP tool with job details (script or files — `files` can include a Dockerfile)
-2. Local MCP server (`npx ouro-mcp`) POSTs to `{API_URL}/api/compute/submit` → receives 402
-3. `@x402/fetch` automatically signs the USDC payment using the local `WALLET_PRIVATE_KEY` and retries
-4. Job created, `job_id` returned to the calling agent
-5. Agent polls with `get_job_status(job_id)` to get results
-6. Private key never leaves the user's machine — the MCP server runs locally via stdio transport
+1. AI agent calls `run_job` MCP tool with job details (script, files, and/or `setup_commands`)
+2. If `setup_commands` is provided, MCP server auto-generates a Dockerfile (each command → `RUN` line) and `_run.sh` entrypoint
+3. Local MCP server (`npx ouro-mcp`) POSTs to `{API_URL}/api/compute/submit` → receives 402
+4. `@x402/fetch` automatically signs the USDC payment using the local `WALLET_PRIVATE_KEY` and retries
+5. Job created, `job_id` returned to the calling agent
+6. Agent polls with `get_job_status(job_id)` to get results
+7. Private key never leaves the user's machine — the MCP server runs locally via stdio transport
 
 ## Database Schema
 

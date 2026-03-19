@@ -113,29 +113,44 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.5.0" },
+  { name: "ouro", version: "1.6.0" },
   {
     instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
+
+## CRITICAL: Container Constraints
+- **NO NETWORK at runtime** — containers run with --network none. You CANNOT pip install, npm install, apt-get, curl, wget, or git clone in your script. All network operations must happen in setup_commands (build time).
+- **Mostly read-only filesystem** — writable paths: /workspace (current dir, ephemeral), /tmp (100 MB, ephemeral), /scratch (1 GB, persisted with mount_storage: true). All other paths are read-only.
+- **Memory: 1.6 GB per CPU** — jobs exceeding this are killed (OOMKilled).
 
 ## How to submit jobs
 
 Call run_job, then get_job_status to wait for results.
 
-### Option 1: Script only (simplest)
-Run a shell command directly.
-  run_job(script="echo hello world")
+### Option 1: Script only (simplest — stdlib only)
+Run a shell command directly. No third-party packages available.
+  run_job(script="python3 -c \\"print('hello')\\"", image="ouro-python")
 
-### Option 2: Script + files (create files and run a command)
+### Option 2: Script + files (stdlib only)
 Create files in the workspace, then run a shell command that uses them.
-The script runs as bash inside the container, so use the right interpreter.
   run_job(
     script="python3 main.py",
-    files=[{path: "main.py", content: "print('hello')"}],
+    files=[{path: "main.py", content: "import json\\nprint(json.dumps({'ok': True}))"}],
     image="ouro-python"
   )
 
-### Option 3: Files with Dockerfile (custom environment)
+### Option 3: setup_commands (RECOMMENDED for dependencies)
+Install packages at build time (WITH network), then run your script (without network).
+Build adds ~30s-2min. Set time_limit_min to 3+ when using this.
+  run_job(
+    script="python3 main.py",
+    files=[{path: "main.py", content: "import numpy\\nprint(numpy.random.rand(3))"}],
+    image="ouro-python",
+    setup_commands=["pip install numpy"],
+    time_limit_min=3
+  )
+
+### Option 4: Files with Dockerfile (full control)
 Include a Dockerfile for custom dependencies. ENTRYPOINT or CMD required.
   run_job(
     files=[
@@ -145,17 +160,23 @@ Include a Dockerfile for custom dependencies. ENTRYPOINT or CMD required.
     image="python:3.12-slim"
   )
 
-## Images
-Prebuilt (instant start, no build step):
-  - ouro-ubuntu: Ubuntu 22.04 — bash, coreutils, curl, git
-  - ouro-python: Python 3.12 with pip — for Python scripts
-  - ouro-nodejs: Node.js 20 LTS — for JavaScript/TypeScript
-Custom: any Docker Hub image via Dockerfile (requires build step, slower start).
+## Decision tree
+- No dependencies needed? → Option 1 or 2 (instant start)
+- Need pip/npm/apt packages? → Option 3: setup_commands (easiest)
+- Need full Dockerfile control (multi-RUN, COPY, ENV)? → Option 4
 
-Script execution: the script runs via bash by default. For Python/JS, either
-use the matching image (ouro-python/ouro-nodejs) and call the interpreter in
-your script (e.g., "python3 main.py"), or use script-only mode where .py/.js
-files auto-detect the interpreter.
+## Images
+Prebuilt (instant start, stdlib only — NO third-party packages pre-installed):
+  - ouro-ubuntu: Ubuntu 22.04 — bash, coreutils (no curl, no git)
+  - ouro-python: Python 3.12 — stdlib only (no pip packages)
+  - ouro-nodejs: Node.js 20 — core runtime only (no npm packages)
+Any Docker Hub image works with setup_commands or Dockerfile.
+
+## Common mistakes
+- pip install in script → FAILS (no network). Use setup_commands instead.
+- curl/wget in script → FAILS (no network). Use setup_commands instead.
+- Writing to /usr, /opt, etc. → FAILS (read-only). Write to /workspace or /tmp.
+- Forgetting time_limit_min with setup_commands → may timeout. Use 3+ minutes.
 
 ## Storage
 Use mount_storage=true to mount persistent /scratch volume (1 GB, max 10,000 files).
@@ -167,12 +188,22 @@ Use get_price_quote to check price before submitting.`,
 );
 
 // ---------------------------------------------------------------------------
+// setup_commands → Dockerfile generation
+// ---------------------------------------------------------------------------
+
+const BASE_IMAGES: Record<string, string> = {
+  "ouro-python": "python:3.12-slim",
+  "ouro-nodejs": "node:20-slim",
+  "ouro-ubuntu": "ubuntu:22.04",
+};
+
+// ---------------------------------------------------------------------------
 // Tool: run_job
 // ---------------------------------------------------------------------------
 
 server.tool(
   "run_job",
-  "Submit a compute job. Provide script, files, or both. Returns job_id.",
+  "Submit a compute job. Containers have NO network at runtime — use setup_commands to install packages. Returns job_id.",
   {
     script: z.string().optional().describe(
       "Shell command(s) to execute. Use alone for simple jobs, or combine with files."
@@ -184,9 +215,23 @@ server.tool(
         "Files to create in the workspace. Use with script to run a command, " +
         "or include a Dockerfile (with ENTRYPOINT/CMD) for custom environments."
       ),
-    image: z.string().default("ouro-ubuntu").describe("Container image (default: ouro-ubuntu). Prebuilt: ouro-ubuntu, ouro-python, ouro-nodejs"),
+    setup_commands: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Shell commands to run during container build (WITH network access). " +
+        "Use for: pip/npm/apt install, git clone, downloading data, compiling code. " +
+        'Example: ["pip install numpy pandas"] or ["apt-get update && apt-get install -y git", ' +
+        '"git clone https://github.com/user/repo /opt/repo"]. ' +
+        "Cannot be combined with a Dockerfile in files. " +
+        "Build adds ~30s-2min — set time_limit_min to 3+ when using this."
+      ),
+    image: z.string().default("ouro-ubuntu").describe(
+      "Container image. Prebuilt (stdlib only, NO third-party packages): ouro-ubuntu, ouro-python, ouro-nodejs. " +
+      "Any Docker Hub image works with setup_commands or Dockerfile."
+    ),
     cpus: z.number().int().min(1).max(8).default(1).describe("CPU cores (1-8)"),
-    time_limit_min: z.number().int().min(1).default(1).describe("Max runtime in minutes"),
+    time_limit_min: z.number().int().min(1).max(60).default(1).describe("Max runtime in minutes (1-60)"),
     webhook_url: z.string().url().optional().describe("URL to receive a POST notification when the job completes or fails"),
     mount_storage: z.boolean().default(false).describe("Mount persistent /scratch volume (read-write). Files persist between jobs. Limits: 1 GB, max 10,000 files."),
   },
@@ -207,6 +252,94 @@ server.tool(
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (params.webhook_url) body.webhook_url = params.webhook_url;
     if (params.mount_storage) body.mount_storage = true;
+
+    // Handle setup_commands: generate Dockerfile + _run.sh
+    if (params.setup_commands?.length) {
+      const hasDockerfile = params.files?.some(
+        (f) => f.path.toLowerCase() === "dockerfile",
+      );
+      if (hasDockerfile) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Cannot use both setup_commands and a Dockerfile. Use one or the other.",
+            },
+          ],
+        };
+      }
+
+      const dockerImage = BASE_IMAGES[params.image] ?? params.image;
+      const files: { path: string; content: string }[] = [
+        ...(params.files ?? []),
+      ];
+      let entrypointFile: string;
+
+      if (params.script) {
+        // Write script content to a shell file
+        entrypointFile = files.some((f) => f.path === "_run.sh")
+          ? "_ouro_entrypoint.sh"
+          : "_run.sh";
+        let scriptContent = params.script;
+        if (scriptContent.trimStart().startsWith("#!")) {
+          scriptContent = scriptContent.split("\n").slice(1).join("\n");
+        }
+        files.push({
+          path: entrypointFile,
+          content: `#!/bin/bash\nset -euo pipefail\n${scriptContent}`,
+        });
+      } else {
+        // Auto-detect entrypoint from files
+        const detectable = files.find((f) =>
+          /\.(py|js|sh|rb|r|jl)$/i.test(f.path),
+        );
+        if (!detectable) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "setup_commands without 'script' requires at least one .py, .js, .sh, .rb, .r, or .jl file as entrypoint",
+              },
+            ],
+          };
+        }
+        entrypointFile = detectable.path;
+      }
+
+      // Determine interpreter from file extension
+      const ext = entrypointFile.split(".").pop()?.toLowerCase();
+      const interpreter: Record<string, string> = {
+        sh: "/bin/bash",
+        py: "python3",
+        js: "node",
+        rb: "ruby",
+        r: "Rscript",
+        jl: "julia",
+      };
+      const entrypointCmd = [
+        interpreter[ext ?? ""] ?? "/bin/bash",
+        entrypointFile,
+      ];
+
+      // Generate Dockerfile
+      const runLines = params.setup_commands
+        .map((c) => c.replace(/[\r\n]+/g, " ").trim())
+        .filter((c) => c.length > 0)
+        .map((c) => `RUN ${c}`);
+
+      const dockerfile = [
+        `FROM ${dockerImage}`,
+        ...runLines,
+        `ENTRYPOINT ${JSON.stringify(entrypointCmd)}`,
+      ].join("\n");
+
+      files.push({ path: "Dockerfile", content: dockerfile });
+
+      // Override body for API submission
+      body.files = files;
+      body.image = dockerImage;
+      delete body.script;
+    }
 
     try {
       const res = await apiFetch("/api/compute/submit", {

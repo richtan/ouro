@@ -21,6 +21,10 @@ npm start              # node dist/index.js
 | `list_storage` | `GET` | `/api/storage?wallet=&signature=&timestamp=` | EIP-191 signed |
 | `delete_storage_file` | `DELETE` | `/api/storage/files?wallet=&path=&signature=&timestamp=` | EIP-191 signed |
 
+## setup_commands Transformation
+
+When `setup_commands` is provided to `run_job`, the MCP server auto-generates a Dockerfile and `_run.sh` entrypoint, then sends the job as a normal Dockerfile submission. This is purely an MCP-side transformation — no API changes. The API sees a standard `files` submission with a Dockerfile.
+
 ## Version Locations
 
 Version must match across these 3 files:

@@ -107,6 +107,7 @@ const TOOLS = [
       { name: "cpus", type: "int", description: "CPU cores, 1-8 (default 1)" },
       { name: "time_limit_min", type: "int", description: "Max runtime in minutes (default 1)" },
       { name: "webhook_url", type: "string", description: "URL to receive POST notification on job completion/failure (optional)" },
+      { name: "setup_commands", type: "string[]", description: "Shell commands to run during build (WITH network). Use for pip/npm/apt install, git clone. Auto-generates Dockerfile. Cannot combine with Dockerfile in files." },
       { name: "mount_storage", type: "boolean", description: "Mount persistent /scratch volume for this job (default: false). Limits: 1 GB, max 10,000 files." },
     ],
     response: `{

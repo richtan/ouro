@@ -356,7 +356,14 @@ def wrap_in_docker(
 set -euo pipefail
 DOCKER_TAG={tag}
 cd {shlex.quote(workspace_path)}
-{_storage_check_block(storage_path)}DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >/dev/null 2>&1
+{_storage_check_block(storage_path)}_BUILD_LOG=$(mktemp)
+if ! DOCKER_BUILDKIT=0 docker build -t "$DOCKER_TAG" -f Dockerfile . >"$_BUILD_LOG" 2>&1; then
+  echo "ERROR: Docker build failed. Last 50 lines of build log:" >&2
+  tail -50 "$_BUILD_LOG" >&2
+  rm -f "$_BUILD_LOG"
+  exit 1
+fi
+rm -f "$_BUILD_LOG"
 docker run \\
     {sec_flags} \\
     {storage_mount}-v {shlex.quote(workspace_path)}:/workspace \\
