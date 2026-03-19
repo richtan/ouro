@@ -4,6 +4,6 @@
   "title": "Ouro",
   "description": "Compute MCP server. Run code in isolated containers, pay with USDC via x402 on Base.",
   "repository": { "url": "https://github.com/richtan/ouro", "source": "github" },
-  "version": "1.6.0",
+  "version": "1.6.1",
   "packages": [{ "registry_name": "npm", "name": "ouro-mcp" }]
 }

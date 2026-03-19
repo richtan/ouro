@@ -113,7 +113,7 @@ function errorText(status: number, body: string): string {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: "ouro", version: "1.6.0" },
+  { name: "ouro", version: "1.6.1" },
   {
     instructions: `Ouro runs compute jobs in isolated containers, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
