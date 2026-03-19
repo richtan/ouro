@@ -110,6 +110,7 @@ const STEPS = [
 
 export default function LandingPage() {
   const { data: stats } = useStats();
+  const [videoRef, videoVisible] = useInView();
   const [howRef, howVisible] = useInView();
   const [statsRef, statsVisible] = useInView();
   const [mcpRef, mcpVisible] = useInView();
@@ -148,6 +149,24 @@ export default function LandingPage() {
           {/* Right: terminal */}
           <div className="mt-10 lg:mt-0 animate-fade-in-up" style={{ animationDelay: "150ms" }}>
             <Terminal />
+          </div>
+        </section>
+
+        {/* Demo Video */}
+        <section ref={videoRef} className="border-t border-o-border pt-10 pb-10 md:pt-14 md:pb-14">
+          <div className={`max-w-4xl mx-auto reveal${videoVisible ? " visible" : ""}`}>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text text-center mb-8">
+              See it in action
+            </h2>
+            <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-o-border bg-o-surface">
+              <iframe
+                src="https://www.youtube.com/embed/xctlAEJoJdU"
+                title="Ouro Demo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+              />
+            </div>
           </div>
         </section>
 

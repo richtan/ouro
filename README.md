@@ -6,6 +6,10 @@ Submit code via HTTP, pay with USDC on Base, and your job runs in an isolated co
 
 **[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)**
 
+## Demo
+
+[![Watch the demo](https://img.youtube.com/vi/xctlAEJoJdU/maxresdefault.jpg)](https://www.youtube.com/watch?v=xctlAEJoJdU)
+
 ## Quick Start
 
 ### MCP (AI Agents)
