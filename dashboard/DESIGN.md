@@ -262,7 +262,7 @@ Narrower pages (submit, history, pay): use `max-w-4xl` or `max-w-2xl`.
 
 ### Landing Page (`/`)
 
-The landing page is a standalone marketing page with its own header. The global `NavBar` is hidden on `/` (returns `null` when `pathname === "/"`). The page has its own sticky header with the OURO wordmark and links.
+The landing page uses the global NavBar (same as all other pages).
 
 Route structure:
 - `/` — Landing page (introduces Ouro, CTAs to submit)
@@ -272,7 +272,7 @@ Design philosophy: **show, don't describe**. The terminal showing the real x402 
 
 Sections (top to bottom):
 
-1. **Header** — Sticky, `bg-o-bg/80 backdrop-blur-md`. OURO wordmark, Docs link, GitHub icon. No ConnectButton (nothing on the landing page requires a wallet). `h-14`.
+1. **Header** — Uses the global NavBar (Submit, My Jobs, My Files, Docs, GitHub, ConnectButton). Same sticky `h-14` as all other pages.
 2. **Hero** — `font-display` heading (`text-4xl` to `text-6xl`) with `tracking-tight`. One-sentence technical description + two CTAs (primary blue, secondary ghost). Spacing: `pt-24 pb-6 md:pt-32 md:pb-8`. Flows directly into terminal.
 3. **Terminal Window** — The centerpiece. Styled terminal with chrome (three dots + "terminal" label) showing the real x402 API conversation: curl request → 402 Payment Required with price headers → 200 OK with job result. Uses `bg-o-surface`, `border-o-border`, `rounded-xl`. Lines animate in sequentially via `.terminal-line` class with staggered `animation-delay`. Spacing: `pb-10 md:pb-14`.
 4. **Stats Bar** — `border-t` separator + 4 inline stats with tight `gap-x-8`. Values `text-2xl sm:text-3xl` with `tabular-nums`. Always shows "—" placeholder. Spacing: `pt-6 pb-10 md:pt-8 md:pb-14`.

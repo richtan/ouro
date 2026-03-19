@@ -24,8 +24,6 @@ export default function NavBar() {
     setMobileOpen(false);
   }, [pathname]);
 
-  if (pathname === "/") return null;
-
   const isAdmin =
     address?.toLowerCase() === ADMIN_ADDRESS && ADMIN_ADDRESS !== "";
 
