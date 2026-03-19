@@ -35,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const prevAddressRef = useRef<string | undefined>(undefined);
+  const sessionCheckRef = useRef<AbortController | null>(null);
 
   // Check existing session on mount / address change
   useEffect(() => {
@@ -45,15 +46,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
+    sessionCheckRef.current = controller;
     setLoading(true);
 
     const checkSession = async () => {
       try {
-        const res = await fetch("/api/auth/check");
-        if (cancelled) return;
+        const res = await fetch("/api/auth/check", { signal: controller.signal });
+        if (controller.signal.aborted) return;
         if (res.ok) {
           const data = await res.json();
+          if (controller.signal.aborted) return;
           if (data.address?.toLowerCase() === address.toLowerCase()) {
             setAuthenticated(true);
             setWalletAddress(data.address);
@@ -61,19 +64,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch {
-        // Session check failed
+        if (controller.signal.aborted) return;
       }
-      if (!cancelled) {
+      if (!controller.signal.aborted) {
         setAuthenticated(false);
         setWalletAddress(null);
       }
     };
 
     checkSession().finally(() => {
-      if (!cancelled) setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     });
 
-    return () => { cancelled = true; };
+    return () => { controller.abort(); };
   }, [isConnected, address]);
 
   // Watch for wallet switch → logout old session
@@ -113,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onAuthChange = () => {
       if (isConnected && address) {
+        sessionCheckRef.current?.abort(); // Cancel stale in-flight session check
         // Optimistic — event only fires after successful login POST
         setAuthenticated(true);
         setWalletAddress(address);

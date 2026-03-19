@@ -208,6 +208,7 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
               body: JSON.stringify({ message, signature }),
             });
             if (res.ok) {
+              abortRef.current?.abort(); // Cancel any in-flight checkAuth to prevent stale 401 overwriting
               setStatus("authenticated");
               window.dispatchEvent(new Event("ouro-auth-change"));
               return true;
