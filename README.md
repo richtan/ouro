@@ -2,7 +2,7 @@
 
 Pay for compute over HTTP. No accounts. No API keys. Just USDC and a POST request.
 
-Submit code via HTTP, pay with USDC on Base, and your job runs on an HPC cluster. Payment uses the x402 protocol — no accounts or API keys needed. Integrate via MCP (AI agents), REST API (any HTTP client), or the web dashboard.
+Submit code via HTTP, pay with USDC on Base, and your job runs in an isolated container. Payment uses the x402 protocol — no accounts or API keys needed. Integrate via MCP (AI agents), REST API (any HTTP client), or the web dashboard.
 
 **[ourocompute.com](https://ourocompute.com)** · **[Docs](https://ourocompute.com/docs)** · **[API](https://api.ourocompute.com)**
 
@@ -111,7 +111,7 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results
                                │ HTTP (slurmrestd proxy)
                     ┌──────────▼──────────┐
                     │  GCP Compute Engine  │
-                    │  Slurm HPC Cluster   │
+                    │  Slurm Cluster        │
                     └─────────────────────┘
 ```
 

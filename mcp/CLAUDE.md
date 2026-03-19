@@ -1,6 +1,6 @@
 # MCP Server (ouro-mcp)
 
-Local MCP server that lets AI agents submit HPC jobs and pay with USDC via x402.
+Local MCP server that lets AI agents submit compute jobs and pay with USDC via x402.
 
 ## Build & Dev
 

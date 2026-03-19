@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/ouro-mcp)](https://www.npmjs.com/package/ouro-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Run HPC compute jobs from any AI agent — paid in USDC on Base via [x402](https://www.x402.org/).
+Run compute jobs from any AI agent — paid in USDC on Base via [x402](https://www.x402.org/).
 
 ## What is Ouro?
 

@@ -569,7 +569,7 @@ async def submit_compute(request: Request, db: AsyncSession = Depends(get_db)):
         if not payment_header:
             resource_info = ResourceInfo(
                 url="/api/compute/submit",
-                description="Submit an HPC compute job to a Slurm cluster with Docker container isolation",
+                description="Submit a compute job with Docker container isolation",
                 mimeType="application/json",
             )
             bazaar_ext = declare_discovery_extension(
@@ -1516,7 +1516,7 @@ async def get_price(
 async def get_capabilities():
     return {
         "name": "Ouro",
-        "description": "Autonomous HPC compute oracle on Base",
+        "description": "Autonomous compute oracle on Base",
         "version": "1.0.0",
         "payment": {
             "protocol": "x402",
@@ -1599,7 +1599,7 @@ async def agent_card():
     return {
         "name": "Ouro",
         "description": (
-            "Autonomous HPC compute agent on Base. Submit scripts, "
+            "Autonomous compute agent on Base. Submit scripts, "
             "pay with USDC via x402."
         ),
         "url": base_url,
@@ -1616,8 +1616,8 @@ async def agent_card():
             {
                 "id": "submit_and_pay",
                 "name": "Submit and Pay for Compute Job",
-                "description": "Submit a compute job with x402 payment. Execute scripts on a Slurm HPC cluster with Docker container isolation.",
-                "tags": ["compute", "hpc", "slurm", "execution"],
+                "description": "Submit a compute job with x402 payment. Execute scripts in isolated Docker containers.",
+                "tags": ["compute", "slurm", "execution"],
                 "inputModes": ["application/json"],
                 "outputModes": ["application/json"],
             },

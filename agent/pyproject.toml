@@ -1,7 +1,7 @@
 [project]
 name = "ouro-agent"
 version = "0.1.0"
-description = "Ouro Compute — autonomous HPC agent on Base"
+description = "Ouro Compute — autonomous compute agent on Base"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]",

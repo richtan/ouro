@@ -36,7 +36,7 @@ const PREBUILT_ENVS: PrebuiltEnv[] = [
     label: "Ubuntu",
     description: "Shell environment",
     starterFile: "job.sh",
-    starterContent: '#!/bin/bash\necho "Hello from Ouro HPC cluster!"\nhostname && uptime\n',
+    starterContent: '#!/bin/bash\necho "Hello from Ouro!"\nhostname && uptime\n',
     entrypoint: '["bash", "job.sh"]',
   },
 ];

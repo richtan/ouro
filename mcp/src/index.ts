@@ -115,7 +115,7 @@ function errorText(status: number, body: string): string {
 const server = new McpServer(
   { name: "ouro", version: "1.6.0" },
   {
-    instructions: `Ouro runs HPC jobs on a Slurm cluster, paid in USDC via x402 on Base.
+    instructions: `Ouro runs compute jobs in isolated containers, paid in USDC via x402 on Base.
 Payment is automatic — your wallet signs USDC payments locally.
 
 ## CRITICAL: Container Constraints
