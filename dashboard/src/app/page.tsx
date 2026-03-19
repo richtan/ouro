@@ -100,7 +100,7 @@ const STEPS = [
   {
     num: "3",
     title: "Get results",
-    desc: "Poll for output. Jobs run in isolated containers on a real Slurm cluster.",
+    desc: "Poll for output. Jobs run in isolated containers on dedicated hardware.",
   },
 ];
 
@@ -112,7 +112,7 @@ export default function LandingPage() {
   const { data: stats } = useStats();
   const [videoRef, videoVisible] = useInView();
   const [howRef, howVisible] = useInView();
-  const [statsRef, statsVisible] = useInView();
+
   const [mcpRef, mcpVisible] = useInView();
 
   return (
@@ -122,9 +122,9 @@ export default function LandingPage() {
           {/* Left: text */}
           <div className="animate-fade-in-up">
             <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-o-text leading-[1.08]">
-              Pay for compute
+              Pay for <span className="text-o-blueText">compute</span>
               <br />
-              over HTTP.
+              over <span className="text-o-blueText">HTTP</span>
             </h1>
             <p className="mt-5 text-base sm:text-lg text-o-textSecondary max-w-xl leading-relaxed">
               No accounts. No API keys. Just USDC and a{" "}
@@ -144,6 +144,15 @@ export default function LandingPage() {
                 View Docs
               </Link>
             </div>
+            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 mt-10">
+              {[
+                { label: "jobs completed", value: stats ? stats.completed_jobs : "\u2014" },
+                { label: "active now", value: stats ? stats.active_jobs : "\u2014" },
+                { label: "avg job price", value: stats ? `$${(stats.avg_price_per_job ?? 0).toFixed(4)}` : "\u2014" },
+              ].map((s) => (
+                <Stat key={s.label} label={s.label} value={s.value} />
+              ))}
+            </div>
           </div>
 
           {/* Right: terminal */}
@@ -152,26 +161,11 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Demo Video */}
-        <section ref={videoRef} className="border-t border-o-border pt-10 pb-10 md:pt-14 md:pb-14">
-          <div className={`max-w-4xl mx-auto reveal${videoVisible ? " visible" : ""}`}>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text text-center mb-8">
-              See it in action
-            </h2>
-            <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-o-border bg-o-surface">
-              <iframe
-                src="https://www.youtube.com/embed/xctlAEJoJdU"
-                title="Ouro Demo"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full"
-              />
-            </div>
-          </div>
-        </section>
-
         {/* How It Works */}
         <section ref={howRef} className="border-t border-o-border pt-10 pb-10 md:pt-14 md:pb-14">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text text-center mb-8">
+            How it works
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {STEPS.map((step, i) => (
               <div
@@ -192,18 +186,21 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Stats */}
-        <section ref={statsRef} className="border-t border-o-border pt-6 pb-10 md:pt-8 md:pb-14">
-          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 lg:justify-center lg:gap-x-16">
-            {[
-              { label: "jobs completed", value: stats ? stats.completed_jobs : "\u2014" },
-              { label: "active now", value: stats ? stats.active_jobs : "\u2014" },
-              { label: "earned", value: stats ? `$${(stats.total_revenue_usdc ?? 0).toFixed(2)}` : "\u2014" },
-            ].map((s, i) => (
-              <div key={s.label} className={`reveal${statsVisible ? " visible" : ""} reveal-delay-${i + 1}`}>
-                <Stat label={s.label} value={s.value} />
-              </div>
-            ))}
+        {/* Demo Video */}
+        <section ref={videoRef} className="border-t border-o-border pt-10 pb-10 md:pt-14 md:pb-14">
+          <div className={`max-w-4xl mx-auto reveal${videoVisible ? " visible" : ""}`}>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-o-text text-center mb-8">
+              See it in action
+            </h2>
+            <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-o-border bg-o-surface">
+              <iframe
+                src="https://www.youtube.com/embed/xctlAEJoJdU"
+                title="Ouro Demo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+              />
+            </div>
           </div>
         </section>
 

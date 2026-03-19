@@ -273,11 +273,11 @@ Design philosophy: **show, don't describe**. The terminal showing the real x402 
 Sections (top to bottom):
 
 1. **Header** — Uses the global NavBar (Submit, My Jobs, My Files, Docs, GitHub, ConnectButton). Same sticky `h-14` as all other pages.
-2. **Hero** — `font-display` heading (`text-4xl` to `text-6xl`) with `tracking-tight`. One-sentence technical description + two CTAs (primary blue, secondary ghost). Spacing: `pt-24 pb-6 md:pt-32 md:pb-8`. Flows directly into terminal.
-3. **Terminal Window** — The centerpiece. Styled terminal with chrome (three dots + "terminal" label) showing the real x402 API conversation: curl request → 402 Payment Required with price headers → 200 OK with job result. Uses `bg-o-surface`, `border-o-border`, `rounded-xl`. Lines animate in sequentially via `.terminal-line` class with staggered `animation-delay`. Spacing: `pb-10 md:pb-14`.
-4. **Stats Bar** — `border-t` separator + 4 inline stats with tight `gap-x-8`. Values `text-2xl sm:text-3xl` with `tabular-nums`. Always shows "—" placeholder. Spacing: `pt-6 pb-10 md:pt-8 md:pb-14`.
-5. **Agent Section** — Label ("For agents", uppercase muted) + heading ("Other agents can buy compute too.") + one sentence about MCP. No cards. Spacing: `pb-10 md:pb-14`.
-6. **Footer** — `border-t`, `py-6`. Dashboard and Submit links. "Built on Base".
+2. **Hero** — `font-display` heading (`text-4xl` to `text-6xl`) with `tracking-tight`. One-sentence technical description + two CTAs (primary blue, secondary ghost). Below CTAs: inline stats row (jobs completed, active now, earned) with `mt-10`. Right side: animated terminal showing agent x402 flow. Spacing: `pt-24 pb-10 md:pt-32 md:pb-14`.
+3. **How It Works** — "How it works" `<h2>` heading centered above a 3-column grid of numbered steps (No signup, Pay per job, Get results). Step 3 copy: "Poll for output. Jobs run in isolated containers on dedicated hardware." Each card: `bg-o-surface`, `border-o-border`, `rounded-lg`. Reveal animation on scroll. Spacing: `pt-10 pb-10 md:pt-14 md:pb-14`.
+4. **Demo Video** — YouTube embed in `aspect-video` container. Heading "See it in action". Spacing: `pt-10 pb-10 md:pt-14 md:pb-14`.
+6. **Agent Section** — "Built for agents." heading + MCP install card with CLI/JSON tabs. Spacing: `pt-10 pb-12 md:pt-14 md:pb-16`.
+7. **Footer** — `border-t`, `py-6`. Dashboard and Submit links. "Built on Base".
 
 Max container width: `max-w-5xl`.
 
