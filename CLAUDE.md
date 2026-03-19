@@ -5,27 +5,27 @@ A self-sustaining autonomous agent on Base that sells HPC compute via x402, uses
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Railway (PaaS)                             │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────────┐                            │
-│  │  Dashboard    │   │  Agent (FastAPI)  │                            │
-│  │  Next.js 15   │──▶│  Python 3.12     │                            │
-│  │  :3000        │   │  :8000           │                            │
-│  └──────────────┘   └────────┬─────────┘                            │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                          │
-│                    │  PostgreSQL 16      │                          │
-│                    │  (Railway managed)  │                          │
-│                    └────────────────────┘                          │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTP (slurmrestd proxy)
-                    ┌──────────▼──────────┐
-                    │  GCP Compute Engine  │
-                    │  Slurm HPC Cluster   │
-                    │  ouro-slurm (ctrl)   │
-                    │  ouro-worker-{1,2}   │
-                    └─────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                         Railway (PaaS)                         │
+│                                                                │
+│  ┌──────────────┐   ┌───────────────────┐                      │
+│  │  Dashboard   │   │  Agent (FastAPI)  │                      │
+│  │  Next.js 15  │──▶│  Python 3.12      │                      │
+│  │  :3000       │   │  :8000            │                      │
+│  └──────────────┘   └─────────┬─────────┘                      │
+│                               │                                │
+│                     ┌──────────▼──────────┐                    │
+│                     │  PostgreSQL 16      │                    │
+│                     │  (Railway managed)  │                    │
+│                     └─────────────────────┘                    │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ HTTP (slurmrestd proxy)
+                      ┌─────────▼────────────┐
+                      │  GCP Compute Engine  │
+                      │  Slurm Cluster       │
+                      │  ouro-slurm (ctrl)   │
+                      │  ouro-worker-{1,2}   │
+                      └──────────────────────┘
 ```
 
 ### Services

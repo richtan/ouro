@@ -98,25 +98,25 @@ POST → 402 + price → sign USDC → 200 + job_id → poll → results
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Railway (PaaS)                             │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────────┐                            │
-│  │  Dashboard    │   │  Agent (FastAPI)  │                            │
-│  │  Next.js 15   │──▶│  Python 3.12     │                            │
-│  │  :3000        │   │  :8000           │                            │
-│  └──────────────┘   └────────┬─────────┘                            │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                          │
-│                    │  PostgreSQL 16      │                          │
-│                    │  (Railway managed)  │                          │
-│                    └────────────────────┘                          │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTP (slurmrestd proxy)
-                    ┌──────────▼──────────┐
-                    │  GCP Compute Engine  │
-                    │  Slurm Cluster        │
-                    └─────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                         Railway (PaaS)                         │
+│                                                                │
+│  ┌──────────────┐   ┌───────────────────┐                      │
+│  │  Dashboard   │   │  Agent (FastAPI)  │                      │
+│  │  Next.js 15  │──▶│  Python 3.12      │                      │
+│  │  :3000       │   │  :8000            │                      │
+│  └──────────────┘   └─────────┬─────────┘                      │
+│                               │                                │
+│                     ┌──────────▼──────────┐                    │
+│                     │  PostgreSQL 16      │                    │
+│                     │  (Railway managed)  │                    │
+│                     └─────────────────────┘                    │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ HTTP (slurmrestd proxy)
+                      ┌─────────▼────────────┐
+                      │  GCP Compute Engine  │
+                      │  Slurm Cluster       │
+                      └──────────────────────┘
 ```
 
 - **Agent** (Python/FastAPI + PydanticAI) — Processes compute requests, manages Slurm jobs, runs autonomous pricing loop
