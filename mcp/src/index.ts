@@ -125,7 +125,10 @@ Payment is automatic — your wallet signs USDC payments locally.
 
 ## How to submit jobs
 
-Call run_job, then get_job_status to wait for results.
+Call run_job to submit, then get_job_status to get results.
+Tip: if you submitted multiple jobs, you can call get_job_status for each one
+as parallel tool calls — each blocks independently, so you get all results in
+the time of the slowest job instead of waiting sequentially.
 
 ### Option 1: Script only (simplest — stdlib only)
 Run a shell command directly. No third-party packages available.

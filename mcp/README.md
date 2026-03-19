@@ -189,6 +189,32 @@ User: Run a Python script that computes the first 1000 primes
   }
 ```
 
+### Run multiple jobs in parallel
+
+```
+User: Benchmark Python vs Node vs Rust for computing the first 10,000 primes
+
+→ run_job(script: "python3 -c \"...\"", image: "ouro-python")
+← { "job_id": "py001", ... }
+
+→ run_job(script: "node -e \"...\"", image: "ouro-nodejs")
+← { "job_id": "nd002", ... }
+
+→ run_job(script: "./primes", image: "ouro-ubuntu")
+← { "job_id": "rs003", ... }
+
+# Call get_job_status for all 3 as parallel tool calls —
+# all results return when the slowest job finishes
+
+→ get_job_status(job_id: "py001")   ┐
+→ get_job_status(job_id: "nd002")   ├── parallel tool calls
+→ get_job_status(job_id: "rs003")   ┘
+
+← { "id": "py001", "status": "completed", "output": "...", "compute_duration_s": 4.2 }
+← { "id": "nd002", "status": "completed", "output": "...", "compute_duration_s": 1.8 }
+← { "id": "rs003", "status": "completed", "output": "...", "compute_duration_s": 0.3 }
+```
+
 ### Persistent storage (write in job 1, read in job 2)
 
 ```
@@ -255,6 +281,8 @@ Submit a compute job and pay automatically. Returns `job_id` when accepted.
 ### `get_job_status`
 
 Check the status of a submitted job. Uses SSE streaming to wait for the job to finish — call it once and it returns when the job reaches a terminal state (`completed` or `failed`). No manual polling needed. Authentication is handled automatically by the MCP server.
+
+**Tip:** If you have multiple jobs, call `get_job_status` for each one as parallel tool calls — all results return in the time of the slowest job instead of waiting sequentially.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
