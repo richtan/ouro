@@ -113,8 +113,16 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
   const verifyingRef = useRef(false);
   const wasConnectedRef = useRef(false);
   const prevAddressRef = useRef<string | undefined>(undefined);
+  const logoutAbortRef = useRef<AbortController | null>(null);
   const addressRef = useRef(address);
   addressRef.current = address;
+
+  // Shared sign-out: aborts stale checkAuth, clears cookie, sets unauthenticated
+  const handleSignOut = useCallback(async () => {
+    abortRef.current?.abort();
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    setStatus("unauthenticated");
+  }, []);
 
   // Address-aware auth check with AbortController — latest check always wins
   const checkAuth = useCallback(async (currentAddress?: string) => {
@@ -163,22 +171,30 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
     }
   }, [address, checkAuth]);
 
-  // Sync status on disconnect + cancel in-flight check
+  // Sync status on disconnect + cancel in-flight check + clear cookie
   useEffect(() => {
     if (isConnected) {
       wasConnectedRef.current = true;
+      // Cancel any in-flight logout from a brief disconnect
+      logoutAbortRef.current?.abort();
+      logoutAbortRef.current = null;
     } else if (wasConnectedRef.current) {
       wasConnectedRef.current = false;
       abortRef.current?.abort();
+      // Clear session cookie (abortable for rapid disconnect/reconnect)
+      const controller = new AbortController();
+      logoutAbortRef.current = controller;
+      fetch("/api/auth/logout", { method: "POST", signal: controller.signal }).catch(() => {});
       setStatus("unauthenticated");
     }
   }, [isConnected]);
 
-  // Sync status on wallet switch (immediate, before async re-check)
+  // Sync status on wallet switch + clear old cookie (immediate, before async re-check)
   useEffect(() => {
     const prev = prevAddressRef.current;
     prevAddressRef.current = address;
     if (prev && address && prev.toLowerCase() !== address.toLowerCase()) {
+      fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
       setStatus("unauthenticated");
     }
   }, [address]);
@@ -214,7 +230,6 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
             if (res.ok) {
               abortRef.current?.abort(); // Cancel any in-flight checkAuth to prevent stale 401 overwriting
               setStatus("authenticated");
-              window.dispatchEvent(new Event("ouro-auth-change"));
               return true;
             }
             return false;
@@ -224,18 +239,15 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
             verifyingRef.current = false;
           }
         },
-        signOut: async () => {
-          await fetch("/api/auth/logout", { method: "POST" });
-          setStatus("unauthenticated");
-        },
+        signOut: handleSignOut,
       }),
-    [],
+    [handleSignOut],
   );
 
   return (
     <RainbowKitAuthenticationProvider adapter={adapter} status={status}>
       <RainbowKitProvider theme={ouroTheme}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider authStatus={status} onSignOut={handleSignOut}>{children}</AuthProvider>
       </RainbowKitProvider>
     </RainbowKitAuthenticationProvider>
   );
