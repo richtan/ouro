@@ -461,26 +461,24 @@ export default function HistoryPage() {
             </div>
             <div className="flex gap-2 mt-1 sm:mt-0">
               <div className="relative">
-                <span className="absolute -top-[5px] left-2 px-1 text-[10px] leading-none text-o-muted uppercase tracking-wider bg-o-bg">From</span>
+                <span className="absolute -top-[5px] left-2 px-1 text-xs leading-none text-o-muted uppercase tracking-wider bg-o-bg">From</span>
                 <input
                   type="date"
                   value={dateFrom}
                   max={dateTo || undefined}
                   onChange={(e) => setDateFrom(e.target.value)}
                   className="w-[140px] bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text focus:outline-none focus:border-o-blueText"
-                  style={{ colorScheme: "dark" }}
-                />
+                                  />
               </div>
               <div className="relative">
-                <span className="absolute -top-[5px] left-2 px-1 text-[10px] leading-none text-o-muted uppercase tracking-wider bg-o-bg">To</span>
+                <span className="absolute -top-[5px] left-2 px-1 text-xs leading-none text-o-muted uppercase tracking-wider bg-o-bg">To</span>
                 <input
                   type="date"
                   value={dateTo}
                   min={dateFrom || undefined}
                   onChange={(e) => setDateTo(e.target.value)}
                   className="w-[140px] bg-o-bg border border-o-border rounded-lg px-3 py-2.5 font-mono text-xs text-o-text focus:outline-none focus:border-o-blueText"
-                  style={{ colorScheme: "dark" }}
-                />
+                                  />
               </div>
             </div>
           </div>

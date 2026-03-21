@@ -2,7 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light mode (default) */
 :root {
+  color-scheme: light;
+
+  --o-bg: 247 247 248;
+  --o-surface: 255 255 255;
+  --o-surfaceHover: 240 241 243;
+  --o-border: 209 213 219;
+  --o-borderHover: 185 189 199;
+  --o-blue: 0 82 255;
+  --o-blueHover: 0 69 214;
+  --o-blueText: 0 82 255;
+  --o-text: 17 19 22;
+  --o-textSecondary: 75 85 99;
+  --o-muted: 91 97 110;
+  --o-green: 21 128 61;
+  --o-red: 185 28 28;
+  --o-amber: 180 83 9;
+
+  /* Shiki syntax highlighting — light */
+  --shiki-foreground: #4b5563;
+  --shiki-background: transparent;
+  --shiki-token-keyword: #7c3aed;
+  --shiki-token-constant: #b45309;
+  --shiki-token-string: #15803d;
+  --shiki-token-string-expression: #15803d;
+  --shiki-token-comment: #5b616e;
+  --shiki-token-function: #111316;
+  --shiki-token-parameter: #4b5563;
+  --shiki-token-punctuation: #5b616e;
+  --shiki-token-link: #0052ff;
+}
+
+/* Dark mode */
+.dark {
+  color-scheme: dark;
+
+  --o-bg: 10 11 13;
+  --o-surface: 17 19 22;
+  --o-surfaceHover: 25 27 31;
+  --o-border: 40 43 51;
+  --o-borderHover: 58 62 72;
+  --o-blue: 0 82 255;
+  --o-blueHover: 0 69 214;
+  --o-blueText: 76 143 255;
+  --o-text: 245 245 245;
+  --o-textSecondary: 156 163 175;
+  --o-muted: 113 119 132;
+  --o-green: 34 197 94;
+  --o-red: 239 68 68;
+  --o-amber: 234 179 8;
+
+  /* Shiki syntax highlighting — dark */
   --shiki-foreground: #8a919e;
   --shiki-background: transparent;
   --shiki-token-keyword: #c084fc;
@@ -17,8 +69,8 @@
 }
 
 body {
-  background: #0a0b0d;
-  color: #f5f5f5;
+  background: rgb(var(--o-bg));
+  color: rgb(var(--o-text));
 }
 
 .card {
@@ -39,8 +91,8 @@ body {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #32353d; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #5b616e; }
+::-webkit-scrollbar-thumb { background: rgb(var(--o-borderHover)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--o-muted)); }
 
 /* Ensure Monaco's hidden textarea stays invisible even if CDN CSS is slow */
 .monaco-editor .inputarea,

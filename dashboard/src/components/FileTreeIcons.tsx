@@ -1,3 +1,5 @@
+"use client";
+
 // Shared tree types and icons for file browsers
 
 export interface TreeNode {
@@ -66,7 +68,9 @@ export function collectFolderPaths(nodes: TreeNode[]): Set<string> {
 
 /* ──────────────────────── file icons ─────────────────────── */
 
-const EXT_COLORS: Record<string, string> = {
+import { useTheme } from "next-themes";
+
+export const DARK_EXT_COLORS: Record<string, string> = {
   ".py": "#3572A5",
   ".js": "#f1e05a",
   ".mjs": "#f1e05a",
@@ -84,28 +88,50 @@ const EXT_COLORS: Record<string, string> = {
   ".R": "#198CE7",
 };
 
-function getExtColor(name: string): string {
+export const LIGHT_EXT_COLORS: Record<string, string> = {
+  ...DARK_EXT_COLORS,
+  ".js": "#b08c00",
+  ".mjs": "#b08c00",
+  ".jsx": "#b08c00",
+  ".sh": "#3d7a1c",
+  ".bash": "#3d7a1c",
+  ".json": "#b45309",
+  ".r": "#0c5a9e",
+  ".R": "#0c5a9e",
+};
+
+export const DARK_DEFAULT_COLOR = "#64748b";
+export const LIGHT_DEFAULT_COLOR = "#475569";
+export const DARK_DOCKERFILE_COLOR = "#0db7ed";
+export const LIGHT_DOCKERFILE_COLOR = "#0e7490";
+
+export function getExtColor(name: string, isDark: boolean): string {
+  const colors = isDark ? DARK_EXT_COLORS : LIGHT_EXT_COLORS;
   const dot = name.lastIndexOf(".");
   if (dot >= 0) {
     const ext = name.slice(dot);
-    if (EXT_COLORS[ext]) return EXT_COLORS[ext];
+    if (colors[ext]) return colors[ext];
   }
-  return "#64748b";
+  return isDark ? DARK_DEFAULT_COLOR : LIGHT_DEFAULT_COLOR;
 }
 
 export function FileIcon({ name }: { name: string }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
   if (name.toLowerCase() === "dockerfile") {
+    const dockerColor = isDark ? DARK_DOCKERFILE_COLOR : LIGHT_DOCKERFILE_COLOR;
     return (
       <svg width="14" height="14" viewBox="0 0 16 16" className="flex-shrink-0">
-        <rect x="2" y="6" width="12" height="8" rx="1" fill="none" stroke="#0db7ed" strokeWidth="1.2" />
-        <rect x="4" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
-        <rect x="7" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
-        <rect x="10" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
+        <rect x="2" y="6" width="12" height="8" rx="1" fill="none" stroke={dockerColor} strokeWidth="1.2" />
+        <rect x="4" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
+        <rect x="7" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
+        <rect x="10" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
       </svg>
     );
   }
 
-  const color = getExtColor(name);
+  const color = getExtColor(name, isDark);
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" className="flex-shrink-0">
       <path

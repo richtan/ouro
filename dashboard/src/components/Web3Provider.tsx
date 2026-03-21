@@ -7,6 +7,7 @@ import { base } from "wagmi/chains";
 import {
   RainbowKitProvider,
   darkTheme,
+  lightTheme,
   getDefaultConfig,
   createAuthenticationAdapter,
   RainbowKitAuthenticationProvider,
@@ -19,6 +20,7 @@ import {
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { createSiweMessage } from "viem/siwe";
+import { useTheme } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
 import "@rainbow-me/rainbowkit/styles.css";
 
@@ -43,7 +45,7 @@ export const config = getDefaultConfig({
   ],
 });
 
-const ouroTheme: Theme = {
+const ouroDarkTheme: Theme = {
   ...darkTheme({
     accentColor: "#0052ff",
     accentColorForeground: "#ffffff",
@@ -97,6 +99,60 @@ const ouroTheme: Theme = {
   },
 };
 
+const ouroLightTheme: Theme = {
+  ...lightTheme({
+    accentColor: "#0052ff",
+    accentColorForeground: "#ffffff",
+    borderRadius: "medium",
+    fontStack: "system",
+    overlayBlur: "none",
+  }),
+  colors: {
+    ...lightTheme().colors,
+    accentColor: "#0052ff",
+    accentColorForeground: "#ffffff",
+    connectButtonBackground: "#ffffff",
+    connectButtonInnerBackground: "#f0f1f3",
+    connectButtonText: "#111316",
+    connectButtonTextError: "#b91c1c",
+    connectButtonBackgroundError: "#ffffff",
+    connectionIndicator: "#15803d",
+    error: "#b91c1c",
+    generalBorder: "#d1d5db",
+    generalBorderDim: "#d1d5db",
+    menuItemBackground: "#f0f1f3",
+    modalBackground: "#ffffff",
+    modalBorder: "#d1d5db",
+    modalText: "#111316",
+    modalTextDim: "#5b616e",
+    modalTextSecondary: "#4b5563",
+    modalBackdrop: "rgba(0, 0, 0, 0.3)",
+    profileAction: "#f0f1f3",
+    profileActionHover: "#e2e4e9",
+    profileForeground: "#ffffff",
+    closeButton: "#4b5563",
+    closeButtonBackground: "#f0f1f3",
+    actionButtonBorder: "#d1d5db",
+    actionButtonBorderMobile: "#d1d5db",
+    actionButtonSecondaryBackground: "#f0f1f3",
+    downloadBottomCardBackground: "#f7f7f8",
+    downloadTopCardBackground: "#ffffff",
+    selectedOptionBorder: "#0052ff",
+    standby: "#b45309",
+  },
+  fonts: {
+    body: "var(--font-geist-sans), system-ui, sans-serif",
+  },
+  shadows: {
+    connectButton: "0 1px 3px rgba(0, 0, 0, 0.08)",
+    dialog: "0 8px 32px rgba(0, 0, 0, 0.12)",
+    profileDetailsAction: "none",
+    selectedOption: "none",
+    selectedWallet: "none",
+    walletLogo: "none",
+  },
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -107,6 +163,7 @@ const queryClient = new QueryClient({
 });
 
 function AuthLayer({ children }: { children: React.ReactNode }) {
+  const { resolvedTheme } = useTheme();
   const [status, setStatus] = useState<AuthenticationStatus>("loading");
   const { isConnected, address } = useAccount();
   const abortRef = useRef<AbortController | null>(null);
@@ -246,7 +303,7 @@ function AuthLayer({ children }: { children: React.ReactNode }) {
 
   return (
     <RainbowKitAuthenticationProvider adapter={adapter} status={status}>
-      <RainbowKitProvider theme={ouroTheme}>
+      <RainbowKitProvider theme={resolvedTheme === "dark" ? ouroDarkTheme : ouroLightTheme}>
         <AuthProvider authStatus={status} onSignOut={handleSignOut}>{children}</AuthProvider>
       </RainbowKitProvider>
     </RainbowKitAuthenticationProvider>

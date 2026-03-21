@@ -2,6 +2,7 @@
 
 import Editor, { type Monaco, type BeforeMount, type OnMount } from "@monaco-editor/react";
 import { useCallback } from "react";
+import { useTheme } from "next-themes";
 
 // --- Language detection maps ---
 
@@ -47,13 +48,15 @@ export function getLanguageForFile(filePath: string, fallbackImage: string): str
   return IMAGE_LANGUAGE[fallbackImage] ?? "plaintext";
 }
 
-// --- Ouro dark theme (matches Shiki CSS variables in globals.css) ---
+// --- Ouro themes (match Shiki CSS variables in globals.css) ---
 
-const OURO_THEME_NAME = "ouro-dark";
+const DARK_THEME = "ouro-dark";
+const LIGHT_THEME = "ouro-light";
 
 const handleBeforeMount: BeforeMount = (monaco) => {
   buildLanguageMaps(monaco);
-  monaco.editor.defineTheme(OURO_THEME_NAME, {
+
+  monaco.editor.defineTheme(DARK_THEME, {
     base: "vs-dark",
     inherit: false,
     rules: [
@@ -88,13 +91,49 @@ const handleBeforeMount: BeforeMount = (monaco) => {
       "scrollbarSlider.activeBackground": "#5b616e",
     },
   });
+
+  monaco.editor.defineTheme(LIGHT_THEME, {
+    base: "vs",
+    inherit: false,
+    rules: [
+      { token: "", foreground: "4b5563" },
+      { token: "keyword", foreground: "7c3aed" },
+      { token: "string", foreground: "15803d" },
+      { token: "number", foreground: "b45309" },
+      { token: "comment", foreground: "5b616e", fontStyle: "italic" },
+      { token: "type", foreground: "111316" },
+      { token: "identifier", foreground: "111316" },
+      { token: "variable", foreground: "4b5563" },
+      { token: "delimiter", foreground: "5b616e" },
+    ],
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.foreground": "#4b5563",
+      "editor.lineHighlightBackground": "#f7f7f8",
+      "editorLineNumber.foreground": "#5b616e",
+      "editorLineNumber.activeForeground": "#4b5563",
+      "editorCursor.foreground": "#0052ff",
+      "editor.selectionBackground": "#0052ff22",
+      "editor.inactiveSelectionBackground": "#0052ff11",
+      "editorWidget.background": "#ffffff",
+      "editorWidget.border": "#d1d5db",
+      "editorSuggestWidget.background": "#ffffff",
+      "editorSuggestWidget.border": "#d1d5db",
+      "editorSuggestWidget.selectedBackground": "#f0f1f3",
+      "editorGutter.background": "#ffffff",
+      "editorOverviewRuler.background": "#ffffff",
+      "scrollbarSlider.background": "#b9bdc780",
+      "scrollbarSlider.hoverBackground": "#5b616e80",
+      "scrollbarSlider.activeBackground": "#5b616e",
+    },
+  });
 };
 
 // --- Loading skeleton ---
 
 function EditorSkeleton({ height }: { height: string }) {
   return (
-    <div className="bg-[#0a0b0d] animate-pulse" style={{ height }} />
+    <div className="bg-o-bg animate-pulse" style={{ height }} />
   );
 }
 
@@ -115,6 +154,9 @@ export default function CodeEditor({
   height = "400px",
   readOnly = false,
 }: CodeEditorProps) {
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = resolvedTheme === "dark" ? DARK_THEME : LIGHT_THEME;
+
   // On mount: hide the internal textarea (belt-and-suspenders for CSP/cascade
   // issues) and remeasure fonts once web fonts finish loading.
   const handleMount: OnMount = useCallback((editor, monaco) => {
@@ -145,7 +187,7 @@ export default function CodeEditor({
       language={language}
       value={value}
       onChange={(v) => onChange(v ?? "")}
-      theme={OURO_THEME_NAME}
+      theme={monacoTheme}
       beforeMount={handleBeforeMount}
       onMount={handleMount}
       loading={<EditorSkeleton height={height} />}

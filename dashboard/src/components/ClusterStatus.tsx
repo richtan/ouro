@@ -34,7 +34,7 @@ export default function ClusterStatus() {
   if (!jobs) {
     return (
       <div className="card animate-pulse">
-        <div className="h-40 bg-ouro-border/30 rounded" />
+        <div className="h-40 bg-o-border/30 rounded" />
       </div>
     );
   }
@@ -52,15 +52,15 @@ export default function ClusterStatus() {
 
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="text-center">
-          <div className="stat-value text-ouro-green">{active}</div>
+          <div className="stat-value text-o-green">{active}</div>
           <div className="stat-label">Active</div>
         </div>
         <div className="text-center">
-          <div className="stat-value text-ouro-text">{completed}</div>
+          <div className="stat-value text-o-text">{completed}</div>
           <div className="stat-label">Completed</div>
         </div>
         <div className="text-center">
-          <div className="stat-value text-ouro-accent">{formatDuration(avgDuration)}</div>
+          <div className="stat-value text-o-blueText">{formatDuration(avgDuration)}</div>
           <div className="stat-label">Avg Time</div>
         </div>
       </div>
@@ -76,13 +76,13 @@ export default function ClusterStatus() {
           .map((j) => (
             <div
               key={j.id}
-              className="flex items-center justify-between text-xs bg-black/20 rounded px-2.5 py-1.5 border border-ouro-border/30"
+              className="flex items-center justify-between text-xs bg-o-bg rounded px-2.5 py-1.5 border border-o-border/30"
             >
-              <span className={`font-mono ${j._active ? "text-ouro-accent" : "text-ouro-muted"}`}>{j.id.slice(0, 8)}</span>
-              <span className={`uppercase text-[10px] tracking-wider ${j._active ? "text-ouro-amber" : "text-ouro-green"}`}>
+              <span className={`font-mono ${j._active ? "text-o-blueText" : "text-o-muted"}`}>{j.id.slice(0, 8)}</span>
+              <span className={`uppercase text-xs tracking-wider ${j._active ? "text-o-amber" : "text-o-green"}`}>
                 {j.status}
               </span>
-              <span className="font-mono text-ouro-muted">${j.price_usdc.toFixed(4)}</span>
+              <span className="font-mono text-o-muted">${j.price_usdc.toFixed(4)}</span>
             </div>
           ))}
       </div>

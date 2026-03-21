@@ -4,6 +4,7 @@ import { GeistMono } from "geist/font/mono";
 import { headers } from "next/headers";
 import { cookieToInitialState } from "wagmi";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import Web3Provider, { config } from "@/components/Web3Provider";
 import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
@@ -26,19 +27,24 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${GeistSans.variable} ${GeistMono.variable}`}
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
     >
       <head>
+        <meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#0a0b0d" media="(prefers-color-scheme: dark)" />
         <meta name="base:app_id" content="6997ee68820ae5633e55081a" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <script defer src="https://cloud.umami.is/script.js" data-website-id="826fdfb6-e1bd-4add-a26e-b6c65131e14d"></script>
       </head>
       <body className="min-h-screen antialiased font-sans flex flex-col">
-        <Web3Provider initialState={initialState}>
-          <NavBar />
-          {children}
-          <Footer />
-        </Web3Provider>
+        <ThemeProvider>
+          <Web3Provider initialState={initialState}>
+            <NavBar />
+            {children}
+            <Footer />
+          </Web3Provider>
+        </ThemeProvider>
       </body>
     </html>
   );

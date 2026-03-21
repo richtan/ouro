@@ -1,25 +1,26 @@
 import type { Config } from "tailwindcss";
 
 export default {
+  darkMode: "class",
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
         o: {
-          bg: "#0a0b0d",
-          surface: "#111316",
-          surfaceHover: "#191b1f",
-          border: "#1e2025",
-          borderHover: "#32353d",
-          blue: "#0052ff",
-          blueHover: "#0045d6",
-          blueText: "#4C8FFF",
-          text: "#f5f5f5",
-          textSecondary: "#8a919e",
-          muted: "#5b616e",
-          green: "#22c55e",
-          red: "#ef4444",
-          amber: "#eab308",
+          bg: "rgb(var(--o-bg) / <alpha-value>)",
+          surface: "rgb(var(--o-surface) / <alpha-value>)",
+          surfaceHover: "rgb(var(--o-surfaceHover) / <alpha-value>)",
+          border: "rgb(var(--o-border) / <alpha-value>)",
+          borderHover: "rgb(var(--o-borderHover) / <alpha-value>)",
+          blue: "rgb(var(--o-blue) / <alpha-value>)",
+          blueHover: "rgb(var(--o-blueHover) / <alpha-value>)",
+          blueText: "rgb(var(--o-blueText) / <alpha-value>)",
+          text: "rgb(var(--o-text) / <alpha-value>)",
+          textSecondary: "rgb(var(--o-textSecondary) / <alpha-value>)",
+          muted: "rgb(var(--o-muted) / <alpha-value>)",
+          green: "rgb(var(--o-green) / <alpha-value>)",
+          red: "rgb(var(--o-red) / <alpha-value>)",
+          amber: "rgb(var(--o-amber) / <alpha-value>)",
         },
       },
       fontFamily: {

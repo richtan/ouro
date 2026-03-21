@@ -248,9 +248,9 @@ function McpInstallCard() {
     <div className="bg-o-surface border border-o-border rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-o-border">
         <div className="flex gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
-          <span className="w-2.5 h-2.5 rounded-full bg-o-border" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-red/80" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-amber/80" />
+          <span className="w-2.5 h-2.5 rounded-full bg-o-green/80" />
         </div>
         <div className="flex gap-3 ml-2">
           <button

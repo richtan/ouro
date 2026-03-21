@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import CodeEditor, { getLanguageForFile } from "./CodeEditor";
+import { getExtColor as getSharedExtColor, DARK_DOCKERFILE_COLOR, LIGHT_DOCKERFILE_COLOR } from "@/components/FileTreeIcons";
 import type { WorkspaceFile } from "@/lib/types";
 
 interface FileExplorerProps {
@@ -66,47 +68,23 @@ function buildTree(files: WorkspaceFile[]): TreeNode[] {
 
 /* ──────────────────────── file icons ─────────────────────── */
 
-const EXT_COLORS: Record<string, string> = {
-  ".py": "#3572A5",
-  ".js": "#f1e05a",
-  ".mjs": "#f1e05a",
-  ".ts": "#3178c6",
-  ".tsx": "#3178c6",
-  ".jsx": "#f1e05a",
-  ".sh": "#89e051",
-  ".bash": "#89e051",
-  ".json": "#f59e0b",
-  ".yaml": "#cb171e",
-  ".yml": "#cb171e",
-  ".toml": "#9c4221",
-  ".md": "#083fa1",
-  ".r": "#198CE7",
-  ".R": "#198CE7",
-};
-
-function getExtColor(name: string): string {
-  const dot = name.lastIndexOf(".");
-  if (dot >= 0) {
-    const ext = name.slice(dot);
-    if (EXT_COLORS[ext]) return EXT_COLORS[ext];
-  }
-  return "#64748b";
-}
-
 function FileIcon({ name }: { name: string }) {
-  // Dockerfile gets a distinct container/whale-inspired icon
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
   if (name.toLowerCase() === "dockerfile") {
+    const dockerColor = isDark ? DARK_DOCKERFILE_COLOR : LIGHT_DOCKERFILE_COLOR;
     return (
       <svg width="14" height="14" viewBox="0 0 16 16" className="flex-shrink-0">
-        <rect x="2" y="6" width="12" height="8" rx="1" fill="none" stroke="#0db7ed" strokeWidth="1.2" />
-        <rect x="4" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
-        <rect x="7" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
-        <rect x="10" y="3" width="2" height="3" rx="0.3" fill="#0db7ed" opacity="0.6" />
+        <rect x="2" y="6" width="12" height="8" rx="1" fill="none" stroke={dockerColor} strokeWidth="1.2" />
+        <rect x="4" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
+        <rect x="7" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
+        <rect x="10" y="3" width="2" height="3" rx="0.3" fill={dockerColor} opacity="0.6" />
       </svg>
     );
   }
 
-  const color = getExtColor(name);
+  const color = getSharedExtColor(name, isDark);
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" className="flex-shrink-0">
       <path

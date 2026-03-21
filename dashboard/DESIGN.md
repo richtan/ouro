@@ -16,52 +16,60 @@ The dashboard should feel like it belongs in the Base ecosystem: premium, trustw
 
 ---
 
+## Theme Modes
+
+The dashboard supports **light** and **dark** modes. Light mode is the default. Users toggle via the sun/moon button in the NavBar.
+
+Theme switching uses `next-themes` with `attribute="class"`. All `o-*` color tokens are CSS custom properties (RGB channels) defined in `globals.css` under `:root` (light) and `.dark` (dark). Tailwind references them as `rgb(var(--o-*) / <alpha-value>)`, preserving opacity modifier support (`bg-o-blue/10`).
+
+Components that use `o-*` Tailwind tokens **automatically adapt** to the current theme. Only components with hardcoded hex values (Monaco editor, RainbowKit, file icons) need explicit theme logic via `useTheme()`.
+
 ## Color Palette
 
-All colors are defined as Tailwind tokens under the `o` namespace in `tailwind.config.ts`.
+All colors are CSS variables defined in `globals.css`, referenced as Tailwind tokens under the `o` namespace in `tailwind.config.ts`.
 
 ### Backgrounds
 
-| Token | Hex | Usage |
-|---|---|---|
-| `bg-o-bg` | `#0a0b0d` | Page background (Base Gray 100) |
-| `bg-o-surface` | `#111316` | Card and panel surfaces |
-| `bg-o-surfaceHover` | `#191b1f` | Hover state for interactive surfaces |
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `bg-o-bg` | `#f7f7f8` | `#0a0b0d` | Page background |
+| `bg-o-surface` | `#ffffff` | `#111316` | Card and panel surfaces |
+| `bg-o-surfaceHover` | `#f0f1f3` | `#191b1f` | Hover state for interactive surfaces |
 
 ### Borders
 
-| Token | Hex | Usage |
-|---|---|---|
-| `border-o-border` | `#1e2025` | Default borders on cards, inputs, dividers |
-| `border-o-borderHover` | `#32353d` | Focus/hover borders (Base Gray 80) |
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `border-o-border` | `#e2e4e9` | `#1e2025` | Default borders on cards, inputs, dividers |
+| `border-o-borderHover` | `#c8cbd2` | `#32353d` | Focus/hover borders |
 
 ### Blues (Primary Accent)
 
-| Token | Hex | Usage |
-|---|---|---|
-| `bg-o-blue` | `#0052ff` | Primary button fills, key indicators |
-| `bg-o-blueHover` | `#0045d6` | Button hover/press state |
-| `text-o-blueText` | `#4C8FFF` | Links, highlighted text, active nav items. Passes AA contrast on `#0a0b0d` (~6:1) |
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `bg-o-blue` | `#0052ff` | `#0052ff` | Primary button fills, key indicators (same both modes) |
+| `bg-o-blueHover` | `#0045d6` | `#0045d6` | Button hover/press state (same both modes) |
+| `text-o-blueText` | `#0052ff` | `#4C8FFF` | Links, highlighted text, active nav items. AA compliant in both modes |
 
 For muted blue backgrounds, use opacity modifiers: `bg-o-blue/10`, `bg-o-blue/20`, etc. Do NOT create separate muted tokens.
 
 ### Text
 
-| Token | Hex | Usage |
-|---|---|---|
-| `text-o-text` | `#f5f5f5` | Primary text (headings, values, body) |
-| `text-o-textSecondary` | `#8a919e` | Labels, descriptions, secondary info |
-| `text-o-muted` | `#5b616e` | Timestamps, disabled text, scale markers (Base Gray 60) |
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `text-o-text` | `#111316` | `#f5f5f5` | Primary text (headings, values, body) |
+| `text-o-textSecondary` | `#5b616e` | `#8a919e` | Labels, descriptions, secondary info |
+| `text-o-muted` | `#6b7280` | `#5b616e` | Timestamps, disabled text, scale markers |
 
 ### Semantic Colors
 
-| Token | Hex | Usage |
-|---|---|---|
-| `text-o-green` / `bg-o-green` | `#22c55e` | Success, completed, positive values |
-| `text-o-red` / `bg-o-red` | `#ef4444` | Error, failed, negative values |
-| `text-o-amber` / `bg-o-amber` | `#eab308` | Warning, pending, caution |
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `text-o-green` / `bg-o-green` | `#15803d` | `#22c55e` | Success, completed, positive values |
+| `text-o-red` / `bg-o-red` | `#b91c1c` | `#ef4444` | Error, failed, negative values |
+| `text-o-amber` / `bg-o-amber` | `#b45309` | `#eab308` | Warning, pending, caution |
 
-Muted semantic backgrounds use opacity: `bg-o-green/10`, `bg-o-red/10`, `bg-o-amber/10`.
+Light semantic colors are darker variants to maintain WCAG AA contrast on white backgrounds. Muted semantic backgrounds use opacity: `bg-o-green/10`, `bg-o-red/10`, `bg-o-amber/10`.
 
 ---
 
@@ -397,22 +405,22 @@ Code blocks in docs use **Shiki** (the VS Code TextMate grammar engine) with CSS
 
 ### CSS Variable Theme
 
-Defined in `globals.css` under `:root`. All map to existing `o-*` design tokens:
+Defined in `globals.css` under `:root` (light) and `.dark` (dark). All map to `o-*` design tokens:
 
-| Variable | Value | Maps To |
-|---|---|---|
-| `--shiki-foreground` | `#8a919e` | `o-textSecondary` — default code text |
-| `--shiki-background` | `transparent` | CodeBlock card handles bg |
-| `--shiki-token-keyword` | `#c084fc` | Purple — keywords (`import`, `const`, `def`, etc.) |
-| `--shiki-token-constant` | `#eab308` | `o-amber` — constants, booleans, numbers |
-| `--shiki-token-string` | `#22c55e` | `o-green` — string literals |
-| `--shiki-token-comment` | `#5b616e` | `o-muted` — comments |
-| `--shiki-token-function` | `#f5f5f5` | `o-text` — function calls |
-| `--shiki-token-parameter` | `#8a919e` | `o-textSecondary` — parameters |
-| `--shiki-token-punctuation` | `#5b616e` | `o-muted` — punctuation |
-| `--shiki-token-link` | `#4C8FFF` | `o-blueText` — URLs |
+| Variable | Light | Dark | Purpose |
+|---|---|---|---|
+| `--shiki-foreground` | `#5b616e` | `#8a919e` | Default code text |
+| `--shiki-background` | `transparent` | `transparent` | CodeBlock card handles bg |
+| `--shiki-token-keyword` | `#7c3aed` | `#c084fc` | Purple — keywords |
+| `--shiki-token-constant` | `#b45309` | `#eab308` | Amber — constants, numbers |
+| `--shiki-token-string` | `#15803d` | `#22c55e` | Green — string literals |
+| `--shiki-token-comment` | `#6b7280` | `#5b616e` | Muted — comments |
+| `--shiki-token-function` | `#111316` | `#f5f5f5` | Primary text — function calls |
+| `--shiki-token-parameter` | `#5b616e` | `#8a919e` | Secondary — parameters |
+| `--shiki-token-punctuation` | `#6b7280` | `#5b616e` | Muted — punctuation |
+| `--shiki-token-link` | `#0052ff` | `#4C8FFF` | Blue — URLs |
 
-To customize highlighting colors, update the CSS variables — no Shiki theme file changes needed.
+Both light and dark syntax colors are AA-compliant on their respective backgrounds. To customize highlighting colors, update the CSS variables — no Shiki theme file changes needed.
 
 ---
 
